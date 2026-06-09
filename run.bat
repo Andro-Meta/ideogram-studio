@@ -6,7 +6,7 @@ echo   Ideogram 4.0 Local Studio
 echo ================================================================
 echo.
 
-:: ── Pre-flight: HF_TOKEN check ───────────────────────────────────
+:: ?? Pre-flight: HF_TOKEN check ???????????????????????????????????
 set _HF_TOKEN_VAL=
 if exist .env (
     for /f "tokens=1,* delims==" %%a in ('findstr /b "HF_TOKEN=" .env 2^>nul') do set _HF_TOKEN_VAL=%%b
