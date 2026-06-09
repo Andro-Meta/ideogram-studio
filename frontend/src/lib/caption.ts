@@ -66,14 +66,22 @@ export const PRESET_LABELS: Record<string, { name: string; steps: string; time: 
   V4_QUALITY_48: { name: "Quality", steps: "48 steps", time: "~60s" },
 }
 
+// All dimensions are exact-ratio multiples of 16, within the 256–2048 model constraint.
+// Ideogram 4 supports any resolution 256–2048 (multiples of 16), aspect ratio ≤ 6:1.
 export const ASPECT_RATIO_PRESETS = [
-  { label: "1:1",   width: 1024, height: 1024 },
-  { label: "4:3",   width: 1024, height: 768  },
-  { label: "3:4",   width: 768,  height: 1024 },
-  { label: "16:9",  width: 1280, height: 720  },
-  { label: "9:16",  width: 720,  height: 1280 },
-  { label: "21:9",  width: 1512, height: 648  },
-  { label: "3:2",   width: 1024, height: 688  },
+  // ── Landscape ────────────────────────────────────────────────────────────────
+  { label: "21:9",  width: 1512, height: 648,  group: "landscape" as const },  // 1512 / 648  = 2.333 = 7/3 ✓
+  { label: "16:9",  width: 1280, height: 720,  group: "landscape" as const },  // 1280 / 720  = 1.778 = 16/9 ✓
+  { label: "3:2",   width: 1152, height: 768,  group: "landscape" as const },  // 1152 / 768  = 1.5   = 3/2 ✓
+  { label: "4:3",   width: 1024, height: 768,  group: "landscape" as const },  // 1024 / 768  = 1.333 = 4/3 ✓
+  { label: "5:4",   width: 1280, height: 1024, group: "landscape" as const },  // 1280 / 1024 = 1.25  = 5/4 ✓
+  // ── Square ───────────────────────────────────────────────────────────────────
+  { label: "1:1",   width: 1024, height: 1024, group: "square"    as const },
+  // ── Portrait ─────────────────────────────────────────────────────────────────
+  { label: "4:5",   width: 1024, height: 1280, group: "portrait"  as const },  // 1024 / 1280 = 0.8   = 4/5 ✓
+  { label: "3:4",   width: 768,  height: 1024, group: "portrait"  as const },  // 768  / 1024 = 0.75  = 3/4 ✓
+  { label: "2:3",   width: 768,  height: 1152, group: "portrait"  as const },  // 768  / 1152 = 0.667 = 2/3 ✓
+  { label: "9:16",  width: 720,  height: 1280, group: "portrait"  as const },  // 720  / 1280 = 0.5625 = 9/16 ✓
 ]
 
 export const ELEMENT_COLORS = [
