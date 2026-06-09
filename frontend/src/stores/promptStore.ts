@@ -38,7 +38,6 @@ export const usePromptStore = create<PromptStore>((set, get) => ({
 
   addElement: (type) =>
     set((s) => {
-      const idx = s.elements.length
       const newEl: AnyElement =
         type === "text"
           ? { id: newId(), type: "text", text: "", desc: "", color_palette: [] }

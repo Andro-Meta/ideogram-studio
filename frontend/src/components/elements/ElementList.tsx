@@ -1,7 +1,6 @@
 import { usePromptStore } from "@/stores/promptStore"
 import { ElementCard } from "./ElementCard"
 import { AddElementMenu } from "./AddElementMenu"
-import { cn } from "@/lib/utils"
 
 interface Props {
   focusedElementId?: string | null

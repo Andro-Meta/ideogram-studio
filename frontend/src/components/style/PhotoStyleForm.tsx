@@ -1,5 +1,4 @@
 import { Label } from "@/components/ui/label"
-import { Textarea } from "@/components/ui/textarea"
 import { Input } from "@/components/ui/input"
 import { PaletteEditor } from "@/components/palette/PaletteEditor"
 import { usePromptStore } from "@/stores/promptStore"

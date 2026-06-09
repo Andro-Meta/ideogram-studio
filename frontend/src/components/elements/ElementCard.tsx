@@ -1,6 +1,5 @@
 import { useState } from "react"
 import { Trash2, ChevronDown, ChevronUp, MapPin, MapPinOff } from "lucide-react"
-import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"

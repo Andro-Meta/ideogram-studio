@@ -9,7 +9,6 @@ import json
 import os
 import time
 import threading
-import uuid
 import webbrowser
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
@@ -19,8 +18,6 @@ import aiosqlite
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
-from fastapi.staticfiles import StaticFiles
-from PIL import Image
 
 import gallery as gallery_service
 from caption import build_caption, parse_caption_json
@@ -195,7 +192,11 @@ async def gallery_delete(request: Request, job_id: str):
 
 @app.get("/outputs/{filename}")
 async def serve_output(filename: str):
-    path = OUTPUTS_DIR / filename
+    # Prevent path traversal: strip directory components and resolve
+    safe_name = Path(filename).name
+    path = (OUTPUTS_DIR / safe_name).resolve()
+    if not path.is_relative_to(OUTPUTS_DIR.resolve()):
+        raise HTTPException(403, "Access denied")
     if not path.exists():
         raise HTTPException(404, "Image not found")
     return FileResponse(str(path), media_type="image/png")
@@ -404,15 +405,17 @@ async def generation_ws(websocket: WebSocket, job_id: str):
                 await gallery_service.fail_job(db, job_id, msg["message"])
                 break
     except WebSocketDisconnect:
-        pass
+        pass  # Client disconnected mid-generation — generation thread continues but we stop forwarding
 
 
 # ── SPA catch-all — MUST be last ──────────────────────────────────────────────
 
 @app.get("/{full_path:path}")
 async def serve_spa(full_path: str):
-    candidate = DIST_DIR / full_path
-    if candidate.is_file():
+    # Prevent path traversal: resolve and verify path stays within DIST_DIR
+    dist_root = DIST_DIR.resolve()
+    candidate = (DIST_DIR / full_path).resolve()
+    if candidate.is_file() and candidate.is_relative_to(dist_root):
         return FileResponse(str(candidate))
     index = DIST_DIR / "index.html"
     if index.exists():

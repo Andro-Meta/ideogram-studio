@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import os
 import random
-import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Callable
@@ -298,5 +297,5 @@ class PipelineManager:
             if torch.cuda.is_available():
                 return torch.cuda.memory_allocated() // (1024 * 1024)
         except Exception:
-            pass
+            pass  # torch not available or CUDA not accessible — return None gracefully
         return None
