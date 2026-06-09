@@ -4,7 +4,7 @@
 # PyTorch (CUDA 12.4 — adjust index URL if your driver needs a different version)
 # If torch is already installed for your GPU, skip this line and remove --index-url
 # from install.bat.
-torch>=2.11
+torch>=2.12.0
 
 # Ideogram 4 official inference package (fp8 + nf4 support)
 # Installed from source in install.bat: pip install git+https://github.com/ideogram-oss/ideogram4.git
