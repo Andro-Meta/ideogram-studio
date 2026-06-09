@@ -83,9 +83,11 @@ if not "!_CURRENT_IDEOGRAM!"=="" goto :ideogram_already_set
 echo Step 2 of 2: Ideogram API Key (optional - enables Magic Prompt)
 echo.
 echo   Magic Prompt rewrites your prompt into Ideogram's structured format
-echo   automatically. It's free. Opening signup page...
+echo   automatically. Free to use. Opening your Ideogram API page...
+echo   Log in (or create a free account), then navigate to API settings
+echo   to generate a key.
 echo.
-start https://developer.ideogram.ai
+start https://ideogram.ai/api?intent=api^&source=api-doc
 echo.
 echo   Paste your key below, or press Enter to skip.
 echo   (You can add it later in the Settings tab inside the app)
