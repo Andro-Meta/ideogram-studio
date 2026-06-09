@@ -7,7 +7,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
 import { useSettings, useUpdateSettings } from "@/hooks/useSettings"
-import { useModelStatus, useLoadModel } from "@/hooks/useModelStatus"
+import { useModelStatus, useLoadModel, useUnloadModel } from "@/hooks/useModelStatus"
+import { useSystemInfo } from "@/hooks/useSystemInfo"
 import { useSettingsStore } from "@/stores/settingsStore"
 import type { SettingsUpdateRequest } from "@/types/api"
 
@@ -53,8 +54,10 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
 export function Settings() {
   const { data: serverSettings, isLoading } = useSettings()
   const { data: modelStatus } = useModelStatus()
+  const { data: sysInfo } = useSystemInfo()
   const updateMutation = useUpdateSettings()
   const loadModelMutation = useLoadModel()
+  const unloadModelMutation = useUnloadModel()
   const { modelVariant } = useSettingsStore()
 
   const [hfToken, setHfToken] = useState("")
@@ -122,9 +125,9 @@ export function Settings() {
                   Get token <ExternalLink className="h-3 w-3" />
                 </a>
                 {" "}· Accept license at{" "}
-                <a href="https://huggingface.co/ideogram-ai/ideogram-4-fp8" target="_blank" rel="noreferrer"
+                <a href="https://huggingface.co/ideogram-ai/ideogram-4-nf4" target="_blank" rel="noreferrer"
                    className="text-violet-400 hover:text-violet-300 inline-flex items-center gap-0.5">
-                  ideogram-ai/ideogram-4-fp8 <ExternalLink className="h-3 w-3" />
+                  ideogram-ai/ideogram-4-nf4 <ExternalLink className="h-3 w-3" />
                 </a>
               </p>
             </div>
@@ -212,6 +215,44 @@ export function Settings() {
           </div>
         </div>
 
+        {/* ── Hardware ── */}
+        {sysInfo && (
+          <div className="space-y-3">
+            <SectionTitle>Hardware</SectionTitle>
+            <div className="rounded-xl border border-zinc-700 bg-zinc-800/40 p-4 space-y-2 text-sm">
+              <div className="flex items-center justify-between">
+                <span className="text-zinc-400">GPU</span>
+                <span className="text-zinc-300">
+                  {sysInfo.gpu_name ?? "No CUDA GPU detected"}
+                  {sysInfo.vram_total_gb != null && ` · ${sysInfo.vram_total_gb} GB VRAM`}
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-zinc-400">System RAM</span>
+                <span className="text-zinc-300">
+                  {sysInfo.ram_total_gb != null ? `${sysInfo.ram_total_gb} GB` : "—"}
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-zinc-400">Free disk (models drive)</span>
+                <span className="text-zinc-300">
+                  {sysInfo.disk_free_gb != null ? `${sysInfo.disk_free_gb} GB` : "—"}
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-zinc-400">Recommended variant</span>
+                <Badge className="bg-emerald-500/20 text-emerald-300 border-emerald-500/40 text-[10px] font-mono">
+                  {sysInfo.recommended_variant.toUpperCase()}
+                </Badge>
+              </div>
+              <p className="text-[11px] text-zinc-500 pt-1">
+                Model weights are stored next to the app ({sysInfo.models_dir}) — not on the
+                system drive — and every load is checked against your hardware first.
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* ── Model Status ── */}
         <div className="space-y-3">
           <SectionTitle>Model</SectionTitle>
@@ -220,15 +261,34 @@ export function Settings() {
               <span className="text-zinc-400">Status</span>
               <span className={cn(
                 "font-medium capitalize flex items-center gap-1.5",
-                modelStatus?.status === "ready"   ? "text-emerald-400" :
-                modelStatus?.status === "loading" ? "text-amber-400" :
-                modelStatus?.status === "error"   ? "text-red-400" :
+                modelStatus?.status === "ready"       ? "text-emerald-400" :
+                modelStatus?.status === "loading"     ? "text-amber-400" :
+                modelStatus?.status === "downloading" ? "text-sky-400" :
+                modelStatus?.status === "error"       ? "text-red-400" :
                 "text-zinc-500"
               )}>
-                {modelStatus?.status === "loading" && <Loader2 className="h-3 w-3 animate-spin" />}
+                {(modelStatus?.status === "loading" || modelStatus?.status === "downloading") &&
+                  <Loader2 className="h-3 w-3 animate-spin" />}
                 {modelStatus?.status ?? "—"}
               </span>
             </div>
+            {modelStatus?.status === "downloading" && (
+              <div className="space-y-1.5">
+                <div className="h-1.5 rounded-full bg-zinc-700 overflow-hidden">
+                  <div
+                    className="h-full rounded-full bg-sky-500 transition-all"
+                    style={{ width: `${modelStatus.download_pct ?? 5}%` }}
+                  />
+                </div>
+                <p className="text-[11px] text-sky-400/80">
+                  {modelStatus.progress_message ?? "Downloading model weights…"}
+                  {modelStatus.download_pct != null && ` (${modelStatus.download_pct}%)`}
+                </p>
+              </div>
+            )}
+            {modelStatus?.status === "loading" && modelStatus.progress_message && (
+              <p className="text-[11px] text-amber-400/80">{modelStatus.progress_message}</p>
+            )}
             {modelStatus?.variant && (
               <div className="flex items-center justify-between text-sm">
                 <span className="text-zinc-400">Loaded variant</span>
@@ -250,7 +310,7 @@ export function Settings() {
                   size="sm"
                   className="flex-1 bg-violet-600 hover:bg-violet-500 text-white text-xs h-8 gap-1.5"
                   disabled={loadModelMutation.isPending}
-                  onClick={() => loadModelMutation.mutate(modelVariant)}
+                  onClick={() => loadModelMutation.mutate({ variant: modelVariant })}
                 >
                   {loadModelMutation.isPending
                     ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -263,19 +323,19 @@ export function Settings() {
                   size="sm"
                   variant="outline"
                   className="flex-1 border-zinc-700 bg-zinc-800 hover:bg-red-500/10 hover:border-red-500/50 hover:text-red-400 text-zinc-400 text-xs h-8 gap-1.5"
-                  onClick={async () => {
-                    await fetch("/api/model/unload", { method: "POST" })
-                    window.location.reload()
-                  }}
+                  disabled={unloadModelMutation.isPending}
+                  onClick={() => unloadModelMutation.mutate()}
                 >
-                  <PowerOff className="h-3.5 w-3.5" />
+                  {unloadModelMutation.isPending
+                    ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    : <PowerOff className="h-3.5 w-3.5" />}
                   Unload
                 </Button>
               )}
               {modelStatus?.status === "loading" && (
                 <p className="text-[11px] text-amber-400/80 flex items-center gap-1">
                   <Loader2 className="h-3 w-3 animate-spin" />
-                  Loading model — this takes 20–40s on first run
+                  Loading weights into GPU memory — 20–40s
                 </p>
               )}
             </div>
@@ -288,7 +348,7 @@ export function Settings() {
           <div className="rounded-xl border border-zinc-700 bg-zinc-800/40 p-4 space-y-2 text-sm text-zinc-500">
             <p>Ideogram Studio — local inference frontend for Ideogram 4.0</p>
             <p>Model: 9.3B parameter single-stream DiT with Qwen3-VL-8B text encoder</p>
-            <p className="text-[11px]">Weights: ideogram-ai/ideogram-4-fp8 · CalamitousFelicitousness/Ideogram-4-bf16-Diffusers</p>
+            <p className="text-[11px]">Weights: ideogram-ai/ideogram-4-nf4 · ideogram-ai/ideogram-4-fp8 · CalamitousFelicitousness/Ideogram-4-bf16-Diffusers</p>
           </div>
         </div>
 

@@ -1,15 +1,20 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { ImageOff, Loader2 } from "lucide-react"
 import { GalleryCard } from "./GalleryCard"
 import { GalleryDetail } from "./GalleryDetail"
 import { useGallery, useDeleteGalleryItem } from "@/hooks/useGallery"
 import { Button } from "@/components/ui/button"
 
-export function GalleryGrid() {
+export function GalleryGrid({ search = "" }: { search?: string }) {
   const [page, setPage] = useState(1)
   const [selectedId, setSelectedId] = useState<string | null>(null)
-  const { data, isLoading, isError } = useGallery(page)
+  const { data, isLoading, isError } = useGallery(page, search)
   const deleteMutation = useDeleteGalleryItem()
+
+  // A new search always starts from page 1
+  useEffect(() => {
+    setPage(1)
+  }, [search])
 
   const PER_PAGE = 24
   const total = data?.total ?? 0
@@ -35,9 +40,11 @@ export function GalleryGrid() {
 
   if (items.length === 0) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center gap-3 text-zinc-600">
+      <div className="flex-1 flex flex-col items-center justify-center gap-3 text-zinc-600 py-24">
         <ImageOff className="h-10 w-10" />
-        <p className="text-sm">No images yet — generate your first!</p>
+        <p className="text-sm">
+          {search ? `No images match "${search}"` : "No images yet — generate your first!"}
+        </p>
       </div>
     )
   }

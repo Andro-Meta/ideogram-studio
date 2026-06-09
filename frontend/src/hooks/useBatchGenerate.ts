@@ -1,4 +1,5 @@
 import { useCallback, useRef, useState } from "react"
+import { toast } from "sonner"
 import { buildWsUrl } from "@/lib/ws"
 import type { GenerationRequest } from "@/types/api"
 
@@ -10,20 +11,38 @@ export interface VariationResult {
 
 interface BatchState {
   results: VariationResult[]
+  failures: number
   isRunning: boolean
   current: number   // 1-based index of generation in progress
   total: number
 }
 
-async function generateOne(req: GenerationRequest, wsRef: { current: WebSocket | null }): Promise<VariationResult> {
+/** Generous ceiling per variation — 2k V4_QUALITY_48 renders take minutes,
+ *  but nothing legitimate takes this long once the model is loaded. */
+const VARIATION_TIMEOUT_MS = 15 * 60_000
+
+function generateOne(
+  req: GenerationRequest,
+  sockets: Set<WebSocket>,
+): Promise<VariationResult> {
   return new Promise((resolve, reject) => {
     const jobId = crypto.randomUUID()
     const ws = new WebSocket(buildWsUrl(`/ws/${jobId}`))
-    wsRef.current = ws
+    sockets.add(ws)
 
     let settled = false
-    const settle = <T>(fn: (v: T) => void, val: T) => {
-      if (!settled) { settled = true; fn(val) }
+    const timeout = setTimeout(() => {
+      settle(reject, new Error("Variation timed out"))
+      ws.close()
+    }, VARIATION_TIMEOUT_MS)
+
+    const settle = <T,>(fn: (v: T) => void, val: T) => {
+      if (!settled) {
+        settled = true
+        clearTimeout(timeout)
+        sockets.delete(ws)
+        fn(val)
+      }
     }
 
     ws.onopen = () => ws.send(JSON.stringify(req))
@@ -31,13 +50,19 @@ async function generateOne(req: GenerationRequest, wsRef: { current: WebSocket |
       try {
         const msg = JSON.parse(ev.data)
         if (msg.type === "done") {
-          settle(resolve, { seed: msg.seed as number, imageUrl: msg.image_url as string, durationMs: msg.duration_ms as number })
+          settle(resolve, {
+            seed: msg.seed as number,
+            imageUrl: msg.image_url as string,
+            durationMs: msg.duration_ms as number,
+          })
           ws.close(1000)
         } else if (msg.type === "error") {
           settle(reject, new Error(msg.message as string))
           ws.close()
         }
-      } catch { /* ignore parse errors */ }
+      } catch (err) {
+        console.error("Malformed WS message:", err)
+      }
     }
     ws.onerror = () => settle(reject, new Error("WebSocket error"))
     ws.onclose = (ev) => {
@@ -49,17 +74,19 @@ async function generateOne(req: GenerationRequest, wsRef: { current: WebSocket |
 export function useBatchGenerate() {
   const [state, setState] = useState<BatchState>({
     results: [],
+    failures: 0,
     isRunning: false,
     current: 0,
     total: 0,
   })
 
   const cancelledRef = useRef(false)
-  const wsRef = useRef<WebSocket | null>(null)
+  // Track every open socket (not just the last one) so cancel closes them all.
+  const socketsRef = useRef<Set<WebSocket>>(new Set())
 
   const run = useCallback(async (baseReq: GenerationRequest, count: number) => {
     cancelledRef.current = false
-    setState({ results: [], isRunning: true, current: 0, total: count })
+    setState({ results: [], failures: 0, isRunning: true, current: 0, total: count })
 
     for (let i = 0; i < count; i++) {
       if (cancelledRef.current) break
@@ -67,13 +94,15 @@ export function useBatchGenerate() {
 
       const seed = Math.floor(Math.random() * 2 ** 32)
       try {
-        const result = await generateOne({ ...baseReq, seed }, wsRef)
+        const result = await generateOne({ ...baseReq, seed }, socketsRef.current)
         if (!cancelledRef.current) {
           setState((s) => ({ ...s, results: [...s.results, result] }))
         }
       } catch (err) {
         if (!cancelledRef.current) {
-          console.warn(`Variation ${i + 1}/${count} failed:`, err)
+          const msg = err instanceof Error ? err.message : String(err)
+          toast.error(`Variation ${i + 1}/${count} failed: ${msg}`)
+          setState((s) => ({ ...s, failures: s.failures + 1 }))
           // Continue with remaining variations — don't abort the batch
         }
       }
@@ -85,15 +114,15 @@ export function useBatchGenerate() {
 
   const cancel = useCallback(() => {
     cancelledRef.current = true
-    if (wsRef.current) {
-      wsRef.current.close(1000)
-      wsRef.current = null
+    for (const ws of socketsRef.current) {
+      try { ws.close(1000) } catch { /* already closed */ }
     }
+    socketsRef.current.clear()
     setState((s) => ({ ...s, isRunning: false, current: 0 }))
   }, [])
 
   const clear = useCallback(() => {
-    setState({ results: [], isRunning: false, current: 0, total: 0 })
+    setState({ results: [], failures: 0, isRunning: false, current: 0, total: 0 })
   }, [])
 
   return { run, cancel, clear, ...state }

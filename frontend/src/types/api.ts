@@ -30,10 +30,42 @@ export type WsMessage =
   | { type: "error";    message: string }
 
 export interface ModelStatusResponse {
-  status: "unloaded" | "loading" | "ready" | "error"
+  status: "unloaded" | "downloading" | "loading" | "ready" | "error"
   variant: ModelVariant | null
   vram_used_mb: number | null
   error: string | null
+  progress_message: string | null
+  download_pct: number | null
+}
+
+// ── System / hardware report ─────────────────────────────────────────────────
+
+export interface VariantRequirements {
+  download_gb: number
+  vram_gb: number
+  ram_gb: number
+  label: string
+}
+
+export interface VariantAssessment {
+  variant: ModelVariant
+  cached: boolean
+  blockers: string[]
+  warnings: string[]
+  requirements: VariantRequirements
+  recommended: boolean
+}
+
+export interface SystemInfoResponse {
+  gpu_name: string | null
+  vram_total_gb: number | null
+  vram_free_gb: number | null
+  ram_total_gb: number | null
+  ram_available_gb: number | null
+  disk_free_gb: number | null
+  models_dir: string
+  recommended_variant: ModelVariant
+  variants: VariantAssessment[]
 }
 
 export interface SettingsResponse {

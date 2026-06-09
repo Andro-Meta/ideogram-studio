@@ -17,6 +17,7 @@ from __future__ import annotations
 import logging
 import os
 import random
+import threading
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Callable
@@ -66,7 +67,9 @@ class InferencePipeline(ABC):
 class FP8Pipeline(InferencePipeline):
     """
     Uses the official ideogram-oss/ideogram4 package.
-    Supports fp8 weights from ideogram-ai/ideogram-4-fp8 (gated, ~13 GB VRAM).
+    fp8 weights from ideogram-ai/ideogram-4-fp8 (gated). Per the official
+    guidance, fp8 is sized for A100/H100-class GPUs (~30 GB+ VRAM) — use nf4
+    on 24 GB consumer cards.
 
     Step-by-step callbacks are NOT available with this pipeline — the progress
     indicator on the frontend will show an indeterminate spinner for fp8.
@@ -152,8 +155,8 @@ class FP8Pipeline(InferencePipeline):
 class NF4Pipeline(FP8Pipeline):
     """
     NF4-quantized variant of the ideogram4 package pipeline.
-    Weights from ideogram-ai/ideogram-4-nf4 (~24 GB VRAM vs ~32 GB for fp8).
-    Uses bitsandbytes 4-bit NormalFloat quantization.
+    Weights from ideogram-ai/ideogram-4-nf4 — the official variant for single
+    24 GB consumer GPUs (RTX 3090/4090). Uses bitsandbytes 4-bit NormalFloat.
     """
 
     REPO = "ideogram-ai/ideogram-4-nf4"
@@ -276,42 +279,163 @@ class PipelineManager:
     """
     Singleton-style manager stored on app.state.
     Thread-safe for reads; load/unload should be called from a background thread.
+
+    Loading happens in two phases so the GUI can show real progress and so a
+    failed/oversized download never takes the machine down:
+      1. "downloading" — snapshot_download() streams weights to disk only
+         (resumable, no RAM spike), with percent progress.
+      2. "loading"     — weights are read from the local cache into the GPU.
     """
+
+    REPOS = {
+        "fp8": FP8Pipeline.REPO,
+        "nf4": NF4Pipeline.REPO,
+        "bf16": BF16Pipeline.REPO,
+    }
 
     def __init__(self) -> None:
         self._pipeline: InferencePipeline | None = None
         self._variant: str | None = None
-        self.status: str = "unloaded"   # "unloaded" | "loading" | "ready" | "error"
+        # "unloaded" | "downloading" | "loading" | "ready" | "error"
+        self.status: str = "unloaded"
         self.error: str | None = None
+        self.progress_message: str | None = None
+        self.download_pct: float | None = None
+        self._load_lock = threading.Lock()
 
     @property
     def variant(self) -> str | None:
         return self._variant
 
+    @property
+    def is_busy(self) -> bool:
+        return self.status in ("downloading", "loading")
+
+    # ── download phase ────────────────────────────────────────────────────
+
+    def _expected_repo_size_gb(self, repo: str, fallback_gb: float) -> float:
+        """Ask the Hub for the true repo size; fall back to a static estimate."""
+        try:
+            from huggingface_hub import HfApi
+
+            info = HfApi().model_info(
+                repo, files_metadata=True, token=os.environ.get("HF_TOKEN")
+            )
+            total = sum((s.size or 0) for s in (info.siblings or []))
+            if total > 0:
+                return total / (1024 ** 3)
+        except Exception:
+            pass
+        return fallback_gb
+
+    def _download(self, variant: str) -> None:
+        """Download weights to the local cache (disk-only, resumable)."""
+        from huggingface_hub import snapshot_download
+        import system_check
+
+        repo = self.REPOS[variant]
+        if system_check.is_variant_cached(variant):
+            return  # already on disk
+
+        expected_gb = self._expected_repo_size_gb(
+            repo, system_check.VARIANT_REQS[variant]["download_gb"]
+        )
+
+        stop = threading.Event()
+
+        def _monitor() -> None:
+            while not stop.wait(2.0):
+                try:
+                    done_gb = system_check.variant_cache_size_gb(variant)
+                    pct = min(99.0, (done_gb / expected_gb) * 100.0) if expected_gb else None
+                    self.download_pct = round(pct, 1) if pct is not None else None
+                    self.progress_message = (
+                        f"Downloading {variant} weights — {done_gb:.1f} / {expected_gb:.1f} GB"
+                    )
+                except Exception:
+                    pass
+
+        monitor = threading.Thread(target=_monitor, daemon=True)
+        monitor.start()
+        try:
+            snapshot_download(repo_id=repo, token=os.environ.get("HF_TOKEN"))
+        finally:
+            stop.set()
+            monitor.join(timeout=5)
+            self.download_pct = None
+
+    @staticmethod
+    def _friendly_load_error(exc: Exception, repo: str) -> str:
+        text = f"{type(exc).__name__}: {exc}"
+        lowered = str(exc).lower()
+        if "401" in lowered or "403" in lowered or "gated" in lowered or "unauthorized" in lowered:
+            return (
+                f"Access to {repo} was denied. Add a valid Hugging Face token in Settings and "
+                f"accept the model license at https://huggingface.co/{repo}, then try again."
+            )
+        if "out of memory" in lowered or "cuda" in lowered and "memory" in lowered:
+            return (
+                f"The GPU ran out of memory while loading {repo}. "
+                "Switch to the nf4 variant (Settings → Model), which is built for 24 GB GPUs."
+            )
+        if "no space left" in lowered or "disk" in lowered and "full" in lowered:
+            return "The disk filled up during download. Free up space and try again — downloads resume where they left off."
+        return text
+
+    # ── public API ────────────────────────────────────────────────────────
+
     def load(self, variant: str) -> None:
         """Blocking — call from a thread pool, not the event loop."""
-        self.status = "loading"
-        self.error = None
+        if not self._load_lock.acquire(blocking=False):
+            raise RuntimeError("A model load is already in progress")
         try:
+            self.error = None
+
+            if variant not in self.REPOS:
+                raise ValueError(f"Unknown variant: {variant!r}")
+
+            self.status = "downloading"
+            self.progress_message = f"Preparing {variant} download…"
+            self._download(variant)
+
+            self.status = "loading"
+            self.progress_message = f"Loading {variant} weights into GPU memory…"
+
             if self._pipeline is not None:
                 self._pipeline.unload()
+                self._pipeline = None
+                self._variant = None
 
             if variant == "fp8":
                 pipeline: InferencePipeline = FP8Pipeline()
             elif variant == "nf4":
                 pipeline = NF4Pipeline()
-            elif variant == "bf16":
-                pipeline = BF16Pipeline()
             else:
-                raise ValueError(f"Unknown variant: {variant!r}")
+                pipeline = BF16Pipeline()
 
             pipeline.load()
             self._pipeline = pipeline
             self._variant = variant
             self.status = "ready"
         except Exception as exc:
+            logger.exception("Model load failed")
             self.status = "error"
-            self.error = str(exc)
+            self.error = self._friendly_load_error(exc, self.REPOS.get(variant, variant))
+        finally:
+            self.progress_message = None
+            self.download_pct = None
+            self._load_lock.release()
+
+    def unload(self) -> None:
+        """Release the loaded pipeline. No-op if nothing is loaded."""
+        if self.is_busy:
+            raise RuntimeError("Cannot unload while a model load is in progress")
+        if self._pipeline is not None:
+            self._pipeline.unload()
+            self._pipeline = None
+        self._variant = None
+        self.status = "unloaded"
+        self.error = None
 
     def generate(
         self,

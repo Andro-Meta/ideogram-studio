@@ -1,10 +1,21 @@
+import os
 from pathlib import Path
+
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BASE_DIR = Path(__file__).parent.parent
 OUTPUTS_DIR = BASE_DIR / "outputs"
 DIST_DIR = BASE_DIR / "frontend" / "dist"
 DB_PATH = BASE_DIR / "app.db"
+MODELS_DIR = BASE_DIR / "models"
+
+# Keep multi-gigabyte model downloads on the same drive as the app instead of
+# the default C:\Users\<user>\.cache. Filling the Windows system drive can
+# freeze or crash the whole machine. setdefault() respects a user-set HF_HOME.
+# NOTE: must be set before huggingface_hub is imported anywhere (main.py also
+# sets this at the very top of the module for that reason).
+os.environ.setdefault("HF_HOME", str(MODELS_DIR / "hf"))
 
 
 class AppSettings(BaseSettings):
@@ -14,14 +25,37 @@ class AppSettings(BaseSettings):
         extra="ignore",
     )
 
-    # Model
-    model_variant: str = "fp8"          # "fp8" | "nf4" | "bf16"
+    # Model — nf4 is the variant Ideogram recommends for single consumer GPUs
+    # (RTX 3090/4090, 24 GB). fp8 targets A100/H100-class hardware.
+    model_variant: str = "nf4"          # "fp8" | "nf4" | "bf16"
     hf_token: str | None = None
 
     # Magic Prompt
     magic_prompt_backend: str = "ideogram-4-v1"
     ideogram_api_key: str | None = None
     openrouter_api_key: str | None = None
+
+    @field_validator("model_variant", "magic_prompt_backend", mode="before")
+    @classmethod
+    def _blank_falls_back_to_default(cls, v, info):
+        """.env lines like 'MODEL_VARIANT=' yield empty strings — treat as unset."""
+        if isinstance(v, str) and not v.strip():
+            return cls.model_fields[info.field_name].default
+        return v
+
+    @field_validator("model_variant")
+    @classmethod
+    def _valid_variant(cls, v: str) -> str:
+        if v not in ("fp8", "nf4", "bf16"):
+            return "nf4"
+        return v
+
+    @field_validator("hf_token", "ideogram_api_key", "openrouter_api_key", mode="before")
+    @classmethod
+    def _blank_secret_is_none(cls, v):
+        if isinstance(v, str) and not v.strip():
+            return None
+        return v
 
 
 settings = AppSettings()

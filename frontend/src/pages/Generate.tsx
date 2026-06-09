@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react"
 import {
   Zap, Square, RotateCcw, AlertTriangle, Loader2, Power,
-  ArrowUpCircle, Layers,
+  ArrowUpCircle, Layers, Copy, ExternalLink,
 } from "lucide-react"
+import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { Progress } from "@/components/ui/progress"
@@ -41,17 +42,18 @@ function ModelStatusPanel() {
   const vramGb = vramMb ? (vramMb / 1024).toFixed(1) : null
 
   const statusColors: Record<string, string> = {
-    ready:    "bg-emerald-500/20 text-emerald-300 border-emerald-500/50",
-    loading:  "bg-amber-500/20  text-amber-300  border-amber-500/50",
-    unloaded: "bg-zinc-700/50   text-zinc-400   border-zinc-600",
-    error:    "bg-red-500/20    text-red-300    border-red-500/50",
+    ready:       "bg-emerald-500/20 text-emerald-300 border-emerald-500/50",
+    loading:     "bg-amber-500/20  text-amber-300  border-amber-500/50",
+    downloading: "bg-sky-500/20    text-sky-300    border-sky-500/50",
+    unloaded:    "bg-zinc-700/50   text-zinc-400   border-zinc-600",
+    error:       "bg-red-500/20    text-red-300    border-red-500/50",
   }
 
   return (
     <div className="space-y-2">
       <p className="text-xs font-medium text-zinc-300 uppercase tracking-wider">Model</p>
       <div className={cn("flex items-center gap-1.5 px-2 py-1 rounded border text-[11px]", statusColors[status])}>
-        {status === "loading" && <Loader2 className="h-3 w-3 animate-spin" />}
+        {(status === "loading" || status === "downloading") && <Loader2 className="h-3 w-3 animate-spin" />}
         <span className="capitalize">{status}</span>
         {variant && <span className="opacity-60">({variant.toUpperCase()})</span>}
         {vramGb && <span className="ml-auto opacity-60">{vramGb} GB</span>}
@@ -62,14 +64,29 @@ function ModelStatusPanel() {
           variant="outline"
           className="w-full border-zinc-700 bg-zinc-800/60 hover:bg-violet-500/10 hover:border-violet-500/50 hover:text-violet-300 text-zinc-400 text-xs h-7 gap-1.5"
           disabled={loadModel.isPending}
-          onClick={() => loadModel.mutate(modelVariant)}
+          onClick={() => loadModel.mutate({ variant: modelVariant })}
         >
           {loadModel.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Power className="h-3 w-3" />}
           Pre-load {modelVariant.toUpperCase()}
         </Button>
       )}
+      {status === "downloading" && (
+        <div className="space-y-1">
+          <div className="h-1 rounded-full bg-zinc-700 overflow-hidden">
+            <div
+              className="h-full rounded-full bg-sky-500 transition-all"
+              style={{ width: `${data?.download_pct ?? 5}%` }}
+            />
+          </div>
+          <p className="text-[10px] text-sky-400/80">
+            {data?.progress_message ?? "Downloading weights — first time only"}
+          </p>
+        </div>
+      )}
       {status === "loading" && (
-        <p className="text-[10px] text-amber-400/70">First load takes 20–40s to download weights</p>
+        <p className="text-[10px] text-amber-400/70">
+          {data?.progress_message ?? "Loading weights into GPU memory — 20–40s"}
+        </p>
       )}
       {data?.error && (
         <p className="text-[10px] text-red-400 bg-red-500/10 rounded px-2 py-1">{data.error}</p>
@@ -144,34 +161,6 @@ function UpscaleStrip({ jobId, onUpscaled }: UpscaleStripProps) {
   )
 }
 
-// ── Variations count selector ─────────────────────────────────────────────────
-
-function VariationCountPicker() {
-  const { variationCount, setVariationCount } = useSettingsStore()
-  return (
-    <div className="space-y-1">
-      <p className="text-[10px] text-zinc-600 uppercase tracking-widest">Variations</p>
-      <div className="flex gap-1">
-        {([2, 4, 8] as const).map((n) => (
-          <button
-            key={n}
-            type="button"
-            onClick={() => setVariationCount(n)}
-            className={cn(
-              "flex-1 text-[10px] py-1 rounded border transition-all font-medium",
-              variationCount === n
-                ? "border-violet-500/60 text-violet-300 bg-violet-500/10"
-                : "border-zinc-700 text-zinc-600 hover:border-zinc-500 hover:text-zinc-400",
-            )}
-          >
-            {n}
-          </button>
-        ))}
-      </div>
-    </div>
-  )
-}
-
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export function Generate() {
@@ -203,6 +192,13 @@ export function Generate() {
   const isRunning = status === "running" || status === "loading-model"
   const isDone = status === "done"
 
+  // An effectively empty prompt produces garbage — require at least one of
+  // description / background / elements before allowing generation.
+  const canGenerate =
+    promptState.high_level_description.trim().length > 0 ||
+    promptState.background.trim().length > 0 ||
+    promptState.elements.length > 0
+
   // What to show in the result area
   const displayImageUrl = selectedVariation?.imageUrl ?? upscaledUrl ?? resultImageUrl
   const displaySeed = selectedVariation?.seed ?? resultSeed
@@ -233,6 +229,21 @@ export function Generate() {
     setUpscaledUrl(null)
     setUpscaledSize(null)
   }
+
+  // Ctrl/Cmd+Enter anywhere (outside text fields) starts a generation.
+  // Inside the Quick Prompt textarea the same shortcut runs Magic Prompt.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.key !== "Enter") return
+      const target = e.target as HTMLElement | null
+      if (target && (target.tagName === "TEXTAREA" || target.tagName === "INPUT")) return
+      if (isRunning || batch.isRunning || !canGenerate) return
+      e.preventDefault()
+      handleGenerate()
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  })
 
   const progressPct = progress ? Math.round((progress.step / progress.total) * 100) : 0
 
@@ -277,8 +288,17 @@ export function Generate() {
                 )}
                 <a
                   href={displayImageUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="ml-auto text-xs text-zinc-400 hover:text-zinc-200 underline inline-flex items-center gap-1"
+                >
+                  <ExternalLink className="h-3 w-3" />
+                  Full size
+                </a>
+                <a
+                  href={displayImageUrl}
                   download={`ideogram-${displaySeed ?? "output"}.png`}
-                  className="ml-auto text-xs text-violet-400 hover:text-violet-300 underline"
+                  className="text-xs text-violet-400 hover:text-violet-300 underline"
                 >
                   Download PNG
                 </a>
@@ -370,6 +390,17 @@ export function Generate() {
             )}>
               {tokenCount} / 2048
             </span>
+            <button
+              type="button"
+              title="Copy caption JSON to clipboard"
+              className="text-zinc-600 hover:text-zinc-300 transition-colors shrink-0"
+              onClick={() => {
+                navigator.clipboard.writeText(buildCaption(promptState))
+                toast.success("Caption JSON copied")
+              }}
+            >
+              <Copy className="h-3 w-3" />
+            </button>
           </div>
 
           {/* Single-gen progress */}
@@ -425,8 +456,10 @@ export function Generate() {
             ) : (
               <>
                 <Button
-                  className="flex-1 bg-violet-600 hover:bg-violet-500 text-white font-semibold gap-2 shadow-lg shadow-violet-500/20"
+                  className="flex-1 bg-violet-600 hover:bg-violet-500 text-white font-semibold gap-2 shadow-lg shadow-violet-500/20 disabled:opacity-40"
                   onClick={handleGenerate}
+                  disabled={!canGenerate}
+                  title={canGenerate ? "Generate (Ctrl+Enter)" : "Describe your image first"}
                 >
                   <Zap className="h-4 w-4" />
                   {isDone ? "Regenerate" : "Generate"}
@@ -474,13 +507,21 @@ export function Generate() {
               <Button
                 variant="outline"
                 size="sm"
-                className="ml-auto h-6 px-2 text-[10px] border-zinc-700 bg-zinc-800/60 hover:bg-zinc-700 text-zinc-400 gap-1.5"
+                className="ml-auto h-6 px-2 text-[10px] border-zinc-700 bg-zinc-800/60 hover:bg-zinc-700 text-zinc-400 gap-1.5 disabled:opacity-40"
                 onClick={handleVariations}
+                disabled={!canGenerate}
+                title={canGenerate ? `Generate ${variationCount} variations` : "Describe your image first"}
               >
                 <Layers className="h-3 w-3" />
                 Run
               </Button>
             </div>
+          )}
+
+          {!canGenerate && !isRunning && !batch.isRunning && (
+            <p className="text-[10px] text-zinc-600 text-center">
+              Add a description, background, or element to enable Generate · Ctrl+Enter to run
+            </p>
           )}
         </div>
       </div>

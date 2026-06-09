@@ -56,7 +56,7 @@ class GenerationRequest(BaseModel):
     width: int
     sampler_preset: Literal["V4_TURBO_12", "V4_DEFAULT_20", "V4_QUALITY_48"] = "V4_DEFAULT_20"
     seed: int | None = None
-    model_variant: Literal["fp8", "nf4", "bf16"] = "fp8"
+    model_variant: Literal["fp8", "nf4", "bf16"] = "nf4"
 
     @field_validator("height", "width")
     @classmethod
@@ -134,10 +134,47 @@ class UpscaleModelInfo(BaseModel):
 # ── Model Status ─────────────────────────────────────────────────────────────
 
 class ModelStatusResponse(BaseModel):
-    status: Literal["unloaded", "loading", "ready", "error"]
+    status: Literal["unloaded", "downloading", "loading", "ready", "error"]
     variant: str | None
     vram_used_mb: int | None
     error: str | None = None
+    progress_message: str | None = None
+    download_pct: float | None = None
+
+
+class ModelLoadRequest(BaseModel):
+    variant: Literal["fp8", "nf4", "bf16"]
+    force: bool = False
+
+
+# ── System / hardware report ─────────────────────────────────────────────────
+
+class VariantRequirements(BaseModel):
+    download_gb: float
+    vram_gb: float
+    ram_gb: float
+    label: str
+
+
+class VariantAssessment(BaseModel):
+    variant: str
+    cached: bool
+    blockers: list[str]
+    warnings: list[str]
+    requirements: VariantRequirements
+    recommended: bool
+
+
+class SystemInfoResponse(BaseModel):
+    gpu_name: str | None
+    vram_total_gb: float | None
+    vram_free_gb: float | None
+    ram_total_gb: float | None
+    ram_available_gb: float | None
+    disk_free_gb: float | None
+    models_dir: str
+    recommended_variant: str
+    variants: list[VariantAssessment]
 
 
 # ── Settings ─────────────────────────────────────────────────────────────────

@@ -2,8 +2,10 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 import type { GalleryItem, GalleryListResponse } from "@/types/gallery"
 
-async function fetchGallery(page = 1): Promise<GalleryListResponse> {
-  const res = await fetch(`/api/gallery?page=${page}&per_page=24`)
+async function fetchGallery(page = 1, search = ""): Promise<GalleryListResponse> {
+  const params = new URLSearchParams({ page: String(page), per_page: "24" })
+  if (search) params.set("search", search)
+  const res = await fetch(`/api/gallery?${params}`)
   if (!res.ok) throw new Error("Failed to fetch gallery")
   return res.json()
 }
@@ -19,11 +21,13 @@ async function deleteGalleryItem(id: string): Promise<void> {
   if (!res.ok) throw new Error("Delete failed")
 }
 
-export function useGallery(page = 1) {
+export function useGallery(page = 1, search = "") {
   return useQuery({
-    queryKey: ["gallery", page],
-    queryFn: () => fetchGallery(page),
+    queryKey: ["gallery", page, search],
+    queryFn: () => fetchGallery(page, search),
     staleTime: 10_000,
+    // Keep showing the previous page while the next one loads (no flicker)
+    placeholderData: (prev) => prev,
   })
 }
 

@@ -15,6 +15,13 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+# Keep model downloads on the app's drive instead of C:\Users\<user>\.cache —
+# filling the Windows system drive can freeze/crash the machine. This MUST run
+# before anything imports huggingface_hub (it fixes its cache path at import).
+os.environ.setdefault(
+    "HF_HOME", str(Path(__file__).resolve().parent.parent / "models" / "hf")
+)
+
 import aiosqlite
 from fastapi import FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -31,13 +38,16 @@ from schemas import (
     GenerationRequest,
     MagicPromptRequest,
     MagicPromptResponse,
+    ModelLoadRequest,
     ModelStatusResponse,
     SettingsResponse,
     SettingsUpdateRequest,
+    SystemInfoResponse,
     UpscaleModelInfo,
     UpscaleRequest,
     UpscaleResponse,
 )
+import system_check
 from settings import DIST_DIR, OUTPUTS_DIR, DB_PATH, settings as app_settings
 
 # ── Directories ───────────────────────────────────────────────────────────────
@@ -96,7 +106,31 @@ app.add_middleware(
 )
 
 
+# ── System / hardware API ─────────────────────────────────────────────────────
+
+@app.get("/api/system", response_model=SystemInfoResponse)
+async def system_info():
+    loop = asyncio.get_running_loop()
+    # Probes (torch import, disk walk) can block — keep them off the event loop.
+    report = await loop.run_in_executor(None, system_check.get_system_report)
+    return SystemInfoResponse(**report)
+
+
 # ── Model API ─────────────────────────────────────────────────────────────────
+
+def _preflight_blockers(variant: str) -> list[str]:
+    """Hardware checks that protect the machine from RAM/disk exhaustion."""
+    gpu_name, vram_total, _vram_free = system_check.get_gpu_info()
+    ram_total, _ram_avail = system_check.get_ram_gb()
+    disk_free = system_check.get_disk_free_gb()
+    result = system_check.assess_variant(
+        variant,
+        vram_total_gb=vram_total,
+        ram_total_gb=ram_total,
+        disk_free_gb=disk_free,
+    )
+    return result["blockers"]
+
 
 @app.get("/api/model/status", response_model=ModelStatusResponse)
 async def model_status(request: Request):
@@ -106,32 +140,35 @@ async def model_status(request: Request):
         variant=pm.variant,
         vram_used_mb=pm.vram_used_mb(),
         error=pm.error,
+        progress_message=pm.progress_message,
+        download_pct=pm.download_pct,
     )
 
 
 @app.post("/api/model/load")
-async def model_load(request: Request, body: dict):
-    variant = body.get("variant", app_settings.model_variant)
-    if variant not in ("fp8", "nf4", "bf16"):
-        raise HTTPException(400, "variant must be 'fp8', 'nf4', or 'bf16'")
-
+async def model_load(request: Request, body: ModelLoadRequest):
     pm: PipelineManager = request.app.state.pipeline
-    if pm.status == "loading":
-        raise HTTPException(409, "Model is already loading")
+    if pm.is_busy:
+        raise HTTPException(409, "A model load is already in progress")
 
     loop = asyncio.get_running_loop()
-    loop.run_in_executor(_inference_executor, lambda: pm.load(variant))
-    return {"message": f"Loading {variant} model...", "variant": variant}
+
+    if not body.force:
+        blockers = await loop.run_in_executor(None, lambda: _preflight_blockers(body.variant))
+        if blockers:
+            raise HTTPException(422, " ".join(blockers))
+
+    loop.run_in_executor(_inference_executor, lambda: pm.load(body.variant))
+    return {"message": f"Loading {body.variant} model...", "variant": body.variant}
 
 
 @app.post("/api/model/unload")
 async def model_unload(request: Request):
     pm: PipelineManager = request.app.state.pipeline
-    if pm._pipeline:
-        pm._pipeline.unload()
-        pm._pipeline = None
-        pm._variant = None
-        pm.status = "unloaded"
+    try:
+        pm.unload()
+    except RuntimeError as exc:
+        raise HTTPException(409, str(exc))
     return {"message": "Model unloaded"}
 
 
@@ -165,10 +202,11 @@ async def gallery_list(
     request: Request,
     page: int = Query(default=1, ge=1),
     per_page: int = Query(default=20, ge=1, le=100),
+    search: str | None = Query(default=None, max_length=200),
 ):
     db = request.app.state.db
     items, total = await gallery_service.list_jobs(
-        db, page=page, per_page=per_page, status="done"
+        db, page=page, per_page=per_page, status="done", search=search
     )
     return GalleryListResponse(
         items=[GalleryItem(**item) for item in items],
@@ -320,20 +358,23 @@ async def generation_ws(websocket: WebSocket, job_id: str):
 
     # Auto-load model if not ready
     if pm.status != "ready":
-        if pm.status == "loading":
-            await websocket.send_json({"type": "status", "message": "Waiting for model to finish loading..."})
-            # Poll until ready or error
-            for _ in range(300):    # up to 5 minutes
-                await asyncio.sleep(1)
-                if pm.status == "ready":
-                    break
-                if pm.status == "error":
-                    await websocket.send_json({"type": "error", "message": f"Model failed to load: {pm.error}"})
-                    return
-        else:
-            # Load now
+        if not pm.is_busy:
+            # About to trigger a load — run the hardware preflight first so an
+            # unsuitable variant can never freeze the machine.
             variant = gen_req.model_variant
-            await websocket.send_json({"type": "status", "message": f"Loading {variant} model (this may take 20-40s)..."})
+            blockers = await loop.run_in_executor(None, lambda: _preflight_blockers(variant))
+            if blockers:
+                await websocket.send_json({"type": "error", "message": " ".join(blockers)})
+                return
+
+            cached = await loop.run_in_executor(
+                None, lambda: system_check.is_variant_cached(variant)
+            )
+            note = (
+                "Loading model (20-40s)..." if cached
+                else "Downloading model weights — first time only, this can take a while..."
+            )
+            await websocket.send_json({"type": "status", "message": f"{variant}: {note}"})
 
             load_done = asyncio.Event()
             load_error: list[str] = []
@@ -347,11 +388,43 @@ async def generation_ws(websocket: WebSocket, job_id: str):
                     loop.call_soon_threadsafe(load_done.set)
 
             loop.run_in_executor(_inference_executor, _load)
-            await load_done.wait()
+
+            # Stream download/load progress to the client while we wait
+            while not load_done.is_set():
+                try:
+                    await asyncio.wait_for(load_done.wait(), timeout=3.0)
+                except asyncio.TimeoutError:
+                    if pm.progress_message:
+                        await websocket.send_json(
+                            {"type": "status", "message": pm.progress_message}
+                        )
 
             if load_error:
                 await websocket.send_json({"type": "error", "message": load_error[0]})
                 return
+        else:
+            await websocket.send_json(
+                {"type": "status", "message": "Waiting for model to finish loading..."}
+            )
+            for _ in range(14_400):   # up to 4 hours (first download can be long)
+                await asyncio.sleep(1)
+                if pm.status == "ready":
+                    break
+                if pm.status == "error":
+                    await websocket.send_json(
+                        {"type": "error", "message": f"Model failed to load: {pm.error}"}
+                    )
+                    return
+                if pm.progress_message and _ % 3 == 0:
+                    await websocket.send_json(
+                        {"type": "status", "message": pm.progress_message}
+                    )
+
+        if pm.status != "ready":
+            await websocket.send_json(
+                {"type": "error", "message": pm.error or "Model is not ready."}
+            )
+            return
 
     await websocket.send_json({"type": "started", "job_id": job_id})
 

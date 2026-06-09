@@ -1,4 +1,4 @@
-import { Download, Trash2, X, Clock, Hash, Maximize2 } from "lucide-react"
+import { Download, Trash2, X, Clock, Hash, Maximize2, Copy } from "lucide-react"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -112,11 +112,20 @@ export function GalleryDetail({ itemId, onClose }: Props) {
               {/* Stats */}
               <div className="space-y-2">
                 {item.seed != null && (
-                  <div className="flex items-center gap-2 text-zinc-400">
+                  <button
+                    type="button"
+                    className="flex items-center gap-2 text-zinc-400 hover:text-zinc-200 transition-colors group/seed"
+                    title="Copy seed to clipboard"
+                    onClick={() => {
+                      navigator.clipboard.writeText(String(item.seed))
+                      toast.success("Seed copied")
+                    }}
+                  >
                     <Hash className="h-3.5 w-3.5 text-zinc-600 shrink-0" />
                     <span className="font-mono text-xs">{item.seed}</span>
                     <span className="text-zinc-600 text-xs">seed</span>
-                  </div>
+                    <Copy className="h-3 w-3 text-zinc-700 opacity-0 group-hover/seed:opacity-100 transition-opacity" />
+                  </button>
                 )}
                 {durationSec && (
                   <div className="flex items-center gap-2 text-zinc-400">
@@ -150,7 +159,20 @@ export function GalleryDetail({ itemId, onClose }: Props) {
               {/* Prompt JSON preview */}
               {item.prompt_json && (
                 <div className="space-y-1">
-                  <p className="text-[10px] text-zinc-500 uppercase tracking-wider">Caption JSON</p>
+                  <div className="flex items-center justify-between">
+                    <p className="text-[10px] text-zinc-500 uppercase tracking-wider">Caption JSON</p>
+                    <button
+                      type="button"
+                      className="text-zinc-600 hover:text-zinc-300 transition-colors"
+                      title="Copy caption JSON"
+                      onClick={() => {
+                        navigator.clipboard.writeText(item.prompt_json!)
+                        toast.success("Caption JSON copied")
+                      }}
+                    >
+                      <Copy className="h-3 w-3" />
+                    </button>
+                  </div>
                   <pre className="text-[10px] text-zinc-500 bg-zinc-800 rounded p-2 overflow-auto max-h-48 whitespace-pre-wrap break-all">
                     {JSON.stringify(JSON.parse(item.prompt_json), null, 2)}
                   </pre>

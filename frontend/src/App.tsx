@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate, NavLink } from "react-router-dom"
 import { Layers, Images, Settings } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { useModelStatus } from "@/hooks/useModelStatus"
 import { Generate } from "@/pages/Generate"
 import { Gallery } from "@/pages/Gallery"
 import { Settings as SettingsPage } from "@/pages/Settings"
@@ -10,6 +11,45 @@ const NAV_ITEMS = [
   { to: "/gallery",  icon: Images,  label: "Gallery"  },
   { to: "/settings", icon: Settings, label: "Settings" },
 ] as const
+
+function ModelStatusChip() {
+  const { data } = useModelStatus()
+  const status = data?.status ?? "unloaded"
+
+  const styles: Record<string, string> = {
+    ready:       "bg-emerald-500/15 text-emerald-300 border-emerald-500/40",
+    downloading: "bg-sky-500/15    text-sky-300    border-sky-500/40",
+    loading:     "bg-amber-500/15  text-amber-300  border-amber-500/40",
+    error:       "bg-red-500/15    text-red-300    border-red-500/40",
+    unloaded:    "bg-zinc-800      text-zinc-500   border-zinc-700",
+  }
+  const dot =
+    status === "ready"    ? "bg-emerald-400" :
+    status === "error"    ? "bg-red-400" :
+    status === "unloaded" ? "bg-zinc-600" :
+    "bg-amber-400 animate-pulse"
+  const label =
+    status === "downloading" && data?.download_pct != null
+      ? `Downloading ${data.download_pct}%`
+      : status === "ready" && data?.variant
+        ? `${data.variant.toUpperCase()} ready`
+        : status === "unloaded"
+          ? "Model not loaded"
+          : status
+
+  return (
+    <div
+      className={cn(
+        "ml-auto flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[11px] font-medium capitalize select-none",
+        styles[status],
+      )}
+      title={data?.progress_message ?? data?.error ?? "Current model status"}
+    >
+      <span className={cn("h-1.5 w-1.5 rounded-full", dot)} />
+      {label}
+    </div>
+  )
+}
 
 function NavBar() {
   return (
@@ -38,6 +78,8 @@ function NavBar() {
           {label}
         </NavLink>
       ))}
+
+      <ModelStatusChip />
     </header>
   )
 }

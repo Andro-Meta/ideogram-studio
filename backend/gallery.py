@@ -40,6 +40,9 @@ def _row_to_dict(row: aiosqlite.Row) -> dict:
 
 async def init_db(db: aiosqlite.Connection) -> None:
     await db.execute(CREATE_TABLE)
+    await db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_jobs_created_at ON jobs(created_at DESC)"
+    )
     await db.commit()
 
 
@@ -111,11 +114,23 @@ async def list_jobs(
     page: int = 1,
     per_page: int = 20,
     status: str | None = "done",
+    search: str | None = None,
 ) -> tuple[list[dict], int]:
     offset = (page - 1) * per_page
-    where = "WHERE status=?" if status else ""
-    params_count: list = [status] if status else []
-    params_list:  list = [status, per_page, offset] if status else [per_page, offset]
+
+    clauses: list[str] = []
+    filter_params: list = []
+    if status:
+        clauses.append("status=?")
+        filter_params.append(status)
+    if search:
+        # Match against the stored caption JSON and plain prompt text
+        clauses.append("(prompt_json LIKE ? OR prompt_text LIKE ?)")
+        like = f"%{search}%"
+        filter_params.extend([like, like])
+    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    params_count: list = list(filter_params)
+    params_list:  list = [*filter_params, per_page, offset]
 
     async with db.execute(
         f"SELECT COUNT(*) FROM jobs {where}", params_count

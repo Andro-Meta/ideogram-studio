@@ -31,7 +31,8 @@ export function useGenerate() {
       let msg: WsMessage
       try {
         msg = JSON.parse(event.data)
-      } catch {
+      } catch (err) {
+        console.error("Malformed WS message from server:", err, event.data)
         return
       }
 
