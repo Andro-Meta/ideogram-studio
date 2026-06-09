@@ -77,6 +77,7 @@ export function useBatchGenerate() {
           // Continue with remaining variations — don't abort the batch
         }
       }
+      if (cancelledRef.current) break
     }
 
     setState((s) => ({ ...s, isRunning: false, current: 0 }))
@@ -84,8 +85,10 @@ export function useBatchGenerate() {
 
   const cancel = useCallback(() => {
     cancelledRef.current = true
-    wsRef.current?.close(1000)
-    wsRef.current = null
+    if (wsRef.current) {
+      wsRef.current.close(1000)
+      wsRef.current = null
+    }
     setState((s) => ({ ...s, isRunning: false, current: 0 }))
   }, [])
 
