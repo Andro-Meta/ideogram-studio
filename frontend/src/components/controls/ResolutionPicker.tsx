@@ -23,9 +23,12 @@ function RatioIcon({ w, h, active }: { w: number; h: number; active: boolean }) 
 }
 
 const GROUPS = [
-  { key: "landscape", label: "Landscape" },
-  { key: "square",    label: "Square"    },
-  { key: "portrait",  label: "Portrait"  },
+  { key: "landscape",    label: "Landscape",    hd: false },
+  { key: "square",       label: "Square",       hd: false },
+  { key: "portrait",     label: "Portrait",     hd: false },
+  { key: "hd-landscape", label: "HD Landscape", hd: true  },
+  { key: "hd-square",    label: "HD Square",    hd: true  },
+  { key: "hd-portrait",  label: "HD Portrait",  hd: true  },
 ] as const
 
 export function ResolutionPicker() {
@@ -71,24 +74,33 @@ export function ResolutionPicker() {
     <div className="space-y-3">
       <p className="text-xs font-medium text-zinc-300 uppercase tracking-wider">Resolution</p>
 
-      {GROUPS.map(({ key, label }) => {
+      {GROUPS.map(({ key, label, hd }, groupIdx) => {
         const presets = ASPECT_RATIO_PRESETS.filter((p) => p.group === key)
+        if (presets.length === 0) return null
+        const isFirstHd = hd && !GROUPS.slice(0, groupIdx).some((g) => g.hd)
         return (
           <div key={key} className="space-y-1">
+            {isFirstHd && (
+              <p className="text-[10px] text-amber-600/70 leading-relaxed pt-1">
+                HD — up to 2048 px · needs more VRAM
+              </p>
+            )}
             <p className="text-[10px] text-zinc-600 uppercase tracking-widest">{label}</p>
             <div className="flex flex-wrap gap-1">
               {presets.map((p) => {
                 const active = !custom && p.width === width && p.height === height
                 return (
                   <button
-                    key={p.label}
+                    key={`${p.label}-${p.width}x${p.height}`}
                     type="button"
                     onClick={() => handlePreset(p.width, p.height)}
                     className={cn(
                       "flex flex-col items-center gap-1 rounded-lg border px-2 py-1.5 transition-all min-w-[44px]",
                       active
                         ? "border-violet-500 bg-violet-500/10 text-violet-300"
-                        : "border-zinc-700 bg-zinc-800/60 text-zinc-500 hover:border-zinc-500 hover:text-zinc-300"
+                        : hd
+                          ? "border-zinc-700/60 bg-zinc-800/40 text-zinc-600 hover:border-amber-600/50 hover:text-zinc-400"
+                          : "border-zinc-700 bg-zinc-800/60 text-zinc-500 hover:border-zinc-500 hover:text-zinc-300"
                     )}
                   >
                     <RatioIcon w={p.width} h={p.height} active={active} />

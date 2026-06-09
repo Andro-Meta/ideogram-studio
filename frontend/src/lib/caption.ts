@@ -66,22 +66,34 @@ export const PRESET_LABELS: Record<string, { name: string; steps: string; time: 
   V4_QUALITY_48: { name: "Quality", steps: "48 steps", time: "~60s" },
 }
 
-// All dimensions are exact-ratio multiples of 16, within the 256–2048 model constraint.
-// Ideogram 4 supports any resolution 256–2048 (multiples of 16), aspect ratio ≤ 6:1.
+// Ideogram 4 supports any resolution 256–2048 px (multiples of 16), aspect ratio ≤ 6:1.
+// Max is ~2K equivalent — 4K (3840+) is NOT possible with this model.
+//
+// All preset dimensions are verified pixel-perfect: exact ratios AND valid multiples of 16.
+// Verified with: node -e "check all pairs for w%16===0 && h%16===0 && w/h===exact_ratio"
 export const ASPECT_RATIO_PRESETS = [
-  // ── Landscape ────────────────────────────────────────────────────────────────
-  { label: "21:9",  width: 1512, height: 648,  group: "landscape" as const },  // 1512 / 648  = 2.333 = 7/3 ✓
-  { label: "16:9",  width: 1280, height: 720,  group: "landscape" as const },  // 1280 / 720  = 1.778 = 16/9 ✓
-  { label: "3:2",   width: 1152, height: 768,  group: "landscape" as const },  // 1152 / 768  = 1.5   = 3/2 ✓
-  { label: "4:3",   width: 1024, height: 768,  group: "landscape" as const },  // 1024 / 768  = 1.333 = 4/3 ✓
-  { label: "5:4",   width: 1280, height: 1024, group: "landscape" as const },  // 1280 / 1024 = 1.25  = 5/4 ✓
-  // ── Square ───────────────────────────────────────────────────────────────────
+  // ── Standard — ~1MP, fast, good for most GPUs ─────────────────────────────────
+  { label: "21:9",  width: 1792, height: 768,  group: "landscape" as const },  // 1792/768  = 7/3  ✓ (prev: 1512×648, 648÷16=40.5 — was WRONG)
+  { label: "16:9",  width: 1280, height: 720,  group: "landscape" as const },  // 1280/720  = 16/9 ✓
+  { label: "3:2",   width: 1152, height: 768,  group: "landscape" as const },  // 1152/768  = 3/2  ✓
+  { label: "4:3",   width: 1024, height: 768,  group: "landscape" as const },  // 1024/768  = 4/3  ✓
+  { label: "5:4",   width: 1280, height: 1024, group: "landscape" as const },  // 1280/1024 = 5/4  ✓
   { label: "1:1",   width: 1024, height: 1024, group: "square"    as const },
-  // ── Portrait ─────────────────────────────────────────────────────────────────
-  { label: "4:5",   width: 1024, height: 1280, group: "portrait"  as const },  // 1024 / 1280 = 0.8   = 4/5 ✓
-  { label: "3:4",   width: 768,  height: 1024, group: "portrait"  as const },  // 768  / 1024 = 0.75  = 3/4 ✓
-  { label: "2:3",   width: 768,  height: 1152, group: "portrait"  as const },  // 768  / 1152 = 0.667 = 2/3 ✓
-  { label: "9:16",  width: 720,  height: 1280, group: "portrait"  as const },  // 720  / 1280 = 0.5625 = 9/16 ✓
+  { label: "4:5",   width: 1024, height: 1280, group: "portrait"  as const },  // 1024/1280 = 4/5  ✓
+  { label: "3:4",   width: 768,  height: 1024, group: "portrait"  as const },  // 768/1024  = 3/4  ✓
+  { label: "2:3",   width: 768,  height: 1152, group: "portrait"  as const },  // 768/1152  = 2/3  ✓
+  { label: "9:16",  width: 720,  height: 1280, group: "portrait"  as const },  // 720/1280  = 9/16 ✓
+  // ── HD — up to 2048px (max the model supports, ~2–4× more VRAM) ──────────────
+  { label: "21:9",  width: 2016, height: 864,  group: "hd-landscape" as const }, // 2016/864  = 7/3  ✓
+  { label: "16:9",  width: 2048, height: 1152, group: "hd-landscape" as const }, // 2048/1152 = 16/9 ✓ — max 16:9
+  { label: "3:2",   width: 2016, height: 1344, group: "hd-landscape" as const }, // 2016/1344 = 3/2  ✓
+  { label: "4:3",   width: 2048, height: 1536, group: "hd-landscape" as const }, // 2048/1536 = 4/3  ✓ — max 4:3
+  { label: "5:4",   width: 1920, height: 1536, group: "hd-landscape" as const }, // 1920/1536 = 5/4  ✓
+  { label: "1:1",   width: 2048, height: 2048, group: "hd-square"    as const }, // max square
+  { label: "4:5",   width: 1536, height: 1920, group: "hd-portrait"  as const }, // 1536/1920 = 4/5  ✓
+  { label: "3:4",   width: 1536, height: 2048, group: "hd-portrait"  as const }, // 1536/2048 = 3/4  ✓ — max 3:4
+  { label: "2:3",   width: 1344, height: 2016, group: "hd-portrait"  as const }, // 1344/2016 = 2/3  ✓
+  { label: "9:16",  width: 1152, height: 2048, group: "hd-portrait"  as const }, // 1152/2048 = 9/16 ✓ — max 9:16
 ]
 
 export const ELEMENT_COLORS = [
