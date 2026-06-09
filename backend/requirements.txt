@@ -32,7 +32,7 @@ uvicorn[standard]>=0.30.0
 python-multipart>=0.0.9
 
 # Database
-aiosqlite>=0.20.0
+aiosqlite>=0.22.1
 
 # Settings / env
 pydantic-settings>=2.0.0
