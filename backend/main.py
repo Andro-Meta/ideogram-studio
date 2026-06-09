@@ -7,6 +7,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import time
 import threading
 import webbrowser
@@ -15,7 +16,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 import aiosqlite
-from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -154,11 +155,16 @@ async def magic_prompt_endpoint(request: Request, body: MagicPromptRequest):
 
 # ── Gallery API ───────────────────────────────────────────────────────────────
 
+_UUID_RE = re.compile(
+    r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', re.I
+)
+
+
 @app.get("/api/gallery", response_model=GalleryListResponse)
 async def gallery_list(
     request: Request,
-    page: int = 1,
-    per_page: int = 20,
+    page: int = Query(default=1, ge=1),
+    per_page: int = Query(default=20, ge=1, le=100),
 ):
     db = request.app.state.db
     items, total = await gallery_service.list_jobs(
@@ -218,12 +224,14 @@ async def update_settings(request: Request, body: SettingsUpdateRequest):
         nonlocal lines
         if value is None:
             return
+        # Strip newlines so a malicious value can't inject extra env lines
+        safe_value = value.replace("\r", "").replace("\n", "")
         key_upper = key.upper()
         for i, line in enumerate(lines):
             if line.startswith(f"{key_upper}=") or line.startswith(f"# {key_upper}="):
-                lines[i] = f"{key_upper}={value}"
+                lines[i] = f"{key_upper}={safe_value}"
                 return
-        lines.append(f"{key_upper}={value}")
+        lines.append(f"{key_upper}={safe_value}")
 
     if body.model_variant:
         _set("MODEL_VARIANT", body.model_variant)
@@ -232,16 +240,19 @@ async def update_settings(request: Request, body: SettingsUpdateRequest):
         _set("MAGIC_PROMPT_BACKEND", body.magic_prompt_backend)
         app_settings.magic_prompt_backend = body.magic_prompt_backend
     if body.ideogram_api_key is not None:
-        _set("IDEOGRAM_API_KEY", body.ideogram_api_key)
-        app_settings.ideogram_api_key = body.ideogram_api_key
+        raw_ideogram = body.ideogram_api_key.get_secret_value()
+        _set("IDEOGRAM_API_KEY", raw_ideogram)
+        app_settings.ideogram_api_key = raw_ideogram
     if body.openrouter_api_key is not None:
-        _set("OPENROUTER_API_KEY", body.openrouter_api_key)
-        app_settings.openrouter_api_key = body.openrouter_api_key
+        raw_openrouter = body.openrouter_api_key.get_secret_value()
+        _set("OPENROUTER_API_KEY", raw_openrouter)
+        app_settings.openrouter_api_key = raw_openrouter
     if body.hf_token is not None:
-        _set("HF_TOKEN", body.hf_token)
-        app_settings.hf_token = body.hf_token
-        os.environ["HF_TOKEN"] = body.hf_token
-        os.environ["HUGGING_FACE_HUB_TOKEN"] = body.hf_token
+        raw_hf = body.hf_token.get_secret_value()
+        _set("HF_TOKEN", raw_hf)
+        app_settings.hf_token = raw_hf
+        os.environ["HF_TOKEN"] = raw_hf
+        os.environ["HUGGING_FACE_HUB_TOKEN"] = raw_hf
 
     env_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
@@ -264,8 +275,28 @@ async def update_settings(request: Request, body: SettingsUpdateRequest):
 
 # ── WebSocket — generation ────────────────────────────────────────────────────
 
+_WS_ALLOWED_ORIGINS = {
+    "http://localhost:8000",
+    "http://127.0.0.1:8000",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+}
+
+
 @app.websocket("/ws/{job_id}")
 async def generation_ws(websocket: WebSocket, job_id: str):
+    # M-2: reject cross-origin WebSocket connections
+    origin = websocket.headers.get("origin", "")
+    if origin and origin not in _WS_ALLOWED_ORIGINS:
+        await websocket.close(code=1008)
+        return
+
+    # H-2: job_id must be a valid UUID to prevent path traversal in filenames
+    if not _UUID_RE.match(job_id):
+        await websocket.accept()
+        await websocket.send_json({"type": "error", "message": "Invalid job_id"})
+        return
+
     await websocket.accept()
     loop = asyncio.get_running_loop()
     queue: asyncio.Queue = asyncio.Queue()

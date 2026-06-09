@@ -1,6 +1,11 @@
 from __future__ import annotations
+import re
 from typing import Literal
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, SecretStr, field_validator
+
+_UUID_RE = re.compile(
+    r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', re.I
+)
 
 
 # ── Caption / Prompt ─────────────────────────────────────────────────────────
@@ -103,6 +108,13 @@ class UpscaleRequest(BaseModel):
     job_id: str
     model_name: str = "AuraSR-v2"
 
+    @field_validator("job_id")
+    @classmethod
+    def job_id_must_be_uuid(cls, v: str) -> str:
+        if not _UUID_RE.match(v):
+            raise ValueError("job_id must be a valid UUID")
+        return v
+
 
 class UpscaleResponse(BaseModel):
     image_url: str
@@ -141,6 +153,6 @@ class SettingsResponse(BaseModel):
 class SettingsUpdateRequest(BaseModel):
     model_variant: str | None = None
     magic_prompt_backend: str | None = None
-    ideogram_api_key: str | None = None
-    openrouter_api_key: str | None = None
-    hf_token: str | None = None
+    ideogram_api_key: SecretStr | None = None
+    openrouter_api_key: SecretStr | None = None
+    hf_token: SecretStr | None = None
