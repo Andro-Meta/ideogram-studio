@@ -62,6 +62,8 @@ export interface SystemInfoResponse {
   vram_free_gb: number | null
   ram_total_gb: number | null
   ram_available_gb: number | null
+  commit_limit_gb: number | null
+  commit_available_gb: number | null
   disk_free_gb: number | null
   models_dir: string
   recommended_variant: ModelVariant
@@ -97,6 +99,33 @@ export interface UpscaleResponse {
   original_height: number
   upscaled_width: number
   upscaled_height: number
+}
+
+// ── Image editing ────────────────────────────────────────────────────────────
+
+export interface EditRequest {
+  job_id: string
+  rotate: 0 | 90 | 180 | 270
+  flip_h: boolean
+  flip_v: boolean
+  brightness: number
+  contrast: number
+  saturation: number
+  sharpness: number
+}
+
+export interface EditResponse {
+  job_id: string
+  image_url: string
+  width: number
+  height: number
+}
+
+// ── Logs ─────────────────────────────────────────────────────────────────────
+
+export interface LogsResponse {
+  lines: string[]
+  path: string
 }
 
 export interface UpscaleModelInfo {

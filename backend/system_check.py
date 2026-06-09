@@ -37,14 +37,16 @@ VARIANT_REQS: dict[str, dict[str, Any]] = {
     },
     "fp8": {
         "download_gb": 27.0,
+        # Upstream loader materializes full-precision transformer skeletons on
+        # the CPU before quantization — fp8 needs serious system RAM.
         "vram_gb": 30.0,
-        "ram_gb": 24.0,
-        "label": "8-bit float — sized for A100/H100-class GPUs (~32 GB+)",
+        "ram_gb": 40.0,
+        "label": "8-bit float — A100/H100-class GPUs and 40 GB+ system RAM",
     },
     "bf16": {
         "download_gb": 38.0,
         "vram_gb": 30.0,
-        "ram_gb": 32.0,
+        "ram_gb": 48.0,
         "label": "Community bf16 diffusers weights — experimental, very heavy",
     },
 }
@@ -94,6 +96,62 @@ def get_ram_gb() -> tuple[float | None, float | None]:
         )
     except Exception:
         return None, None
+
+
+def get_commit_gb() -> tuple[float | None, float | None]:
+    """Windows commit charge: (limit_gb, available_gb). (None, None) elsewhere.
+
+    The commit limit is RAM + pagefile. Loading a model can exhaust it even
+    when physical RAM looks fine — torch then fails with 'DefaultCPUAllocator:
+    not enough memory', or the machine freezes if physical RAM thrashes first.
+    """
+    if sys.platform != "win32":
+        return None, None
+    try:
+        import ctypes
+
+        class MEMORYSTATUSEX(ctypes.Structure):
+            _fields_ = [
+                ("dwLength", ctypes.c_ulong),
+                ("dwMemoryLoad", ctypes.c_ulong),
+                ("ullTotalPhys", ctypes.c_ulonglong),
+                ("ullAvailPhys", ctypes.c_ulonglong),
+                ("ullTotalPageFile", ctypes.c_ulonglong),
+                ("ullAvailPageFile", ctypes.c_ulonglong),
+                ("ullTotalVirtual", ctypes.c_ulonglong),
+                ("ullAvailVirtual", ctypes.c_ulonglong),
+                ("ullAvailExtendedVirtual", ctypes.c_ulonglong),
+            ]
+
+        stat = MEMORYSTATUSEX()
+        stat.dwLength = ctypes.sizeof(MEMORYSTATUSEX)
+        ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(stat))
+        gib = 1024 ** 3
+        return stat.ullTotalPageFile / gib, stat.ullAvailPageFile / gib
+    except Exception:
+        return None, None
+
+
+def mem_snapshot() -> str:
+    """One-line memory summary for log lines during model loads."""
+    parts: list[str] = []
+    total, avail = get_ram_gb()
+    if total is not None and avail is not None:
+        parts.append(f"RAM free {avail:.1f}/{total:.1f} GB")
+    climit, cavail = get_commit_gb()
+    if climit is not None and cavail is not None:
+        parts.append(f"commit free {cavail:.1f}/{climit:.1f} GB")
+    if "torch" in sys.modules:  # don't trigger a heavy import just for a log line
+        try:
+            import torch
+
+            if torch.cuda.is_available():
+                free_b, total_b = torch.cuda.mem_get_info(0)
+                gib = 1024 ** 3
+                parts.append(f"VRAM free {free_b / gib:.1f}/{total_b / gib:.1f} GB")
+        except Exception:
+            pass
+    return " | ".join(parts) if parts else "memory info unavailable"
 
 
 def get_gpu_info() -> tuple[str | None, float | None, float | None]:
@@ -232,12 +290,15 @@ def get_system_report() -> dict[str, Any]:
     for item in variants:
         item["recommended"] = item["variant"] == recommended
 
+    commit_limit, commit_avail = get_commit_gb()
     return {
         "gpu_name": gpu_name,
         "vram_total_gb": round(vram_total, 1) if vram_total is not None else None,
         "vram_free_gb": round(vram_free, 1) if vram_free is not None else None,
         "ram_total_gb": round(ram_total, 1) if ram_total is not None else None,
         "ram_available_gb": round(ram_avail, 1) if ram_avail is not None else None,
+        "commit_limit_gb": round(commit_limit, 1) if commit_limit is not None else None,
+        "commit_available_gb": round(commit_avail, 1) if commit_avail is not None else None,
         "disk_free_gb": round(disk_free, 1) if disk_free is not None else None,
         "models_dir": str(MODELS_DIR),
         "recommended_variant": recommended,

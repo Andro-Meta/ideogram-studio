@@ -48,3 +48,5 @@ npm-debug.log*
 *.gguf
 *.ckpt
 *.pt
+logs/
+models/

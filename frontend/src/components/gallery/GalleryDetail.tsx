@@ -1,7 +1,7 @@
-import { useEffect } from "react"
+import { useEffect, useState } from "react"
 import {
   Download, Trash2, X, Clock, Hash, Maximize2, Copy, Heart,
-  ChevronLeft, ChevronRight, Lock,
+  ChevronLeft, ChevronRight, Lock, SlidersHorizontal,
 } from "lucide-react"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
@@ -13,6 +13,7 @@ import { usePromptStore } from "@/stores/promptStore"
 import { useSettingsStore } from "@/stores/settingsStore"
 import { useNavigate } from "react-router-dom"
 import { toast } from "sonner"
+import { ImageEditor } from "./ImageEditor"
 
 interface Props {
   itemId: string | null
@@ -29,6 +30,7 @@ export function GalleryDetail({ itemId, onClose, position, count, onPrev, onNext
   const toggleFavorite = useToggleFavorite()
   const loadFromParsed = usePromptStore((s) => s.loadFromParsed)
   const navigate = useNavigate()
+  const [editorOpen, setEditorOpen] = useState(false)
 
   // Arrow keys flip between images while the viewer is open (like ideogram.ai)
   useEffect(() => {
@@ -287,6 +289,17 @@ export function GalleryDetail({ itemId, onClose, position, count, onPrev, onNext
                 <Button
                   variant="outline"
                   className="w-full border-zinc-700 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs h-8 gap-1.5"
+                  onClick={() => setEditorOpen(true)}
+                  title="Rotate, flip, and adjust brightness/contrast/saturation — saved as a copy"
+                >
+                  <SlidersHorizontal className="h-3.5 w-3.5" />
+                  Edit Image
+                </Button>
+              )}
+              {imageUrl && (
+                <Button
+                  variant="outline"
+                  className="w-full border-zinc-700 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs h-8 gap-1.5"
                   onClick={handleDownload}
                 >
                   <Download className="h-3.5 w-3.5" />
@@ -305,6 +318,14 @@ export function GalleryDetail({ itemId, onClose, position, count, onPrev, onNext
           </div>
         </div>
       </DialogContent>
+      {imageUrl && (
+        <ImageEditor
+          open={editorOpen}
+          onClose={() => setEditorOpen(false)}
+          jobId={item.id}
+          imageUrl={imageUrl}
+        />
+      )}
     </Dialog>
   )
 }

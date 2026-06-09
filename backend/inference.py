@@ -14,17 +14,134 @@ The BF16Pipeline presets are already in forward order.
 """
 from __future__ import annotations
 
+import contextlib
+import json
 import logging
 import os
 import random
 import threading
+import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Callable
 
 from PIL import Image
 
 logger = logging.getLogger(__name__)
+
+
+@contextlib.contextmanager
+def _no_random_init():
+    """Skip parameter initialization while building model skeletons.
+
+    THE FIX for the system-freeze bug: ideogram4's loader constructs the full
+    transformer in float32 on the CPU and runs random weight initialization
+    (kaiming/uniform/...) on tens of GB of parameters BEFORE swapping in the
+    quantized layers. Writing those initial values touches every memory page,
+    which exhausts physical RAM on 16-32 GB machines and freezes Windows in
+    pagefile thrash.
+
+    Every initialized value is immediately overwritten by checkpoint weights
+    (the loader raises on missing keys), so the init work is 100% wasted.
+    No-oping torch.nn.init.* during construction leaves the skeleton's pages
+    untouched: memory stays virtual until real weights land, and the load fits
+    comfortably in normal amounts of RAM.
+    """
+    import torch.nn.init as nn_init
+
+    names = [
+        "uniform_", "normal_", "trunc_normal_", "constant_", "ones_", "zeros_",
+        "kaiming_uniform_", "kaiming_normal_", "xavier_uniform_",
+        "xavier_normal_", "orthogonal_", "dirac_", "sparse_", "eye_",
+    ]
+    saved = {n: getattr(nn_init, n) for n in names if hasattr(nn_init, n)}
+
+    def _noop(tensor, *args, **kwargs):
+        return tensor
+
+    try:
+        for n in saved:
+            setattr(nn_init, n, _noop)
+        yield
+    finally:
+        for n, fn in saved.items():
+            setattr(nn_init, n, fn)
+
+
+class LoadWatchdog:
+    """Monitors free RAM (and Windows commit charge) during a model load.
+
+    If memory gets critically low it logs the situation, writes an abort
+    marker (surfaced in the GUI on next start), flushes the log, and hard-
+    exits the process. Killing the server instantly frees its memory — far
+    better than letting Windows freeze solid in pagefile thrash.
+    """
+
+    WARN_GB = 3.0
+    ABORT_GB = 1.25
+    INTERVAL_S = 0.5
+
+    def __init__(self, variant: str, phase_ref: Callable[[], str]) -> None:
+        self._variant = variant
+        self._phase_ref = phase_ref
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+        self._last_warn = 0.0
+
+    def __enter__(self) -> "LoadWatchdog":
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+        return self
+
+    def __exit__(self, *exc) -> None:
+        self._stop.set()
+        if self._thread:
+            self._thread.join(timeout=2)
+
+    def _run(self) -> None:
+        import system_check
+        from log_setup import ABORT_MARKER, flush_all
+
+        while not self._stop.wait(self.INTERVAL_S):
+            try:
+                _total, avail = system_check.get_ram_gb()
+                _climit, cavail = system_check.get_commit_gb()
+            except Exception:
+                continue
+            lows = [v for v in (avail, cavail) if v is not None]
+            if not lows:
+                continue
+            lowest = min(lows)
+
+            if lowest < self.ABORT_GB:
+                snapshot = system_check.mem_snapshot()
+                phase = self._phase_ref() or "unknown phase"
+                logger.critical(
+                    "EMERGENCY ABORT: memory critically low while loading %s "
+                    "(%s) during '%s'. Killing the server NOW to free memory "
+                    "before the operating system freezes.",
+                    self._variant, snapshot, phase,
+                )
+                try:
+                    ABORT_MARKER.parent.mkdir(parents=True, exist_ok=True)
+                    ABORT_MARKER.write_text(json.dumps({
+                        "time": datetime.now(timezone.utc).isoformat(),
+                        "variant": self._variant,
+                        "phase": phase,
+                        "memory": snapshot,
+                    }, indent=2), encoding="utf-8")
+                except Exception:
+                    pass
+                flush_all()
+                os._exit(3)
+
+            if lowest < self.WARN_GB and time.monotonic() - self._last_warn > 10:
+                self._last_warn = time.monotonic()
+                logger.warning(
+                    "Memory running low while loading %s: %s",
+                    self._variant, system_check.mem_snapshot(),
+                )
 
 
 @dataclass
@@ -111,11 +228,14 @@ class FP8Pipeline(InferencePipeline):
             os.environ.setdefault("HUGGING_FACE_HUB_TOKEN", hf_token)
 
         config = Ideogram4PipelineConfig(weights_repo=self.REPO)
-        self._pipe = Ideogram4Pipeline.from_pretrained(
-            config=config,
-            device="cuda",
-            dtype=torch.bfloat16,
-        )
+        # _no_random_init: see its docstring — prevents the CPU-RAM explosion
+        # in ideogram4's skeleton construction that can freeze the machine.
+        with _no_random_init():
+            self._pipe = Ideogram4Pipeline.from_pretrained(
+                config=config,
+                device="cuda",
+                dtype=torch.bfloat16,
+            )
 
     def generate(
         self,
@@ -170,11 +290,12 @@ class NF4Pipeline(FP8Pipeline):
             os.environ.setdefault("HUGGING_FACE_HUB_TOKEN", hf_token)
 
         config = Ideogram4PipelineConfig(weights_repo=self.REPO)
-        self._pipe = Ideogram4Pipeline.from_pretrained(
-            config=config,
-            device="cuda",
-            dtype=torch.bfloat16,
-        )
+        with _no_random_init():
+            self._pipe = Ideogram4Pipeline.from_pretrained(
+                config=config,
+                device="cuda",
+                dtype=torch.bfloat16,
+            )
 
 
 # ── bf16 pipeline ─────────────────────────────────────────────────────────────
@@ -302,6 +423,28 @@ class PipelineManager:
         self.progress_message: str | None = None
         self.download_pct: float | None = None
         self._load_lock = threading.Lock()
+        self._surface_previous_abort()
+
+    def _surface_previous_abort(self) -> None:
+        """If the last load was emergency-aborted, explain it in the GUI."""
+        try:
+            from log_setup import ABORT_MARKER
+
+            if not ABORT_MARKER.exists():
+                return
+            info = json.loads(ABORT_MARKER.read_text(encoding="utf-8"))
+            ABORT_MARKER.rename(ABORT_MARKER.with_suffix(".seen.json"))
+            self.status = "error"
+            self.error = (
+                f"The previous {info.get('variant', '?')} model load was aborted on "
+                f"{info.get('time', '?')} because system memory ran critically low "
+                f"({info.get('memory', 'n/a')}) during '{info.get('phase', '?')}'. "
+                "The server shut itself down to prevent your computer from freezing. "
+                "Close memory-heavy apps before loading, and see logs/app.log for the full story."
+            )
+            logger.warning("Surfaced previous emergency abort: %s", info)
+        except Exception:
+            pass
 
     @property
     def variant(self) -> str | None:
@@ -358,7 +501,10 @@ class PipelineManager:
         monitor = threading.Thread(target=_monitor, daemon=True)
         monitor.start()
         try:
-            snapshot_download(repo_id=repo, token=os.environ.get("HF_TOKEN"))
+            # max_workers=4: gentler on RAM/disk than the default 8 threads
+            snapshot_download(
+                repo_id=repo, token=os.environ.get("HF_TOKEN"), max_workers=4
+            )
         finally:
             stop.set()
             monitor.join(timeout=5)
@@ -378,6 +524,14 @@ class PipelineManager:
                 f"The GPU ran out of memory while loading {repo}. "
                 "Switch to the nf4 variant (Settings → Model), which is built for 24 GB GPUs."
             )
+        if "defaultcpuallocator" in lowered or "not enough memory" in lowered or "paging file" in lowered:
+            return (
+                "The system ran out of memory (RAM + pagefile) while loading the model. "
+                "Close memory-heavy applications, then increase the Windows pagefile: "
+                "Settings > System > About > Advanced system settings > Performance Settings "
+                "> Advanced > Virtual memory — set a custom size of 40000 MB or more on a "
+                "drive with free space, reboot, and try again. See logs/app.log for details."
+            )
         if "no space left" in lowered or "disk" in lowered and "full" in lowered:
             return "The disk filled up during download. Free up space and try again — downloads resume where they left off."
         return text
@@ -388,37 +542,55 @@ class PipelineManager:
         """Blocking — call from a thread pool, not the event loop."""
         if not self._load_lock.acquire(blocking=False):
             raise RuntimeError("A model load is already in progress")
+
+        import system_check
+
+        t0 = time.monotonic()
         try:
             self.error = None
 
             if variant not in self.REPOS:
                 raise ValueError(f"Unknown variant: {variant!r}")
 
-            self.status = "downloading"
-            self.progress_message = f"Preparing {variant} download…"
-            self._download(variant)
+            logger.info("=== MODEL LOAD START: %s (%s) | %s ===",
+                        variant, self.REPOS[variant], system_check.mem_snapshot())
 
-            self.status = "loading"
-            self.progress_message = f"Loading {variant} weights into GPU memory…"
+            with LoadWatchdog(variant, lambda: self.progress_message or self.status):
+                self.status = "downloading"
+                self.progress_message = f"Preparing {variant} download…"
+                self._download(variant)
+                logger.info("Download phase done after %.1fs | %s",
+                            time.monotonic() - t0, system_check.mem_snapshot())
 
-            if self._pipeline is not None:
-                self._pipeline.unload()
-                self._pipeline = None
-                self._variant = None
+                self.status = "loading"
+                self.progress_message = f"Loading {variant} weights into GPU memory…"
 
-            if variant == "fp8":
-                pipeline: InferencePipeline = FP8Pipeline()
-            elif variant == "nf4":
-                pipeline = NF4Pipeline()
-            else:
-                pipeline = BF16Pipeline()
+                if self._pipeline is not None:
+                    logger.info("Unloading previous pipeline (%s)", self._variant)
+                    self._pipeline.unload()
+                    self._pipeline = None
+                    self._variant = None
 
-            pipeline.load()
+                if variant == "fp8":
+                    pipeline: InferencePipeline = FP8Pipeline()
+                elif variant == "nf4":
+                    pipeline = NF4Pipeline()
+                else:
+                    pipeline = BF16Pipeline()
+
+                logger.info("Building pipeline (this is the memory-heavy phase) | %s",
+                            system_check.mem_snapshot())
+                pipeline.load()
+                logger.info("Pipeline built | %s", system_check.mem_snapshot())
+
             self._pipeline = pipeline
             self._variant = variant
             self.status = "ready"
+            logger.info("=== MODEL LOAD OK: %s in %.1fs | %s ===",
+                        variant, time.monotonic() - t0, system_check.mem_snapshot())
         except Exception as exc:
-            logger.exception("Model load failed")
+            logger.exception("=== MODEL LOAD FAILED: %s after %.1fs | %s ===",
+                             variant, time.monotonic() - t0, system_check.mem_snapshot())
             self.status = "error"
             self.error = self._friendly_load_error(exc, self.REPOS.get(variant, variant))
         finally:

@@ -1,5 +1,10 @@
 import { useState } from "react"
-import { Eye, EyeOff, Save, Loader2, CheckCircle2, ExternalLink, Power, PowerOff } from "lucide-react"
+import {
+  Eye, EyeOff, Save, Loader2, CheckCircle2, ExternalLink, Power, PowerOff,
+  ScrollText, RefreshCw, ChevronDown, ChevronUp,
+} from "lucide-react"
+import { useQuery } from "@tanstack/react-query"
+import type { LogsResponse } from "@/types/api"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -41,6 +46,59 @@ function SecretInput({
       >
         {show ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
       </button>
+    </div>
+  )
+}
+
+function LogsViewer() {
+  const [open, setOpen] = useState(false)
+  const { data, isFetching, refetch } = useQuery<LogsResponse>({
+    queryKey: ["logs"],
+    queryFn: async () => {
+      const res = await fetch("/api/logs?lines=300")
+      if (!res.ok) throw new Error("Could not read logs")
+      return res.json()
+    },
+    enabled: open,
+    refetchInterval: open ? 5000 : false,
+  })
+
+  return (
+    <div className="rounded-xl border border-zinc-700 bg-zinc-800/40">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center justify-between p-4 text-left"
+      >
+        <div className="flex items-center gap-2">
+          <ScrollText className="h-4 w-4 text-zinc-500" />
+          <div>
+            <p className="text-sm text-zinc-200">Application Log</p>
+            <p className="text-[11px] text-zinc-500">
+              Every download, model load, memory snapshot, and error — survives crashes
+            </p>
+          </div>
+        </div>
+        {open ? <ChevronUp className="h-4 w-4 text-zinc-500" /> : <ChevronDown className="h-4 w-4 text-zinc-500" />}
+      </button>
+      {open && (
+        <div className="border-t border-zinc-700 p-4 space-y-2">
+          <div className="flex items-center justify-between">
+            <p className="text-[10px] text-zinc-600 font-mono truncate">{data?.path ?? "logs/app.log"}</p>
+            <button
+              type="button"
+              onClick={() => refetch()}
+              className="flex items-center gap-1 text-[11px] text-zinc-500 hover:text-zinc-300 transition-colors shrink-0"
+            >
+              <RefreshCw className={isFetching ? "h-3 w-3 animate-spin" : "h-3 w-3"} />
+              Refresh
+            </button>
+          </div>
+          <pre className="text-[10px] leading-relaxed font-mono text-zinc-400 bg-zinc-950 rounded-lg p-3 overflow-auto max-h-80 whitespace-pre-wrap break-all">
+            {data?.lines.length ? data.lines.join("\n") : "No log entries yet."}
+          </pre>
+        </div>
+      )}
     </div>
   )
 }
@@ -340,6 +398,12 @@ export function Settings() {
               )}
             </div>
           </div>
+        </div>
+
+        {/* ── Logs ── */}
+        <div className="space-y-3">
+          <SectionTitle>Diagnostics</SectionTitle>
+          <LogsViewer />
         </div>
 
         {/* ── About ── */}

@@ -33,10 +33,13 @@ from caption import build_caption, parse_caption_json
 from inference import GenerationSettings, PipelineManager
 from magic_prompt_service import MagicPromptService
 from schemas import (
+    EditRequest,
+    EditResponse,
     GalleryItem,
     GalleryListResponse,
     GenerationRequest,
     FavoriteRequest,
+    LogsResponse,
     MagicPromptRequest,
     MagicPromptResponse,
     ModelLoadRequest,
@@ -49,7 +52,12 @@ from schemas import (
     UpscaleResponse,
 )
 import system_check
+import log_setup
 from settings import DIST_DIR, OUTPUTS_DIR, DB_PATH, settings as app_settings
+
+# Persistent rotating log — survives crashes; this is where post-mortems live.
+log_setup.setup_logging()
+logger = __import__("logging").getLogger("studio")
 
 # ── Directories ───────────────────────────────────────────────────────────────
 OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
@@ -62,10 +70,14 @@ _inference_executor = ThreadPoolExecutor(max_workers=1)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # STARTUP
+    logger.info("===== Ideogram Studio starting — log file: %s =====", log_setup.LOG_FILE)
+    logger.info("Startup memory: %s", system_check.mem_snapshot())
     app.state.db = await aiosqlite.connect(str(DB_PATH))
     await gallery_service.init_db(app.state.db)
 
     app.state.pipeline = PipelineManager()
+    if app.state.pipeline.error:
+        logger.warning("Previous session note: %s", app.state.pipeline.error)
 
     # Build magic-prompt service (may fail gracefully if no API key set)
     try:
@@ -438,6 +450,11 @@ async def generation_ws(websocket: WebSocket, job_id: str):
             )
             return
 
+    logger.info(
+        "Generation %s: %dx%d %s on %s (seed=%s)",
+        job_id, gen_req.width, gen_req.height, gen_req.sampler_preset,
+        gen_req.model_variant, gen_req.seed,
+    )
     await websocket.send_json({"type": "started", "job_id": job_id})
 
     settings = GenerationSettings(
@@ -510,6 +527,7 @@ async def generation_ws(websocket: WebSocket, job_id: str):
                 )
                 break
             elif msg["type"] == "error":
+                logger.error("Generation %s failed: %s", job_id, msg["message"])
                 await gallery_service.fail_job(db, job_id, msg["message"])
                 break
     except WebSocketDisconnect:
@@ -560,6 +578,67 @@ async def upscale_image_endpoint(request: Request, body: UpscaleRequest):
         upscaled_width=up_size[0],
         upscaled_height=up_size[1],
     )
+
+
+# ── Image editing API ─────────────────────────────────────────────────────────
+# The Ideogram 4 open-weights release is text-to-image only (no inpainting /
+# img2img — Canvas and Magic Fill remain ideogram.ai server-side products), so
+# these are classic local edits applied with Pillow and saved as a new copy.
+
+@app.post("/api/edit", response_model=EditResponse)
+async def edit_image_endpoint(request: Request, body: EditRequest):
+    import uuid as _uuid
+    from editor import apply_edits
+
+    db = request.app.state.db
+    item = await gallery_service.get_job(db, body.job_id)
+    if not item or not item.get("image_path"):
+        raise HTTPException(404, "Job not found")
+
+    source_path = OUTPUTS_DIR / Path(item["image_path"]).name
+    if not source_path.exists():
+        raise HTTPException(404, "Image file not found on disk")
+
+    image_bytes = source_path.read_bytes()
+    loop = asyncio.get_running_loop()
+    try:
+        png_bytes, (w, h) = await loop.run_in_executor(
+            None,
+            lambda: apply_edits(
+                image_bytes,
+                rotate=body.rotate,
+                flip_h=body.flip_h,
+                flip_v=body.flip_v,
+                brightness=body.brightness,
+                contrast=body.contrast,
+                saturation=body.saturation,
+                sharpness=body.sharpness,
+            ),
+        )
+    except Exception as exc:
+        logger.exception("Edit failed for %s", body.job_id)
+        raise HTTPException(500, f"Edit failed: {exc}") from exc
+
+    new_id = str(_uuid.uuid4())
+    out_name = f"{new_id}.png"
+    (OUTPUTS_DIR / out_name).write_bytes(png_bytes)
+    await gallery_service.insert_derived(
+        db, source=item, new_id=new_id, image_path=out_name, width=w, height=h
+    )
+    logger.info("Edited %s -> %s (rotate=%s flip_h=%s flip_v=%s)",
+                body.job_id, new_id, body.rotate, body.flip_h, body.flip_v)
+    return EditResponse(
+        job_id=new_id, image_url=f"/outputs/{out_name}", width=w, height=h
+    )
+
+
+# ── Logs API ──────────────────────────────────────────────────────────────────
+
+@app.get("/api/logs", response_model=LogsResponse)
+async def get_logs(lines: int = Query(default=200, ge=10, le=1000)):
+    loop = asyncio.get_running_loop()
+    tail = await loop.run_in_executor(None, lambda: log_setup.tail_log(lines))
+    return LogsResponse(lines=tail, path=str(log_setup.LOG_FILE))
 
 
 # ── Static file mounts — MUST be last ─────────────────────────────────────────

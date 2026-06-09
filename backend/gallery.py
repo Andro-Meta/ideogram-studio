@@ -159,6 +159,30 @@ async def list_jobs(
     return [_row_to_dict(r) for r in rows], total
 
 
+async def insert_derived(
+    db: aiosqlite.Connection,
+    *,
+    source: dict,
+    new_id: str,
+    image_path: str,
+    width: int,
+    height: int,
+) -> None:
+    """Insert a completed gallery record derived from an existing one (edits)."""
+    now = datetime.now(timezone.utc).isoformat()
+    await db.execute(
+        """INSERT INTO jobs (id, status, prompt_json, prompt_text, settings_json,
+           image_path, seed, width, height, sampler_preset, model_variant,
+           duration_ms, created_at)
+           VALUES (?, 'done', ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)""",
+        (new_id, source.get("prompt_json"), source.get("prompt_text"),
+         source.get("settings_json") or "{}", image_path, source.get("seed"),
+         width, height, source.get("sampler_preset"), source.get("model_variant"),
+         now),
+    )
+    await db.commit()
+
+
 async def set_favorite(
     db: aiosqlite.Connection, job_id: str, favorite: bool
 ) -> bool:

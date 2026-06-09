@@ -176,10 +176,51 @@ class SystemInfoResponse(BaseModel):
     vram_free_gb: float | None
     ram_total_gb: float | None
     ram_available_gb: float | None
+    commit_limit_gb: float | None = None
+    commit_available_gb: float | None = None
     disk_free_gb: float | None
     models_dir: str
     recommended_variant: str
     variants: list[VariantAssessment]
+
+
+# ── Image editing ────────────────────────────────────────────────────────────
+
+class EditRequest(BaseModel):
+    job_id: str
+    rotate: Literal[0, 90, 180, 270] = 0
+    flip_h: bool = False
+    flip_v: bool = False
+    brightness: float = 1.0
+    contrast: float = 1.0
+    saturation: float = 1.0
+    sharpness: float = 1.0
+
+    @field_validator("job_id")
+    @classmethod
+    def job_id_must_be_uuid(cls, v: str) -> str:
+        if not _UUID_RE.match(v):
+            raise ValueError("job_id must be a valid UUID")
+        return v
+
+    @field_validator("brightness", "contrast", "saturation", "sharpness")
+    @classmethod
+    def clamp_enhance(cls, v: float) -> float:
+        return max(0.2, min(3.0, v))
+
+
+class EditResponse(BaseModel):
+    job_id: str
+    image_url: str
+    width: int
+    height: int
+
+
+# ── Logs ─────────────────────────────────────────────────────────────────────
+
+class LogsResponse(BaseModel):
+    lines: list[str]
+    path: str
 
 
 # ── Settings ─────────────────────────────────────────────────────────────────
