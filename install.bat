@@ -23,6 +23,70 @@ if errorlevel 1 (
 for /f %%v in ('node --version 2^>^&1') do set NODE_VER=%%v
 echo [OK] Node.js %NODE_VER%
 
+:: ── Environment file ────────────────────────────────────────────
+if not exist .env (
+    copy .env.example .env >nul
+    echo [OK] .env created from template.
+) else (
+    echo [OK] .env already exists.
+)
+
+:: ── Output directory ────────────────────────────────────────────
+if not exist outputs mkdir outputs
+
+:: ── API key setup wizard (before downloads so user can walk away) ─
+echo.
+echo ================================================================
+echo   Setup: API Keys
+echo   (Collected now so the rest of install can run unattended)
+echo ================================================================
+
+:: HF_TOKEN
+set _CURRENT_HF=
+for /f "tokens=1,* delims==" %%a in ('findstr /b "HF_TOKEN=" .env 2^>nul') do set _CURRENT_HF=%%b
+echo.
+if not "!_CURRENT_HF!"=="" (
+    echo [OK] HF_TOKEN is already set.
+) else (
+    echo HuggingFace token ^(REQUIRED for model download^)
+    echo   1. Get your token at:  https://huggingface.co/settings/tokens
+    echo   2. Accept the license: https://huggingface.co/ideogram-ai/ideogram-4-fp8
+    echo      ^(also accept nf4 if you plan to use it^)
+    echo.
+    set /p _HF_INPUT=  Enter HF_TOKEN (or press Enter to set later):
+    if not "!_HF_INPUT!"=="" (
+        powershell -Command "(Get-Content .env) -replace '^HF_TOKEN=.*','HF_TOKEN=!_HF_INPUT!' | Set-Content .env"
+        echo [OK] HF_TOKEN saved to .env
+    ) else (
+        echo [SKIP] HF_TOKEN not set. Edit .env and add it before first run.
+    )
+)
+
+:: IDEOGRAM_API_KEY
+set _CURRENT_IDEOGRAM=
+for /f "tokens=1,* delims==" %%a in ('findstr /b "IDEOGRAM_API_KEY=" .env 2^>nul') do set _CURRENT_IDEOGRAM=%%b
+echo.
+if not "!_CURRENT_IDEOGRAM!"=="" (
+    echo [OK] IDEOGRAM_API_KEY is already set.
+) else (
+    echo Ideogram API key ^(optional - enables Magic Prompt AI enhancement^)
+    echo   Free at: https://developer.ideogram.ai
+    echo.
+    set /p _IDEOGRAM_INPUT=  Enter IDEOGRAM_API_KEY (or press Enter to skip):
+    if not "!_IDEOGRAM_INPUT!"=="" (
+        powershell -Command "(Get-Content .env) -replace '^IDEOGRAM_API_KEY=.*','IDEOGRAM_API_KEY=!_IDEOGRAM_INPUT!' | Set-Content .env"
+        echo [OK] IDEOGRAM_API_KEY saved to .env
+    ) else (
+        echo [SKIP] Magic Prompt unavailable until a key is added ^(Settings page in the UI^).
+    )
+)
+
+echo.
+echo ================================================================
+echo   Installing dependencies (this may take 20-40 minutes)...
+echo ================================================================
+
+:: ── Python environment ───────────────────────────────────────────
 echo.
 echo [1/7] Creating Python virtual environment...
 python -m venv venv
@@ -74,63 +138,7 @@ pip install ^
     --quiet
 if errorlevel 1 ( echo [ERROR] pip install failed & pause & exit /b 1 )
 
-:: ── Environment file ────────────────────────────────────────────
-if not exist .env (
-    copy .env.example .env >nul
-    echo [OK] .env created from template.
-) else (
-    echo [OK] .env already exists.
-)
-
-:: ── Output directory ────────────────────────────────────────────
-if not exist outputs mkdir outputs
-
-:: ── API key setup wizard ─────────────────────────────────────────
-echo.
-echo ================================================================
-echo   Setup: API Keys
-echo ================================================================
-
-:: HF_TOKEN
-set _CURRENT_HF=
-for /f "tokens=1,* delims==" %%a in ('findstr /b "HF_TOKEN=" .env 2^>nul') do set _CURRENT_HF=%%b
-echo.
-if not "!_CURRENT_HF!"=="" (
-    echo [OK] HF_TOKEN is already set.
-) else (
-    echo HuggingFace token ^(REQUIRED for model download^)
-    echo   1. Get your token at:  https://huggingface.co/settings/tokens
-    echo   2. Accept the license: https://huggingface.co/ideogram-ai/ideogram-4-fp8
-    echo      ^(also accept nf4 if you plan to use it^)
-    echo.
-    set /p _HF_INPUT=  Enter HF_TOKEN (or press Enter to set later):
-    if not "!_HF_INPUT!"=="" (
-        powershell -Command "(Get-Content .env) -replace '^HF_TOKEN=.*','HF_TOKEN=!_HF_INPUT!' | Set-Content .env"
-        echo [OK] HF_TOKEN saved to .env
-    ) else (
-        echo [SKIP] HF_TOKEN not set. Edit .env and add it before first run.
-    )
-)
-
-:: IDEOGRAM_API_KEY
-set _CURRENT_IDEOGRAM=
-for /f "tokens=1,* delims==" %%a in ('findstr /b "IDEOGRAM_API_KEY=" .env 2^>nul') do set _CURRENT_IDEOGRAM=%%b
-echo.
-if not "!_CURRENT_IDEOGRAM!"=="" (
-    echo [OK] IDEOGRAM_API_KEY is already set.
-) else (
-    echo Ideogram API key ^(optional - enables Magic Prompt AI enhancement^)
-    echo   Free at: https://developer.ideogram.ai
-    echo.
-    set /p _IDEOGRAM_INPUT=  Enter IDEOGRAM_API_KEY (or press Enter to skip):
-    if not "!_IDEOGRAM_INPUT!"=="" (
-        powershell -Command "(Get-Content .env) -replace '^IDEOGRAM_API_KEY=.*','IDEOGRAM_API_KEY=!_IDEOGRAM_INPUT!' | Set-Content .env"
-        echo [OK] IDEOGRAM_API_KEY saved to .env
-    ) else (
-        echo [SKIP] Magic Prompt unavailable until a key is added ^(Settings page in the UI^).
-    )
-)
-
+:: ── Frontend ─────────────────────────────────────────────────────
 echo.
 echo [6/7] Installing Node.js dependencies...
 cd frontend
