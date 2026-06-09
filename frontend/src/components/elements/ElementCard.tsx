@@ -4,7 +4,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { cn } from "@/lib/utils"
-import { elementColor } from "@/lib/caption"
+import { elementColor, wordCount } from "@/lib/caption"
 import { defaultBBoxForIndex } from "@/lib/bbox"
 import { ElementTypeBadge } from "./ElementTypeBadge"
 import { PaletteEditor } from "@/components/palette/PaletteEditor"
@@ -93,22 +93,41 @@ export function ElementCard({ element, index, onFocus }: Props) {
           )}
 
           {/* Description */}
-          <div className={cn("space-y-1", element.type === "text" ? "" : "pt-3")}>
-            <Label className="text-xs text-zinc-400">
-              Description <span className="text-zinc-600">(30–60 words)</span>
-            </Label>
-            <Textarea
-              value={element.desc}
-              onChange={(e) => updateElement(element.id, { desc: e.target.value })}
-              placeholder={
-                element.type === "text"
-                  ? "Font style, color, size, placement details..."
-                  : "Visual appearance, material, lighting, pose, details..."
-              }
-              rows={3}
-              className="bg-zinc-800 border-zinc-700 text-zinc-100 text-sm resize-none"
-            />
-          </div>
+          {(() => {
+            const wc = wordCount(element.desc)
+            const tooShort = wc > 0 && wc < 30
+            const tooLong  = wc > 60
+            return (
+              <div className={cn("space-y-1", element.type === "text" ? "" : "pt-3")}>
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs text-zinc-400">Description</Label>
+                  <span className={cn(
+                    "text-[10px] tabular-nums",
+                    tooLong ? "text-amber-400" : tooShort ? "text-zinc-500" : "text-zinc-600"
+                  )}>
+                    {wc} / 30–60 words
+                  </span>
+                </div>
+                <Textarea
+                  value={element.desc}
+                  onChange={(e) => updateElement(element.id, { desc: e.target.value })}
+                  placeholder={
+                    element.type === "text"
+                      ? "Font style, color, size, placement details..."
+                      : "Visual appearance, material, lighting, pose, details..."
+                  }
+                  rows={3}
+                  className={cn(
+                    "bg-zinc-800 border-zinc-700 text-zinc-100 text-sm resize-none",
+                    tooLong && "border-amber-500/50"
+                  )}
+                />
+                {tooLong && (
+                  <p className="text-[10px] text-amber-400/80">Over 60 words — image quality may degrade.</p>
+                )}
+              </div>
+            )
+          })()}
 
           {/* Palette */}
           <PaletteEditor

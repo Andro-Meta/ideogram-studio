@@ -97,44 +97,54 @@ export function snapTo16(value: number): number {
 
 /**
  * Build the Ideogram 4 caption JSON string from a PromptState.
- * Key ordering matches the backend caption.py OrderedDict exactly.
+ *
+ * Rules (from caption.py + CaptionVerifier):
+ *  - Omit high_level_description when empty (model handles absent fine)
+ *  - Omit style_description when none of aesthetics/lighting/medium is set
+ *  - Key ordering in style MUST match training data: aesthetics → lighting →
+ *    photo → medium (photo mode) or medium → art_style (illustration mode)
+ *  - Always include the mode-discriminator key (photo / art_style) so that
+ *    "Load into Editor" can reliably round-trip photo vs illustration mode
+ *  - Fill defaults for empty required fields, matching backend caption.py
  */
 export function buildCaption(state: PromptState): string {
-  const style: Record<string, unknown> = {}
-  if (state.style_description.aesthetics) style.aesthetics = state.style_description.aesthetics
-  if (state.style_description.lighting) style.lighting = state.style_description.lighting
-  if (state.style_description.medium) style.medium = state.style_description.medium
-  if (state.style_description.mode === "photo") {
-    if (state.style_description.photo) style.photo = state.style_description.photo
-  } else {
-    if (state.style_description.art_style) style.art_style = state.style_description.art_style
-  }
-  if (state.style_description.color_palette.length > 0) {
-    style.color_palette = state.style_description.color_palette
+  const caption: Record<string, unknown> = {}
+
+  const hld = state.high_level_description.trim()
+  if (hld) caption.high_level_description = hld
+
+  const sd = state.style_description
+  const hasStyleBase = !!(sd.aesthetics.trim() || sd.lighting.trim() || sd.medium.trim())
+  if (hasStyleBase) {
+    const style: Record<string, unknown> = {
+      aesthetics: sd.aesthetics.trim() || "natural",
+      lighting:   sd.lighting.trim()   || "natural lighting",
+    }
+    if (sd.mode === "photo") {
+      // photo BEFORE medium — exact backend key order
+      style.photo  = sd.photo.trim()  || "standard lens"
+      style.medium = sd.medium.trim() || "photograph"
+    } else {
+      // medium BEFORE art_style
+      style.medium    = sd.medium.trim()    || "illustration"
+      style.art_style = sd.art_style.trim() || "digital art"
+    }
+    if (sd.color_palette.length > 0) style.color_palette = sd.color_palette
+    caption.style_description = style
   }
 
   const elements = state.elements.map((el) => {
     const e: Record<string, unknown> = { type: el.type }
-    if (el.bbox) {
-      e.bbox = [el.bbox.ymin, el.bbox.xmin, el.bbox.ymax, el.bbox.xmax]
-    }
-    if (el.type === "text" && el.text) {
-      e.text = el.text
-    }
-    e.desc = el.desc
-    if (el.color_palette.length > 0) {
-      e.color_palette = el.color_palette
-    }
+    if (el.bbox) e.bbox = [el.bbox.ymin, el.bbox.xmin, el.bbox.ymax, el.bbox.xmax]
+    if (el.type === "text") e.text = el.text || ""
+    e.desc = el.desc.trim() || "An element in the scene."
+    if (el.color_palette.length > 0) e.color_palette = el.color_palette
     return e
   })
 
-  const caption: Record<string, unknown> = {
-    high_level_description: state.high_level_description,
-    style_description: style,
-    compositional_deconstruction: {
-      background: state.background,
-      elements,
-    },
+  caption.compositional_deconstruction = {
+    background: state.background.trim() || "A neutral background.",
+    elements,
   }
 
   return JSON.stringify(caption)

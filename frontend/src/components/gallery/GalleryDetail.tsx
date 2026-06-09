@@ -41,7 +41,7 @@ export function GalleryDetail({ itemId, onClose }: Props) {
       const parsed = JSON.parse(item.prompt_json)
       const style = parsed.style_description ?? {}
       const comp  = parsed.compositional_deconstruction ?? {}
-      const mode  = "art_style" in style ? "illustration" : "photo"
+      const mode  = "photo" in style ? "photo" : "illustration"
       loadFromParsed({
         high_level_description: parsed.high_level_description ?? "",
         style_description: {

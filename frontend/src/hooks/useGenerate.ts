@@ -1,4 +1,5 @@
 import { useCallback, useRef } from "react"
+import { useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 import { useGenerationStore } from "@/stores/generationStore"
 import type { GenerationRequest, WsMessage } from "@/types/api"
@@ -6,6 +7,7 @@ import type { GenerationRequest, WsMessage } from "@/types/api"
 export function useGenerate() {
   const wsRef = useRef<WebSocket | null>(null)
   const store = useGenerationStore()
+  const queryClient = useQueryClient()
 
   const generate = useCallback((req: GenerationRequest) => {
     if (wsRef.current) {
@@ -48,6 +50,7 @@ export function useGenerate() {
         case "done":
           store.setDone(msg.image_url, msg.seed, msg.duration_ms)
           toast.success(`Image generated in ${(msg.duration_ms / 1000).toFixed(1)}s`)
+          queryClient.invalidateQueries({ queryKey: ["gallery"] })
           ws.close()
           break
         case "error":

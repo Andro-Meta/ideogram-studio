@@ -1,4 +1,4 @@
-import { Zap, Square, RotateCcw, AlertTriangle, Loader2 } from "lucide-react"
+import { Zap, Square, RotateCcw, AlertTriangle, Loader2, Power } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { Progress } from "@/components/ui/progress"
@@ -18,15 +18,20 @@ import { usePromptStore } from "@/stores/promptStore"
 import { useSettingsStore } from "@/stores/settingsStore"
 import { useGenerationStore } from "@/stores/generationStore"
 import { useGenerate } from "@/hooks/useGenerate"
-import { useModelStatus } from "@/hooks/useModelStatus"
+import { useModelStatus, useLoadModel } from "@/hooks/useModelStatus"
 import { buildCaption, validatePromptState } from "@/lib/caption"
 
-function ModelStatusBadge() {
+function ModelStatusPanel() {
   const { data } = useModelStatus()
+  const { modelVariant } = useSettingsStore()
+  const loadModel = useLoadModel()
+
   const status = data?.status ?? "unloaded"
   const variant = data?.variant
+  const vramMb = data?.vram_used_mb
+  const vramGb = vramMb ? (vramMb / 1024).toFixed(1) : null
 
-  const colors: Record<string, string> = {
+  const statusColors: Record<string, string> = {
     ready:    "bg-emerald-500/20 text-emerald-300 border-emerald-500/50",
     loading:  "bg-amber-500/20  text-amber-300  border-amber-500/50",
     unloaded: "bg-zinc-700/50   text-zinc-400   border-zinc-600",
@@ -34,10 +39,40 @@ function ModelStatusBadge() {
   }
 
   return (
-    <div className={cn("flex items-center gap-1.5 px-2 py-1 rounded border text-[11px]", colors[status])}>
-      {status === "loading" && <Loader2 className="h-3 w-3 animate-spin" />}
-      <span className="capitalize">{status}</span>
-      {variant && <span className="opacity-60">({variant.toUpperCase()})</span>}
+    <div className="space-y-2">
+      <p className="text-xs font-medium text-zinc-300 uppercase tracking-wider">Model</p>
+
+      {/* Status badge */}
+      <div className={cn("flex items-center gap-1.5 px-2 py-1 rounded border text-[11px]", statusColors[status])}>
+        {status === "loading" && <Loader2 className="h-3 w-3 animate-spin" />}
+        <span className="capitalize">{status}</span>
+        {variant && <span className="opacity-60">({variant.toUpperCase()})</span>}
+        {vramGb && <span className="ml-auto opacity-60">{vramGb} GB</span>}
+      </div>
+
+      {/* Load button — shown when model is not loaded */}
+      {(status === "unloaded" || status === "error") && (
+        <Button
+          size="sm"
+          variant="outline"
+          className="w-full border-zinc-700 bg-zinc-800/60 hover:bg-violet-500/10 hover:border-violet-500/50 hover:text-violet-300 text-zinc-400 text-xs h-7 gap-1.5"
+          disabled={loadModel.isPending}
+          onClick={() => loadModel.mutate(modelVariant)}
+        >
+          {loadModel.isPending
+            ? <Loader2 className="h-3 w-3 animate-spin" />
+            : <Power className="h-3 w-3" />}
+          Pre-load {modelVariant.toUpperCase()}
+        </Button>
+      )}
+
+      {status === "loading" && (
+        <p className="text-[10px] text-amber-400/70">First load takes 20–40s to download weights</p>
+      )}
+
+      {data?.error && (
+        <p className="text-[10px] text-red-400 bg-red-500/10 rounded px-2 py-1">{data.error}</p>
+      )}
     </div>
   )
 }
@@ -158,7 +193,7 @@ export function Generate() {
                 )}
               </div>
               <Progress
-                value={status === "loading-model" ? null : progressPct}
+                value={status === "loading-model" ? undefined : progressPct}
                 className="h-1.5 bg-zinc-700"
               />
             </div>
@@ -204,11 +239,7 @@ export function Generate() {
       <div className="w-60 shrink-0 border-l border-zinc-800 bg-zinc-900/30 flex flex-col">
         <ScrollArea className="flex-1">
           <div className="p-4 space-y-5">
-            {/* Model status */}
-            <div className="space-y-2">
-              <p className="text-xs font-medium text-zinc-300 uppercase tracking-wider">Status</p>
-              <ModelStatusBadge />
-            </div>
+            <ModelStatusPanel />
 
             <Separator className="bg-zinc-800" />
             <ModelVariantToggle />

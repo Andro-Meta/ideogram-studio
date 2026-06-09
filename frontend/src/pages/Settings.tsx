@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { Eye, EyeOff, Save, Loader2, CheckCircle2, ExternalLink } from "lucide-react"
+import { Eye, EyeOff, Save, Loader2, CheckCircle2, ExternalLink, Power, PowerOff } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -7,7 +7,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
 import { useSettings, useUpdateSettings } from "@/hooks/useSettings"
-import { useModelStatus } from "@/hooks/useModelStatus"
+import { useModelStatus, useLoadModel } from "@/hooks/useModelStatus"
+import { useSettingsStore } from "@/stores/settingsStore"
 import type { SettingsUpdateRequest } from "@/types/api"
 
 function SecretInput({
@@ -53,13 +54,15 @@ export function Settings() {
   const { data: serverSettings, isLoading } = useSettings()
   const { data: modelStatus } = useModelStatus()
   const updateMutation = useUpdateSettings()
+  const loadModelMutation = useLoadModel()
+  const { modelVariant } = useSettingsStore()
 
   const [hfToken, setHfToken] = useState("")
   const [ideogramKey, setIdeogramKey] = useState("")
   const [openrouterKey, setOpenrouterKey] = useState("")
   const [mpBackend, setMpBackend] = useState<string>("")
 
-  const effectiveMpBackend = mpBackend || serverSettings?.magic_prompt_backend || "ideogram"
+  const effectiveMpBackend = mpBackend || serverSettings?.magic_prompt_backend || "ideogram-4-v1"
 
   const handleSave = () => {
     const payload: SettingsUpdateRequest = {}
@@ -192,7 +195,7 @@ export function Settings() {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent className="bg-zinc-800 border-zinc-700">
-                <SelectItem value="ideogram" className="text-zinc-200">
+                <SelectItem value="ideogram-4-v1" className="text-zinc-200">
                   Ideogram API — ideogram-4-v1
                 </SelectItem>
                 <SelectItem value="claude-sonnet" className="text-zinc-200">
@@ -211,23 +214,24 @@ export function Settings() {
 
         {/* ── Model Status ── */}
         <div className="space-y-3">
-          <SectionTitle>Model Status</SectionTitle>
-          <div className="rounded-xl border border-zinc-700 bg-zinc-800/40 p-4 space-y-2">
+          <SectionTitle>Model</SectionTitle>
+          <div className="rounded-xl border border-zinc-700 bg-zinc-800/40 p-4 space-y-3">
             <div className="flex items-center justify-between text-sm">
               <span className="text-zinc-400">Status</span>
               <span className={cn(
-                "font-medium capitalize",
+                "font-medium capitalize flex items-center gap-1.5",
                 modelStatus?.status === "ready"   ? "text-emerald-400" :
                 modelStatus?.status === "loading" ? "text-amber-400" :
                 modelStatus?.status === "error"   ? "text-red-400" :
                 "text-zinc-500"
               )}>
+                {modelStatus?.status === "loading" && <Loader2 className="h-3 w-3 animate-spin" />}
                 {modelStatus?.status ?? "—"}
               </span>
             </div>
             {modelStatus?.variant && (
               <div className="flex items-center justify-between text-sm">
-                <span className="text-zinc-400">Variant</span>
+                <span className="text-zinc-400">Loaded variant</span>
                 <span className="text-zinc-300 font-mono">{modelStatus.variant.toUpperCase()}</span>
               </div>
             )}
@@ -240,6 +244,41 @@ export function Settings() {
             {modelStatus?.error && (
               <p className="text-xs text-red-400 bg-red-500/10 rounded p-2">{modelStatus.error}</p>
             )}
+            <div className="pt-1 flex gap-2">
+              {(modelStatus?.status === "unloaded" || modelStatus?.status === "error") && (
+                <Button
+                  size="sm"
+                  className="flex-1 bg-violet-600 hover:bg-violet-500 text-white text-xs h-8 gap-1.5"
+                  disabled={loadModelMutation.isPending}
+                  onClick={() => loadModelMutation.mutate(modelVariant)}
+                >
+                  {loadModelMutation.isPending
+                    ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    : <Power className="h-3.5 w-3.5" />}
+                  Load {modelVariant.toUpperCase()}
+                </Button>
+              )}
+              {modelStatus?.status === "ready" && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="flex-1 border-zinc-700 bg-zinc-800 hover:bg-red-500/10 hover:border-red-500/50 hover:text-red-400 text-zinc-400 text-xs h-8 gap-1.5"
+                  onClick={async () => {
+                    await fetch("/api/model/unload", { method: "POST" })
+                    window.location.reload()
+                  }}
+                >
+                  <PowerOff className="h-3.5 w-3.5" />
+                  Unload
+                </Button>
+              )}
+              {modelStatus?.status === "loading" && (
+                <p className="text-[11px] text-amber-400/80 flex items-center gap-1">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  Loading model — this takes 20–40s on first run
+                </p>
+              )}
+            </div>
           </div>
         </div>
 

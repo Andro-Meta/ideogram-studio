@@ -7,7 +7,6 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-import re
 import time
 import threading
 import webbrowser
@@ -18,7 +17,7 @@ from pathlib import Path
 import aiosqlite
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 import gallery as gallery_service
@@ -190,19 +189,6 @@ async def gallery_delete(request: Request, job_id: str):
     return {"message": "Deleted"}
 
 
-# ── Outputs (image files) ─────────────────────────────────────────────────────
-
-_SAFE_FILENAME_RE = re.compile(r"^[0-9a-f\-]{36}\.png$")
-
-@app.get("/outputs/{filename}")
-async def serve_output(filename: str):
-    # Accept only UUID-named PNGs; reject anything with path separators or other chars
-    if not _SAFE_FILENAME_RE.match(filename):
-        raise HTTPException(400, "Invalid filename")
-    path = OUTPUTS_DIR / filename
-    if not path.exists():
-        raise HTTPException(404, "Image not found")
-    return FileResponse(str(path), media_type="image/png")
 
 
 # ── Settings API ──────────────────────────────────────────────────────────────
@@ -411,9 +397,11 @@ async def generation_ws(websocket: WebSocket, job_id: str):
         pass  # Client disconnected mid-generation — generation thread continues but we stop forwarding
 
 
-# ── SPA catch-all — MUST be last ──────────────────────────────────────────────
-# StaticFiles(html=True) serves static assets and falls back to index.html for
-# unknown paths, enabling client-side routing without any user-input path handling.
+# ── Static file mounts — MUST be last ─────────────────────────────────────────
+# Both mounts use StaticFiles so no user-controlled path ever reaches FileResponse.
+# /outputs: generated images; /: compiled React SPA with SPA-routing fallback.
+app.mount("/outputs", StaticFiles(directory=str(OUTPUTS_DIR)), name="outputs")
+
 if DIST_DIR.exists():
     app.mount("/", StaticFiles(directory=str(DIST_DIR), html=True), name="spa")
 else:
