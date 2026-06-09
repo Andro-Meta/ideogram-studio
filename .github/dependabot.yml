@@ -1,0 +1,41 @@
+version: 2
+updates:
+  # Python backend dependencies
+  - package-ecosystem: "pip"
+    directory: "/backend"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels:
+      - "dependencies"
+      - "python"
+    open-pull-requests-limit: 5
+
+  # Node.js frontend dependencies
+  - package-ecosystem: "npm"
+    directory: "/frontend"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels:
+      - "dependencies"
+      - "javascript"
+    open-pull-requests-limit: 10
+    groups:
+      react-ecosystem:
+        patterns:
+          - "react*"
+          - "@tanstack/*"
+          - "zustand"
+          - "sonner"
+      tailwind-shadcn:
+        patterns:
+          - "tailwindcss*"
+          - "@tailwindcss/*"
+          - "@radix-ui/*"
+          - "lucide-react"
+      build-tools:
+        patterns:
+          - "vite*"
+          - "@vitejs/*"
+          - "typescript*"
