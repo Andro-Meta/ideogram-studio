@@ -71,4 +71,5 @@ export interface UpscaleModelInfo {
   name: string
   scale: number
   label: string
+  description: string
 }

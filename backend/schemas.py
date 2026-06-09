@@ -116,6 +116,7 @@ class UpscaleModelInfo(BaseModel):
     name: str
     scale: int
     label: str
+    description: str
 
 
 # ── Model Status ─────────────────────────────────────────────────────────────

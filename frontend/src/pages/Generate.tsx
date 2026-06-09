@@ -110,9 +110,9 @@ function UpscaleStrip({ jobId, onUpscaled }: UpscaleStripProps) {
   if (!models?.length || !jobId) return null
 
   return (
-    <div className="flex items-center gap-1.5 flex-wrap">
+    <div className="flex items-center gap-2 flex-wrap">
       <ArrowUpCircle className="h-3 w-3 text-zinc-600 shrink-0" />
-      <span className="text-[10px] text-zinc-600">Upscale:</span>
+      <span className="text-[10px] text-zinc-600 shrink-0">4× Upscale:</span>
       {models.map((m) => {
         const active = upscale.isPending && upscale.variables?.model_name === m.name
         return (
@@ -127,17 +127,16 @@ function UpscaleStrip({ jobId, onUpscaled }: UpscaleStripProps) {
               )
             }
             className={cn(
-              "text-[10px] px-2 py-0.5 rounded border transition-all",
+              "flex items-center gap-1.5 text-[10px] px-2.5 py-1 rounded-lg border transition-all",
               active
                 ? "border-violet-500/60 text-violet-300 bg-violet-500/10"
-                : "border-zinc-700 text-zinc-500 hover:border-zinc-500 hover:text-zinc-300",
-              upscale.isPending && !active && "opacity-40",
+                : "border-zinc-700 text-zinc-400 hover:border-zinc-500 hover:text-zinc-200",
+              upscale.isPending && !active && "opacity-40 cursor-not-allowed",
             )}
-            title={m.label}
+            title={m.description}
           >
-            {active ? <Loader2 className="h-2.5 w-2.5 animate-spin inline" /> : `${m.scale}×`}
-            {" "}
-            {m.name.includes("anime") ? "Anime" : m.name.includes("x2") ? "Subtle" : "Photo"}
+            {active && <Loader2 className="h-2.5 w-2.5 animate-spin" />}
+            {m.label}
           </button>
         )
       })}

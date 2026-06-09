@@ -1,15 +1,19 @@
 """
-Post-generation image upscaling — two backends:
+Post-generation image upscaling — two backends, two curated models:
 
   AuraSR v2  (default)
-    GigaGAN-based, 0.6B params, Apache 2.0.
-    `pip install aura-sr`; auto-downloads from fal/AuraSR-v2 on HuggingFace.
-    Built-in overlapped tiling eliminates seams. Best for AI-generated photos.
+    Architecture: GigaGAN (0.6B params), 2024, Apache 2.0
+    Install: pip install aura-sr
+    Downloads: fal/AuraSR-v2 from HuggingFace automatically
+    Built-in overlapped tiling; designed for AI-generated images.
+    Best overall across photorealistic and illustrated outputs.
 
-  Spandrel models (RRDB / DAT / transformer .pth weights)
-    Architecture-agnostic loader for community ESRGAN variants:
-    NomosUniDAT, Remacri, RealESRGAN x4/x4-anime/x2.
-    Manual tiled processing (512-px tiles) for large Ideogram HD outputs.
+  4xNomosUniDAT
+    Architecture: DAT transformer via spandrel
+    Download: Phips/4xNomosUniDAT_otf from HuggingFace
+    The only upscaler trained on a genuinely diverse dataset:
+    photographs + anime/illustration + painted art + text + maps.
+    Use when text legibility or illustration style fidelity matters most.
 
 Public API: upscale(image_bytes, model_name) → (png_bytes, orig_wh, up_wh)
 """
@@ -30,60 +34,25 @@ _MODELS_DIR = Path(__file__).parent / "models" / "upscalers"
 _TILE = 512     # spandrel tile input size; 512→2048 per tile at 4×
 
 # ── Model registry ────────────────────────────────────────────────────────────
-# "backend" key selects the loading path; AuraSR uses its own package API
-# while spandrel loads any ESRGAN/DAT/transformer .pth/safetensors file.
 
 _REGISTRY: dict[str, dict] = {
-    # ── AuraSR v2 ─────────────────────────────────────────────────────────────
     "AuraSR-v2": {
         "backend": "aura_sr",
         "repo_id": "fal/AuraSR-v2",
         "scale": 4,
-        "label": "4× AuraSR v2 — GigaGAN (recommended for AI images)",
+        "label": "4× AuraSR v2",
+        "description": "Cutting-edge GigaGAN. Recommended for most images.",
     },
-    # ── Community spandrel models ─────────────────────────────────────────────
-    # 4xNomosUniDAT: DAT transformer trained on photos+text+anime — ideal for
-    # Ideogram 4 outputs that mix photorealism with rendered text.
     "4xNomosUniDAT": {
         "backend": "spandrel",
         "repo_id": "Phips/4xNomosUniDAT_otf",
         "filename": "4xNomosUniDAT_otf.pth",
         "scale": 4,
-        "label": "4× NomosUniDAT — DAT transformer (photos + text + illustration)",
-    },
-    # Remacri: community favourite for portraits, skin, hair, organic texture.
-    "Remacri-x4": {
-        "backend": "spandrel",
-        "repo_id": "FacehugmanIII/4x_foolhardy_Remacri",
-        "filename": "4x_foolhardy_Remacri.pth",
-        "scale": 4,
-        "label": "4× Remacri (portraits, skin, organic detail)",
-    },
-    # RealESRGAN variants — kept for compatibility / anime outputs
-    "RealESRGAN-x4": {
-        "backend": "spandrel",
-        "repo_id": "ai-forever/Real-ESRGAN",
-        "filename": "RealESRGAN_x4plus.pth",
-        "scale": 4,
-        "label": "4× RealESRGAN (photos, classic GAN)",
-    },
-    "RealESRGAN-x4-anime": {
-        "backend": "spandrel",
-        "repo_id": "ai-forever/Real-ESRGAN",
-        "filename": "RealESRGAN_x4plus_anime_6B.pth",
-        "scale": 4,
-        "label": "4× RealESRGAN Anime (illustrations)",
-    },
-    "RealESRGAN-x2": {
-        "backend": "spandrel",
-        "repo_id": "ai-forever/Real-ESRGAN",
-        "filename": "RealESRGAN_x2plus.pth",
-        "scale": 2,
-        "label": "2× RealESRGAN (subtle, fast)",
+        "label": "4× NomosUniDAT",
+        "description": "DAT transformer trained on photos, illustration, painting, and text. Best when art style fidelity matters.",
     },
 }
 
-_cache: dict[str, dict] = {}
 
 # ── Feature detection ─────────────────────────────────────────────────────────
 
@@ -105,27 +74,33 @@ def is_spandrel_available() -> bool:
 
 def available_models() -> list[dict]:
     return [
-        {"name": k, "scale": v["scale"], "label": v["label"]}
+        {
+            "name": k,
+            "scale": v["scale"],
+            "label": v["label"],
+            "description": v["description"],
+        }
         for k, v in _REGISTRY.items()
     ]
 
 
 # ── AuraSR backend ────────────────────────────────────────────────────────────
 
+_cache: dict[str, Any] = {}
+
+
 def _load_aura_sr(name: str) -> dict:
     if name in _cache:
         return _cache[name]
     from aura_sr import AuraSR
-    info = _REGISTRY[name]
-    logger.info("Loading AuraSR from %s …", info["repo_id"])
-    model = AuraSR.from_pretrained(info["repo_id"])
-    entry: dict = {"model": model, "scale": info["scale"], "backend": "aura_sr"}
+    logger.info("Loading AuraSR v2 from HuggingFace …")
+    model = AuraSR.from_pretrained(_REGISTRY[name]["repo_id"])
+    entry: dict = {"model": model, "scale": 4, "backend": "aura_sr"}
     _cache[name] = entry
     return entry
 
 
 def _run_aura_sr(entry: dict, img: Image.Image) -> Image.Image:
-    """AuraSR v2 — built-in overlapped tiling, returns PIL Image."""
     return entry["model"].upscale_4x_overlapped(img)
 
 
@@ -144,7 +119,7 @@ def _load_spandrel(name: str) -> dict:
     path = _MODELS_DIR / info["filename"]
     if not path.exists():
         from huggingface_hub import hf_hub_download
-        logger.info("Downloading '%s' from %s …", name, info["repo_id"])
+        logger.info("Downloading %s from %s …", name, info["repo_id"])
         downloaded = hf_hub_download(
             repo_id=info["repo_id"],
             filename=info["filename"],
@@ -174,7 +149,6 @@ def _tensor_to_pil(t: torch.Tensor) -> Image.Image:
 
 
 def _run_tiled(inner: Any, tensor: torch.Tensor, scale: int) -> torch.Tensor:
-    """Tiled spandrel inference — pads to tile boundary, crops to true output."""
     _, c, h, w = tensor.shape
     pad_h = (-h) % _TILE
     pad_w = (-w) % _TILE
@@ -194,9 +168,7 @@ def _run_tiled(inner: Any, tensor: torch.Tensor, scale: int) -> torch.Tensor:
 
 
 def _run_spandrel(entry: dict, img: Image.Image) -> Image.Image:
-    inner = entry["inner"]
-    scale = entry["scale"]
-    device = entry["device"]
+    inner, scale, device = entry["inner"], entry["scale"], entry["device"]
     tensor = _pil_to_tensor(img, device)
     _, _, h, w = tensor.shape
     if h > _TILE or w > _TILE:
@@ -215,9 +187,8 @@ def upscale(
 ) -> tuple[bytes, tuple[int, int], tuple[int, int]]:
     """
     Upscale an image.
-
     Returns (png_bytes, (orig_w, orig_h), (upscaled_w, upscaled_h)).
-    Models are downloaded on first use and cached in memory for subsequent calls.
+    Models are downloaded on first use and cached in memory.
     """
     if model_name not in _REGISTRY:
         raise ValueError(f"Unknown upscaler: {model_name!r}. Available: {list(_REGISTRY)}")
@@ -229,13 +200,11 @@ def upscale(
     if info["backend"] == "aura_sr":
         if not is_aura_sr_available():
             raise RuntimeError("aura-sr not installed. Run: pip install aura-sr")
-        entry = _load_aura_sr(model_name)
-        result = _run_aura_sr(entry, img)
+        result = _run_aura_sr(_load_aura_sr(model_name), img)
     else:
         if not is_spandrel_available():
             raise RuntimeError("spandrel not installed. Run: pip install spandrel>=0.3.4")
-        entry = _load_spandrel(model_name)
-        result = _run_spandrel(entry, img)
+        result = _run_spandrel(_load_spandrel(model_name), img)
 
     buf = BytesIO()
     result.save(buf, format="PNG", optimize=False)
