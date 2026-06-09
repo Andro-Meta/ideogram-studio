@@ -36,7 +36,7 @@ aiosqlite>=0.22.1
 
 # Settings / env
 pydantic-settings>=2.14.1
-python-dotenv>=1.0.0
+python-dotenv>=1.2.2
 
 # Post-generation upscaling
 # spandrel: architecture-agnostic loader for RealESRGAN / NomosUniDAT / Remacri etc.
