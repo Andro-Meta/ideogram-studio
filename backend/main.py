@@ -33,6 +33,9 @@ from schemas import (
     ModelStatusResponse,
     SettingsResponse,
     SettingsUpdateRequest,
+    UpscaleModelInfo,
+    UpscaleRequest,
+    UpscaleResponse,
 )
 from settings import DIST_DIR, OUTPUTS_DIR, DB_PATH, settings as app_settings
 
@@ -395,6 +398,56 @@ async def generation_ws(websocket: WebSocket, job_id: str):
                 break
     except WebSocketDisconnect:
         pass  # Client disconnected mid-generation — generation thread continues but we stop forwarding
+
+
+# ── Upscale API ───────────────────────────────────────────────────────────────
+
+@app.get("/api/upscale/models", response_model=list[UpscaleModelInfo])
+async def upscale_models_list():
+    from upscaler import available_models, is_spandrel_available
+    if not is_spandrel_available():
+        raise HTTPException(503, "spandrel not installed. Run: pip install spandrel>=0.3.4")
+    return available_models()
+
+
+@app.post("/api/upscale", response_model=UpscaleResponse)
+async def upscale_image_endpoint(request: Request, body: UpscaleRequest):
+    from upscaler import upscale, is_spandrel_available
+    if not is_spandrel_available():
+        raise HTTPException(503, "spandrel not installed. Run: pip install spandrel>=0.3.4")
+
+    db = request.app.state.db
+    item = await gallery_service.get_job(db, body.job_id)
+    if not item or not item.get("image_path"):
+        raise HTTPException(404, "Job not found")
+
+    source_path = OUTPUTS_DIR / Path(item["image_path"]).name
+    if not source_path.exists():
+        raise HTTPException(404, "Image file not found on disk")
+
+    image_bytes = source_path.read_bytes()
+    loop = asyncio.get_running_loop()
+
+    try:
+        png_bytes, orig_size, up_size = await loop.run_in_executor(
+            _inference_executor,
+            lambda: upscale(image_bytes, body.model_name),
+        )
+    except Exception as exc:
+        raise HTTPException(500, f"Upscale failed: {exc}") from exc
+
+    # Save alongside the source image with a descriptive suffix
+    suffix = body.model_name.lower().replace("-", "_")
+    out_name = f"{body.job_id}_up_{suffix}.png"
+    (OUTPUTS_DIR / out_name).write_bytes(png_bytes)
+
+    return UpscaleResponse(
+        image_url=f"/outputs/{out_name}",
+        original_width=orig_size[0],
+        original_height=orig_size[1],
+        upscaled_width=up_size[0],
+        upscaled_height=up_size[1],
+    )
 
 
 # ── Static file mounts — MUST be last ─────────────────────────────────────────

@@ -37,3 +37,6 @@ aiosqlite>=0.20.0
 # Settings / env
 pydantic-settings>=2.0.0
 python-dotenv>=1.0.0
+
+# Post-generation upscaling (ESRGAN via spandrel architecture loader)
+spandrel>=0.3.4

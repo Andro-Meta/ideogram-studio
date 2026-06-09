@@ -1,4 +1,8 @@
-import { Zap, Square, RotateCcw, AlertTriangle, Loader2, Power } from "lucide-react"
+import { useEffect, useState } from "react"
+import {
+  Zap, Square, RotateCcw, AlertTriangle, Loader2, Power,
+  ArrowUpCircle, Layers,
+} from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { Progress } from "@/components/ui/progress"
@@ -14,12 +18,17 @@ import { ModelVariantToggle } from "@/components/controls/ModelVariantToggle"
 import { SamplerPresetPicker } from "@/components/controls/SamplerPresetPicker"
 import { ResolutionPicker } from "@/components/controls/ResolutionPicker"
 import { SeedControl } from "@/components/controls/SeedControl"
+import { VariationsGrid } from "@/components/variations/VariationsGrid"
 import { usePromptStore } from "@/stores/promptStore"
 import { useSettingsStore } from "@/stores/settingsStore"
 import { useGenerationStore } from "@/stores/generationStore"
 import { useGenerate } from "@/hooks/useGenerate"
 import { useModelStatus, useLoadModel } from "@/hooks/useModelStatus"
+import { useUpscale, useUpscaleModels } from "@/hooks/useUpscale"
+import { useBatchGenerate, type VariationResult } from "@/hooks/useBatchGenerate"
 import { buildCaption, validatePromptState } from "@/lib/caption"
+
+// ── Model status panel ────────────────────────────────────────────────────────
 
 function ModelStatusPanel() {
   const { data } = useModelStatus()
@@ -41,16 +50,12 @@ function ModelStatusPanel() {
   return (
     <div className="space-y-2">
       <p className="text-xs font-medium text-zinc-300 uppercase tracking-wider">Model</p>
-
-      {/* Status badge */}
       <div className={cn("flex items-center gap-1.5 px-2 py-1 rounded border text-[11px]", statusColors[status])}>
         {status === "loading" && <Loader2 className="h-3 w-3 animate-spin" />}
         <span className="capitalize">{status}</span>
         {variant && <span className="opacity-60">({variant.toUpperCase()})</span>}
         {vramGb && <span className="ml-auto opacity-60">{vramGb} GB</span>}
       </div>
-
-      {/* Load button — shown when model is not loaded */}
       {(status === "unloaded" || status === "error") && (
         <Button
           size="sm"
@@ -59,23 +64,21 @@ function ModelStatusPanel() {
           disabled={loadModel.isPending}
           onClick={() => loadModel.mutate(modelVariant)}
         >
-          {loadModel.isPending
-            ? <Loader2 className="h-3 w-3 animate-spin" />
-            : <Power className="h-3 w-3" />}
+          {loadModel.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Power className="h-3 w-3" />}
           Pre-load {modelVariant.toUpperCase()}
         </Button>
       )}
-
       {status === "loading" && (
         <p className="text-[10px] text-amber-400/70">First load takes 20–40s to download weights</p>
       )}
-
       {data?.error && (
         <p className="text-[10px] text-red-400 bg-red-500/10 rounded px-2 py-1">{data.error}</p>
       )}
     </div>
   )
 }
+
+// ── Background textarea ───────────────────────────────────────────────────────
 
 function BackgroundField() {
   const { background, setBackground } = usePromptStore()
@@ -93,33 +96,149 @@ function BackgroundField() {
   )
 }
 
+// ── Upscale strip ─────────────────────────────────────────────────────────────
+
+interface UpscaleStripProps {
+  jobId: string | null
+  onUpscaled: (url: string, w: number, h: number) => void
+}
+
+function UpscaleStrip({ jobId, onUpscaled }: UpscaleStripProps) {
+  const { data: models } = useUpscaleModels()
+  const upscale = useUpscale()
+
+  if (!models?.length || !jobId) return null
+
+  return (
+    <div className="flex items-center gap-1.5 flex-wrap">
+      <ArrowUpCircle className="h-3 w-3 text-zinc-600 shrink-0" />
+      <span className="text-[10px] text-zinc-600">Upscale:</span>
+      {models.map((m) => {
+        const active = upscale.isPending && upscale.variables?.model_name === m.name
+        return (
+          <button
+            key={m.name}
+            type="button"
+            disabled={upscale.isPending}
+            onClick={() =>
+              upscale.mutate(
+                { job_id: jobId, model_name: m.name },
+                { onSuccess: (d) => onUpscaled(d.image_url, d.upscaled_width, d.upscaled_height) },
+              )
+            }
+            className={cn(
+              "text-[10px] px-2 py-0.5 rounded border transition-all",
+              active
+                ? "border-violet-500/60 text-violet-300 bg-violet-500/10"
+                : "border-zinc-700 text-zinc-500 hover:border-zinc-500 hover:text-zinc-300",
+              upscale.isPending && !active && "opacity-40",
+            )}
+            title={m.label}
+          >
+            {active ? <Loader2 className="h-2.5 w-2.5 animate-spin inline" /> : `${m.scale}×`}
+            {" "}
+            {m.name.includes("anime") ? "Anime" : m.name.includes("x2") ? "Subtle" : "Photo"}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+// ── Variations count selector ─────────────────────────────────────────────────
+
+function VariationCountPicker() {
+  const { variationCount, setVariationCount } = useSettingsStore()
+  return (
+    <div className="space-y-1">
+      <p className="text-[10px] text-zinc-600 uppercase tracking-widest">Variations</p>
+      <div className="flex gap-1">
+        {([2, 4, 8] as const).map((n) => (
+          <button
+            key={n}
+            type="button"
+            onClick={() => setVariationCount(n)}
+            className={cn(
+              "flex-1 text-[10px] py-1 rounded border transition-all font-medium",
+              variationCount === n
+                ? "border-violet-500/60 text-violet-300 bg-violet-500/10"
+                : "border-zinc-700 text-zinc-600 hover:border-zinc-500 hover:text-zinc-400",
+            )}
+          >
+            {n}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ── Main page ─────────────────────────────────────────────────────────────────
+
 export function Generate() {
   const promptState = usePromptStore()
-  const { modelVariant, samplerPreset, width, height, fixedSeed, seed } = useSettingsStore()
-  const { status, progress, resultImageUrl, resultSeed, resultDurationMs, errorMessage } = useGenerationStore()
+  const { modelVariant, samplerPreset, width, height, fixedSeed, seed, variationCount } = useSettingsStore()
+  const { status, progress, resultImageUrl, resultSeed, resultDurationMs, errorMessage, jobId } =
+    useGenerationStore()
   const { generate, cancel } = useGenerate()
+  const batch = useBatchGenerate()
+
+  // Upscale state — local to this render, resets on new generation
+  const [upscaledUrl, setUpscaledUrl] = useState<string | null>(null)
+  const [upscaledSize, setUpscaledSize] = useState<{ w: number; h: number } | null>(null)
+
+  // Variation selection state
+  const [selectedVariation, setSelectedVariation] = useState<VariationResult | null>(null)
+
+  // Reset upscale and variation state when a new single generation starts
+  useEffect(() => {
+    if (status === "running") {
+      setUpscaledUrl(null)
+      setUpscaledSize(null)
+      setSelectedVariation(null)
+    }
+  }, [status])
 
   const warnings = validatePromptState(promptState)
   const isRunning = status === "running" || status === "loading-model"
   const isDone = status === "done"
 
+  // What to show in the result area
+  const displayImageUrl = selectedVariation?.imageUrl ?? upscaledUrl ?? resultImageUrl
+  const displaySeed = selectedVariation?.seed ?? resultSeed
+  const displayDurationMs = selectedVariation?.durationMs ?? resultDurationMs
+
+  const buildReq = () => ({
+    prompt_json: buildCaption(promptState),
+    height,
+    width,
+    sampler_preset: samplerPreset,
+    seed: fixedSeed ? seed : null,
+    model_variant: modelVariant,
+  })
+
   const handleGenerate = () => {
-    const promptJson = buildCaption(promptState)
-    generate({
-      prompt_json: promptJson,
-      height,
-      width,
-      sampler_preset: samplerPreset,
-      seed: fixedSeed ? seed : null,
-      model_variant: modelVariant,
-    })
+    batch.cancel()
+    batch.clear()
+    setSelectedVariation(null)
+    generate(buildReq())
+  }
+
+  const handleVariations = () => {
+    batch.run(buildReq(), variationCount)
+  }
+
+  const handleSelectVariation = (r: VariationResult) => {
+    setSelectedVariation(r)
+    setUpscaledUrl(null)
+    setUpscaledSize(null)
   }
 
   const progressPct = progress ? Math.round((progress.step / progress.total) * 100) : 0
 
   return (
     <div className="h-full flex overflow-hidden">
-      {/* ── Left panel: Prompt building ── */}
+      {/* ── Left panel: Prompt building ────────────────────────────────── */}
       <div className="w-80 shrink-0 border-r border-zinc-800 flex flex-col bg-zinc-900/30">
         <ScrollArea className="flex-1">
           <div className="p-4 space-y-5">
@@ -134,34 +253,78 @@ export function Generate() {
         </ScrollArea>
       </div>
 
-      {/* ── Center: Canvas + Generate controls ── */}
+      {/* ── Center: Canvas + results ────────────────────────────────────── */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         <div className="flex-1 overflow-auto p-4 flex flex-col gap-4">
           {/* Canvas */}
           <BBoxCanvas />
 
-          {/* Result metadata strip */}
-          {isDone && resultImageUrl && (
-            <div className="flex items-center gap-3 px-1">
-              {resultSeed != null && (
-                <span className="text-xs text-zinc-500 font-mono">Seed: {resultSeed}</span>
-              )}
-              {resultDurationMs != null && (
-                <span className="text-xs text-zinc-500">
-                  {(resultDurationMs / 1000).toFixed(1)}s
-                </span>
-              )}
-              <a
-                href={resultImageUrl}
-                download={`ideogram-${resultSeed ?? "output"}.png`}
-                className="ml-auto text-xs text-violet-400 hover:text-violet-300 underline"
+          {/* Result: single image */}
+          {isDone && displayImageUrl && !batch.results.length && (
+            <>
+              {/* Metadata strip */}
+              <div className="flex items-center gap-3 px-1 flex-wrap">
+                {displaySeed != null && (
+                  <span className="text-xs text-zinc-500 font-mono">Seed: {displaySeed}</span>
+                )}
+                {displayDurationMs != null && (
+                  <span className="text-xs text-zinc-500">{(displayDurationMs / 1000).toFixed(1)}s</span>
+                )}
+                {upscaledSize && (
+                  <span className="text-xs text-violet-400/80">
+                    {upscaledSize.w}×{upscaledSize.h} upscaled
+                  </span>
+                )}
+                <a
+                  href={displayImageUrl}
+                  download={`ideogram-${displaySeed ?? "output"}.png`}
+                  className="ml-auto text-xs text-violet-400 hover:text-violet-300 underline"
+                >
+                  Download PNG
+                </a>
+              </div>
+
+              {/* Upscale controls */}
+              <UpscaleStrip
+                jobId={jobId}
+                onUpscaled={(url, w, h) => {
+                  setUpscaledUrl(url)
+                  setUpscaledSize({ w, h })
+                }}
+              />
+            </>
+          )}
+
+          {/* Result: variation selected */}
+          {selectedVariation && (
+            <div className="flex items-center gap-3 px-1 flex-wrap">
+              <span className="text-xs text-zinc-500 font-mono">Seed: {selectedVariation.seed}</span>
+              <span className="text-xs text-zinc-500">{(selectedVariation.durationMs / 1000).toFixed(1)}s</span>
+              <span className="text-xs text-violet-400/70">variation selected</span>
+              <button
+                type="button"
+                onClick={() => setSelectedVariation(null)}
+                className="text-xs text-zinc-600 hover:text-zinc-400 ml-auto"
               >
-                Download PNG
-              </a>
+                Back to main
+              </button>
             </div>
           )}
 
-          {/* Error message */}
+          {/* Variations grid */}
+          {(batch.results.length > 0 || batch.isRunning) && (
+            <VariationsGrid
+              results={batch.results}
+              current={batch.current}
+              total={batch.total}
+              isRunning={batch.isRunning}
+              onSelect={handleSelectVariation}
+              onCancel={batch.cancel}
+              onClear={() => { batch.clear(); setSelectedVariation(null) }}
+            />
+          )}
+
+          {/* Error */}
           {status === "error" && errorMessage && (
             <div className="flex items-start gap-2 bg-red-500/10 border border-red-500/30 rounded-lg p-3 text-xs text-red-300">
               <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
@@ -182,15 +345,14 @@ export function Generate() {
           )}
         </div>
 
-        {/* Generate button + progress — pinned to bottom */}
+        {/* Generate controls — pinned to bottom */}
         <div className="shrink-0 p-4 border-t border-zinc-800 bg-zinc-900/50 space-y-3">
+          {/* Single-gen progress */}
           {isRunning && (
             <div className="space-y-1.5">
               <div className="flex justify-between text-[10px] text-zinc-500">
                 <span>{status === "loading-model" ? "Loading model…" : "Generating…"}</span>
-                {progress && (
-                  <span>{progress.step} / {progress.total} steps</span>
-                )}
+                {progress && <span>{progress.step} / {progress.total} steps</span>}
               </div>
               <Progress
                 value={status === "loading-model" ? undefined : progressPct}
@@ -199,6 +361,23 @@ export function Generate() {
             </div>
           )}
 
+          {/* Batch progress */}
+          {batch.isRunning && (
+            <div className="space-y-1.5">
+              <div className="flex justify-between text-[10px] text-zinc-500">
+                <span className="flex items-center gap-1.5">
+                  <Layers className="h-3 w-3" />
+                  Variation {batch.current} / {batch.total}
+                </span>
+              </div>
+              <Progress
+                value={Math.round(((batch.current - 1) / batch.total) * 100)}
+                className="h-1.5 bg-zinc-700"
+              />
+            </div>
+          )}
+
+          {/* Action buttons */}
           <div className="flex gap-2">
             {isRunning ? (
               <Button
@@ -208,6 +387,15 @@ export function Generate() {
               >
                 <Square className="h-4 w-4" />
                 Cancel
+              </Button>
+            ) : batch.isRunning ? (
+              <Button
+                variant="outline"
+                className="flex-1 border-zinc-700 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 gap-2"
+                onClick={batch.cancel}
+              >
+                <Square className="h-4 w-4" />
+                Stop Variations
               </Button>
             ) : (
               <>
@@ -223,7 +411,13 @@ export function Generate() {
                     variant="outline"
                     size="icon"
                     className="border-zinc-700 bg-zinc-800 hover:bg-zinc-700 text-zinc-400"
-                    onClick={() => useGenerationStore.getState().reset()}
+                    onClick={() => {
+                      useGenerationStore.getState().reset()
+                      setUpscaledUrl(null)
+                      setUpscaledSize(null)
+                      setSelectedVariation(null)
+                      batch.clear()
+                    }}
                     title="Clear result"
                   >
                     <RotateCcw className="h-4 w-4" />
@@ -232,15 +426,45 @@ export function Generate() {
               </>
             )}
           </div>
+
+          {/* Variations launch row — only when not running */}
+          {!isRunning && !batch.isRunning && (
+            <div className="flex items-center gap-2 pt-0.5">
+              <span className="text-[10px] text-zinc-600 shrink-0">Variations:</span>
+              {([2, 4, 8] as const).map((n) => (
+                <button
+                  key={n}
+                  type="button"
+                  onClick={() => useSettingsStore.getState().setVariationCount(n)}
+                  className={cn(
+                    "text-[10px] w-6 h-5 rounded border transition-all",
+                    variationCount === n
+                      ? "border-violet-500/50 text-violet-400 bg-violet-500/10"
+                      : "border-zinc-700 text-zinc-600 hover:border-zinc-600 hover:text-zinc-400",
+                  )}
+                >
+                  {n}
+                </button>
+              ))}
+              <Button
+                variant="outline"
+                size="sm"
+                className="ml-auto h-6 px-2 text-[10px] border-zinc-700 bg-zinc-800/60 hover:bg-zinc-700 text-zinc-400 gap-1.5"
+                onClick={handleVariations}
+              >
+                <Layers className="h-3 w-3" />
+                Run
+              </Button>
+            </div>
+          )}
         </div>
       </div>
 
-      {/* ── Right panel: Generation settings ── */}
+      {/* ── Right panel: Generation settings ────────────────────────────── */}
       <div className="w-60 shrink-0 border-l border-zinc-800 bg-zinc-900/30 flex flex-col">
         <ScrollArea className="flex-1">
           <div className="p-4 space-y-5">
             <ModelStatusPanel />
-
             <Separator className="bg-zinc-800" />
             <ModelVariantToggle />
             <Separator className="bg-zinc-800" />

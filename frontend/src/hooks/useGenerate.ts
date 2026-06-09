@@ -2,6 +2,7 @@ import { useCallback, useRef } from "react"
 import { useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 import { useGenerationStore } from "@/stores/generationStore"
+import { buildWsUrl } from "@/lib/ws"
 import type { GenerationRequest, WsMessage } from "@/types/api"
 
 export function useGenerate() {
@@ -19,11 +20,7 @@ export function useGenerate() {
     store.setStatus("running")
     store.setJobId(jobId)
 
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:"
-    const host = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
-      ? `${window.location.hostname}:8000`
-      : window.location.host
-    const ws = new WebSocket(`${protocol}//${host}/ws/${jobId}`)
+    const ws = new WebSocket(buildWsUrl(`/ws/${jobId}`))
     wsRef.current = ws
 
     ws.onopen = () => {

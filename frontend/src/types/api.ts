@@ -51,3 +51,24 @@ export interface SettingsUpdateRequest {
   openrouter_api_key?: string
   hf_token?: string
 }
+
+// ── Upscaling ────────────────────────────────────────────────────────────────
+
+export interface UpscaleRequest {
+  job_id: string
+  model_name?: string
+}
+
+export interface UpscaleResponse {
+  image_url: string
+  original_width: number
+  original_height: number
+  upscaled_width: number
+  upscaled_height: number
+}
+
+export interface UpscaleModelInfo {
+  name: string
+  scale: number
+  label: string
+}

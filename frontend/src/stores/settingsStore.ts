@@ -10,6 +10,7 @@ interface SettingsStore {
   height: number
   fixedSeed: boolean
   seed: number
+  variationCount: 2 | 4 | 8
 
   setModelVariant: (v: ModelVariant) => void
   setSamplerPreset: (v: SamplerPreset) => void
@@ -17,6 +18,7 @@ interface SettingsStore {
   setFixedSeed: (v: boolean) => void
   setSeed: (v: number) => void
   randomizeSeed: () => void
+  setVariationCount: (v: 2 | 4 | 8) => void
 }
 
 export const useSettingsStore = create<SettingsStore>()(
@@ -28,6 +30,7 @@ export const useSettingsStore = create<SettingsStore>()(
       height: 1024,
       fixedSeed: false,
       seed: 42,
+      variationCount: 4,
 
       setModelVariant: (v) => set({ modelVariant: v }),
       setSamplerPreset: (v) => set({ samplerPreset: v }),
@@ -36,6 +39,7 @@ export const useSettingsStore = create<SettingsStore>()(
       setSeed: (v) => set({ seed: v }),
       randomizeSeed: () =>
         set({ seed: Math.floor(Math.random() * 2 ** 32) }),
+      setVariationCount: (v) => set({ variationCount: v }),
     }),
     { name: "ideogram-studio-settings" }
   )

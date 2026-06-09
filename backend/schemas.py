@@ -97,6 +97,27 @@ class GalleryListResponse(BaseModel):
     total: int
 
 
+# ── Upscaling ────────────────────────────────────────────────────────────────
+
+class UpscaleRequest(BaseModel):
+    job_id: str
+    model_name: str = "RealESRGAN-x4"
+
+
+class UpscaleResponse(BaseModel):
+    image_url: str
+    original_width: int
+    original_height: int
+    upscaled_width: int
+    upscaled_height: int
+
+
+class UpscaleModelInfo(BaseModel):
+    name: str
+    scale: int
+    label: str
+
+
 # ── Model Status ─────────────────────────────────────────────────────────────
 
 class ModelStatusResponse(BaseModel):
