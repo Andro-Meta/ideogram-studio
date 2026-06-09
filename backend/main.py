@@ -404,17 +404,13 @@ async def generation_ws(websocket: WebSocket, job_id: str):
 
 @app.get("/api/upscale/models", response_model=list[UpscaleModelInfo])
 async def upscale_models_list():
-    from upscaler import available_models, is_spandrel_available
-    if not is_spandrel_available():
-        raise HTTPException(503, "spandrel not installed. Run: pip install spandrel>=0.3.4")
+    from upscaler import available_models
     return available_models()
 
 
 @app.post("/api/upscale", response_model=UpscaleResponse)
 async def upscale_image_endpoint(request: Request, body: UpscaleRequest):
-    from upscaler import upscale, is_spandrel_available
-    if not is_spandrel_available():
-        raise HTTPException(503, "spandrel not installed. Run: pip install spandrel>=0.3.4")
+    from upscaler import upscale
 
     db = request.app.state.db
     item = await gallery_service.get_job(db, body.job_id)

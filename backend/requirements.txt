@@ -38,5 +38,8 @@ aiosqlite>=0.20.0
 pydantic-settings>=2.0.0
 python-dotenv>=1.0.0
 
-# Post-generation upscaling (ESRGAN via spandrel architecture loader)
+# Post-generation upscaling
+# spandrel: architecture-agnostic loader for RealESRGAN / NomosUniDAT / Remacri etc.
 spandrel>=0.3.4
+# aura-sr: GigaGAN-based upscaler — best quality for AI-generated images
+aura-sr>=0.0.5

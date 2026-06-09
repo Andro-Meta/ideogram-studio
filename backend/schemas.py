@@ -101,7 +101,7 @@ class GalleryListResponse(BaseModel):
 
 class UpscaleRequest(BaseModel):
     job_id: str
-    model_name: str = "RealESRGAN-x4"
+    model_name: str = "AuraSR-v2"
 
 
 class UpscaleResponse(BaseModel):

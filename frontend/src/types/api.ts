@@ -56,7 +56,7 @@ export interface SettingsUpdateRequest {
 
 export interface UpscaleRequest {
   job_id: string
-  model_name?: string
+  model_name: string
 }
 
 export interface UpscaleResponse {
