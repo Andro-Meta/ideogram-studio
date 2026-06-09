@@ -7,6 +7,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import time
 import threading
 import webbrowser
@@ -18,6 +19,7 @@ import aiosqlite
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 import gallery as gallery_service
 from caption import build_caption, parse_caption_json
@@ -190,13 +192,14 @@ async def gallery_delete(request: Request, job_id: str):
 
 # ── Outputs (image files) ─────────────────────────────────────────────────────
 
+_SAFE_FILENAME_RE = re.compile(r"^[0-9a-f\-]{36}\.png$")
+
 @app.get("/outputs/{filename}")
 async def serve_output(filename: str):
-    # Prevent path traversal: strip directory components and resolve
-    safe_name = Path(filename).name
-    path = (OUTPUTS_DIR / safe_name).resolve()
-    if not path.is_relative_to(OUTPUTS_DIR.resolve()):
-        raise HTTPException(403, "Access denied")
+    # Accept only UUID-named PNGs; reject anything with path separators or other chars
+    if not _SAFE_FILENAME_RE.match(filename):
+        raise HTTPException(400, "Invalid filename")
+    path = OUTPUTS_DIR / filename
     if not path.exists():
         raise HTTPException(404, "Image not found")
     return FileResponse(str(path), media_type="image/png")
@@ -409,15 +412,11 @@ async def generation_ws(websocket: WebSocket, job_id: str):
 
 
 # ── SPA catch-all — MUST be last ──────────────────────────────────────────────
-
-@app.get("/{full_path:path}")
-async def serve_spa(full_path: str):
-    # Prevent path traversal: resolve and verify path stays within DIST_DIR
-    dist_root = DIST_DIR.resolve()
-    candidate = (DIST_DIR / full_path).resolve()
-    if candidate.is_file() and candidate.is_relative_to(dist_root):
-        return FileResponse(str(candidate))
-    index = DIST_DIR / "index.html"
-    if index.exists():
-        return FileResponse(str(index))
-    return JSONResponse({"detail": "Frontend not built. Run install.bat first."}, status_code=503)
+# StaticFiles(html=True) serves static assets and falls back to index.html for
+# unknown paths, enabling client-side routing without any user-input path handling.
+if DIST_DIR.exists():
+    app.mount("/", StaticFiles(directory=str(DIST_DIR), html=True), name="spa")
+else:
+    @app.get("/{full_path:path}")
+    async def _no_frontend(_full_path: str):
+        return JSONResponse({"detail": "Frontend not built. Run install.bat first."}, status_code=503)
