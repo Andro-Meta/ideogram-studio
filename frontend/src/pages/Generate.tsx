@@ -26,7 +26,7 @@ import { useGenerate } from "@/hooks/useGenerate"
 import { useModelStatus, useLoadModel } from "@/hooks/useModelStatus"
 import { useUpscale, useUpscaleModels } from "@/hooks/useUpscale"
 import { useBatchGenerate, type VariationResult } from "@/hooks/useBatchGenerate"
-import { buildCaption, validatePromptState } from "@/lib/caption"
+import { buildCaption, validatePromptState, estimateTokens } from "@/lib/caption"
 
 // ── Model status panel ────────────────────────────────────────────────────────
 
@@ -199,6 +199,7 @@ export function Generate() {
   }, [status])
 
   const warnings = validatePromptState(promptState)
+  const tokenCount = estimateTokens(promptState)
   const isRunning = status === "running" || status === "loading-model"
   const isDone = status === "done"
 
@@ -346,6 +347,31 @@ export function Generate() {
 
         {/* Generate controls — pinned to bottom */}
         <div className="shrink-0 p-4 border-t border-zinc-800 bg-zinc-900/50 space-y-3">
+          {/* Token budget meter */}
+          <div className="flex items-center gap-2">
+            <div className="flex-1 h-1 rounded-full bg-zinc-700 overflow-hidden">
+              <div
+                className={cn(
+                  "h-full rounded-full transition-all",
+                  tokenCount < 256   ? "bg-zinc-500" :
+                  tokenCount < 1792  ? "bg-emerald-500" :
+                  tokenCount < 2048  ? "bg-amber-500" :
+                                       "bg-red-500",
+                )}
+                style={{ width: `${Math.min(100, (tokenCount / 2048) * 100)}%` }}
+              />
+            </div>
+            <span className={cn(
+              "text-[10px] tabular-nums shrink-0",
+              tokenCount < 256   ? "text-zinc-600" :
+              tokenCount < 1792  ? "text-zinc-500" :
+              tokenCount < 2048  ? "text-amber-400" :
+                                   "text-red-400",
+            )}>
+              {tokenCount} / 2048
+            </span>
+          </div>
+
           {/* Single-gen progress */}
           {isRunning && (
             <div className="space-y-1.5">

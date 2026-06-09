@@ -134,7 +134,8 @@ export function buildCaption(state: PromptState): string {
   if (hld) caption.high_level_description = hld
 
   const sd = state.style_description
-  const hasStyleBase = !!(sd.aesthetics.trim() || sd.lighting.trim() || sd.medium.trim())
+  const modeField = sd.mode === "photo" ? sd.photo.trim() : sd.art_style.trim()
+  const hasStyleBase = !!(sd.aesthetics.trim() || sd.lighting.trim() || sd.medium.trim() || modeField)
   if (hasStyleBase) {
     const style: Record<string, unknown> = {
       aesthetics: sd.aesthetics.trim() || "natural",
@@ -168,4 +169,12 @@ export function buildCaption(state: PromptState): string {
   }
 
   return JSON.stringify(caption)
+}
+
+/**
+ * Estimate token count for the current prompt state.
+ * Uses chars/4 heuristic from kjnodes. Hard cap is 2048 (Qwen tokenizer).
+ */
+export function estimateTokens(state: PromptState): number {
+  return Math.ceil(buildCaption(state).length / 4)
 }

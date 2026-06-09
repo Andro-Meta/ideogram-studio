@@ -84,10 +84,11 @@ def _build_style(style: dict) -> OrderedDict | None:
     lighting   = style.get("lighting", "").strip()
     medium     = style.get("medium", "").strip()
 
-    if not any([aesthetics, lighting, medium]):
-        return None
-
     is_photo = style.get("mode", "photo") == "photo"
+    mode_field = style.get("photo", "").strip() if is_photo else style.get("art_style", "").strip()
+
+    if not any([aesthetics, lighting, medium, mode_field]):
+        return None
     result: OrderedDict = OrderedDict()
 
     # Strict key order enforced by the model's training data
