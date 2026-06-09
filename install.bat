@@ -173,7 +173,7 @@ echo [6b]  Installing shadcn/ui components...
 call npx shadcn@latest add button card input label slider tabs badge dialog ^
     tooltip popover separator scroll-area select switch progress textarea ^
     dropdown-menu ^
-    --yes --silent
+    --yes --silent >nul
 echo [OK] shadcn components installed
 
 echo.
