@@ -1,6 +1,7 @@
 import { useState } from "react"
-import { Trash2, Clock, Hash, ImageOff } from "lucide-react"
+import { Trash2, Clock, Hash, ImageOff, Heart } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { useToggleFavorite } from "@/hooks/useGallery"
 import type { GalleryItem } from "@/types/gallery"
 
 interface Props {
@@ -12,6 +13,7 @@ interface Props {
 export function GalleryCard({ item, onOpen, onDelete }: Props) {
   const [hovered, setHovered] = useState(false)
   const [broken, setBroken] = useState(false)
+  const toggleFavorite = useToggleFavorite()
   const imageUrl = item.image_path ? `/outputs/${item.image_path}` : null
   const durationSec = item.duration_ms ? (item.duration_ms / 1000).toFixed(1) : null
   const preset = item.sampler_preset?.replace("V4_", "").replace("_", " ") ?? null
@@ -81,6 +83,23 @@ export function GalleryCard({ item, onOpen, onDelete }: Props) {
         title="Delete"
       >
         <Trash2 className="h-3.5 w-3.5" />
+      </button>
+
+      {/* Favorite toggle */}
+      <button
+        className={cn(
+          "absolute top-1.5 right-9 transition-opacity bg-black/60 rounded p-1",
+          item.favorite
+            ? "opacity-100 text-red-400 hover:text-red-300"
+            : "opacity-0 group-hover:opacity-100 text-white hover:text-red-300",
+        )}
+        onClick={(e) => {
+          e.stopPropagation()
+          toggleFavorite.mutate({ id: item.id, favorite: !item.favorite })
+        }}
+        title={item.favorite ? "Remove from favorites" : "Add to favorites"}
+      >
+        <Heart className={cn("h-3.5 w-3.5", item.favorite && "fill-current")} />
       </button>
 
       {/* Model variant badge */}

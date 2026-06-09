@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react"
-import { Search, X } from "lucide-react"
+import { Heart, Search, X } from "lucide-react"
+import { cn } from "@/lib/utils"
 import { GalleryGrid } from "@/components/gallery/GalleryGrid"
 
 export function Gallery() {
   const [query, setQuery] = useState("")
   const [debounced, setDebounced] = useState("")
+  const [favoritesOnly, setFavoritesOnly] = useState(false)
 
   // Debounce typing so we don't hit the API on every keystroke
   useEffect(() => {
@@ -20,8 +22,24 @@ export function Gallery() {
           <p className="text-xs text-zinc-500">All your generated images</p>
         </div>
 
+        {/* Favorites filter */}
+        <button
+          type="button"
+          onClick={() => setFavoritesOnly((v) => !v)}
+          className={cn(
+            "ml-auto flex items-center gap-1.5 h-8 px-3 rounded-lg border text-xs font-medium transition-all",
+            favoritesOnly
+              ? "border-red-500/60 text-red-300 bg-red-500/10"
+              : "border-zinc-700 text-zinc-400 hover:border-zinc-500 hover:text-zinc-200",
+          )}
+          title={favoritesOnly ? "Show all images" : "Show favorites only"}
+        >
+          <Heart className={cn("h-3.5 w-3.5", favoritesOnly && "fill-current")} />
+          Favorites
+        </button>
+
         {/* Search */}
-        <div className="relative ml-auto w-72 max-w-full">
+        <div className="relative w-72 max-w-full">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-zinc-500 pointer-events-none" />
           <input
             type="text"
@@ -43,7 +61,7 @@ export function Gallery() {
         </div>
       </div>
       <div className="flex-1 overflow-auto">
-        <GalleryGrid search={debounced} />
+        <GalleryGrid search={debounced} favoritesOnly={favoritesOnly} />
       </div>
     </div>
   )

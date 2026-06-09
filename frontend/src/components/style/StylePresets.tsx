@@ -1,5 +1,8 @@
+import { Shuffle } from "lucide-react"
+import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 import { STYLE_PRESETS } from "@/lib/stylePresets"
+import { PALETTE_MODES } from "@/lib/colorPalettes"
 import { usePromptStore } from "@/stores/promptStore"
 
 export function StylePresets() {
@@ -22,9 +25,30 @@ export function StylePresets() {
     )
   })
 
+  const surpriseMe = () => {
+    // Random preset (different from the current one when possible) + palette
+    const pool = STYLE_PRESETS.filter((p) => p.id !== activePreset?.id)
+    const preset = pool[Math.floor(Math.random() * pool.length)] ?? STYLE_PRESETS[0]
+    apply(preset.id)
+    const palette = PALETTE_MODES[Math.floor(Math.random() * PALETTE_MODES.length)]
+    setStyleField("color_palette", [...palette.colors])
+    toast.success(`Style: ${preset.label} · Palette: ${palette.label}`)
+  }
+
   return (
     <div className="space-y-1.5">
-      <p className="text-[10px] text-zinc-600 uppercase tracking-widest">Quick presets</p>
+      <div className="flex items-center justify-between">
+        <p className="text-[10px] text-zinc-600 uppercase tracking-widest">Quick presets</p>
+        <button
+          type="button"
+          onClick={surpriseMe}
+          className="flex items-center gap-1 text-[10px] text-zinc-500 hover:text-violet-300 transition-colors"
+          title="Random style + color palette"
+        >
+          <Shuffle className="h-3 w-3" />
+          Random
+        </button>
+      </div>
       <div className="flex flex-wrap gap-1">
         {STYLE_PRESETS.map((p) => (
           <button

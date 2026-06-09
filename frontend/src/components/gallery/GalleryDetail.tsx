@@ -1,23 +1,50 @@
-import { Download, Trash2, X, Clock, Hash, Maximize2, Copy } from "lucide-react"
+import { useEffect } from "react"
+import {
+  Download, Trash2, X, Clock, Hash, Maximize2, Copy, Heart,
+  ChevronLeft, ChevronRight, Lock,
+} from "lucide-react"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
-import { useGalleryItem, useDeleteGalleryItem } from "@/hooks/useGallery"
+import { cn } from "@/lib/utils"
+import { useGalleryItem, useDeleteGalleryItem, useToggleFavorite } from "@/hooks/useGallery"
 import { usePromptStore } from "@/stores/promptStore"
+import { useSettingsStore } from "@/stores/settingsStore"
 import { useNavigate } from "react-router-dom"
 import { toast } from "sonner"
 
 interface Props {
   itemId: string | null
   onClose: () => void
+  position?: number
+  count?: number
+  onPrev?: () => void
+  onNext?: () => void
 }
 
-export function GalleryDetail({ itemId, onClose }: Props) {
+export function GalleryDetail({ itemId, onClose, position, count, onPrev, onNext }: Props) {
   const { data: item } = useGalleryItem(itemId)
   const deleteMutation = useDeleteGalleryItem()
+  const toggleFavorite = useToggleFavorite()
   const loadFromParsed = usePromptStore((s) => s.loadFromParsed)
   const navigate = useNavigate()
+
+  // Arrow keys flip between images while the viewer is open (like ideogram.ai)
+  useEffect(() => {
+    if (!itemId) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "ArrowLeft" && onPrev) {
+        e.preventDefault()
+        onPrev()
+      } else if (e.key === "ArrowRight" && onNext) {
+        e.preventDefault()
+        onNext()
+      }
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [itemId, onPrev, onNext])
 
   if (!item) return null
 
@@ -32,7 +59,20 @@ export function GalleryDetail({ itemId, onClose }: Props) {
     a.click()
   }
 
-  const handleLoadPrompt = () => {
+  const applyGenerationSettings = (lockSeed: boolean) => {
+    const s = useSettingsStore.getState()
+    if (item.width && item.height) s.setResolution(item.width, item.height)
+    if (item.sampler_preset) s.setSamplerPreset(item.sampler_preset)
+    if (item.model_variant) s.setModelVariant(item.model_variant)
+    if (lockSeed && item.seed != null) {
+      s.setSeed(item.seed)
+      s.setFixedSeed(true)
+    } else {
+      s.setFixedSeed(false)
+    }
+  }
+
+  const handleLoadPrompt = (lockSeed = false) => {
     if (!item.prompt_json) {
       toast.error("No prompt data saved for this image")
       return
@@ -68,7 +108,12 @@ export function GalleryDetail({ itemId, onClose }: Props) {
           }
         }),
       })
-      toast.success("Prompt loaded into editor")
+      applyGenerationSettings(lockSeed)
+      toast.success(
+        lockSeed
+          ? "Prompt + settings loaded, seed locked — Generate reproduces this image"
+          : "Prompt and settings loaded into editor"
+      )
       onClose()
       navigate("/generate")
     } catch {
@@ -87,7 +132,7 @@ export function GalleryDetail({ itemId, onClose }: Props) {
       <DialogContent className="max-w-5xl bg-zinc-900 border-zinc-700 p-0 overflow-hidden">
         <div className="flex h-[80vh]">
           {/* Image panel */}
-          <div className="flex-1 bg-zinc-950 flex items-center justify-center overflow-hidden">
+          <div className="relative flex-1 bg-zinc-950 flex items-center justify-center overflow-hidden">
             {imageUrl ? (
               <img
                 src={imageUrl}
@@ -97,15 +142,53 @@ export function GalleryDetail({ itemId, onClose }: Props) {
             ) : (
               <div className="text-zinc-600 text-sm">No image available</div>
             )}
+
+            {onPrev && (
+              <button
+                type="button"
+                onClick={onPrev}
+                className="absolute left-2 top-1/2 -translate-y-1/2 bg-black/50 hover:bg-black/80 text-zinc-300 hover:text-white rounded-full p-1.5 transition-colors"
+                title="Previous image (←)"
+              >
+                <ChevronLeft className="h-5 w-5" />
+              </button>
+            )}
+            {onNext && (
+              <button
+                type="button"
+                onClick={onNext}
+                className="absolute right-2 top-1/2 -translate-y-1/2 bg-black/50 hover:bg-black/80 text-zinc-300 hover:text-white rounded-full p-1.5 transition-colors"
+                title="Next image (→)"
+              >
+                <ChevronRight className="h-5 w-5" />
+              </button>
+            )}
+            {position != null && count != null && count > 1 && (
+              <div className="absolute bottom-2 left-1/2 -translate-x-1/2 bg-black/50 text-zinc-400 text-[10px] px-2 py-0.5 rounded-full tabular-nums">
+                {position} / {count}
+              </div>
+            )}
           </div>
 
           {/* Metadata panel */}
           <div className="w-64 border-l border-zinc-700 flex flex-col">
             <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-700">
               <h3 className="text-sm font-medium text-zinc-200">Details</h3>
-              <button onClick={onClose} className="text-zinc-500 hover:text-zinc-300">
-                <X className="h-4 w-4" />
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => toggleFavorite.mutate({ id: item.id, favorite: !item.favorite })}
+                  className={cn(
+                    "transition-colors",
+                    item.favorite ? "text-red-400 hover:text-red-300" : "text-zinc-500 hover:text-red-300",
+                  )}
+                  title={item.favorite ? "Remove from favorites" : "Add to favorites"}
+                >
+                  <Heart className={cn("h-4 w-4", item.favorite && "fill-current")} />
+                </button>
+                <button onClick={onClose} className="text-zinc-500 hover:text-zinc-300">
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
             </div>
 
             <div className="flex-1 overflow-y-auto p-4 space-y-4 text-sm">
@@ -184,10 +267,22 @@ export function GalleryDetail({ itemId, onClose }: Props) {
             <div className="p-4 border-t border-zinc-700 space-y-2">
               <Button
                 className="w-full bg-violet-600 hover:bg-violet-500 text-white text-xs h-8"
-                onClick={handleLoadPrompt}
+                onClick={() => handleLoadPrompt(false)}
+                title="Restore the prompt, resolution, sampler, and model of this image"
               >
                 Load into Editor
               </Button>
+              {item.seed != null && (
+                <Button
+                  variant="outline"
+                  className="w-full border-zinc-700 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs h-8 gap-1.5"
+                  onClick={() => handleLoadPrompt(true)}
+                  title="Same as Load into Editor, plus lock this image's seed for an exact recreation"
+                >
+                  <Lock className="h-3 w-3" />
+                  Recreate Exactly
+                </Button>
+              )}
               {imageUrl && (
                 <Button
                   variant="outline"

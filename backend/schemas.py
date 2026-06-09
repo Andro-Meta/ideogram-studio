@@ -95,6 +95,11 @@ class GalleryItem(BaseModel):
     duration_ms: int | None
     created_at: str
     error_message: str | None
+    favorite: bool = False
+
+
+class FavoriteRequest(BaseModel):
+    favorite: bool
 
 
 class GalleryListResponse(BaseModel):

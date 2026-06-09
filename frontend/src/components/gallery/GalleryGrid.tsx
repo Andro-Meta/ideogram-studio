@@ -5,16 +5,22 @@ import { GalleryDetail } from "./GalleryDetail"
 import { useGallery, useDeleteGalleryItem } from "@/hooks/useGallery"
 import { Button } from "@/components/ui/button"
 
-export function GalleryGrid({ search = "" }: { search?: string }) {
+export function GalleryGrid({
+  search = "",
+  favoritesOnly = false,
+}: {
+  search?: string
+  favoritesOnly?: boolean
+}) {
   const [page, setPage] = useState(1)
   const [selectedId, setSelectedId] = useState<string | null>(null)
-  const { data, isLoading, isError } = useGallery(page, search)
+  const { data, isLoading, isError } = useGallery(page, search, favoritesOnly)
   const deleteMutation = useDeleteGalleryItem()
 
-  // A new search always starts from page 1
+  // A new search or filter always starts from page 1
   useEffect(() => {
     setPage(1)
-  }, [search])
+  }, [search, favoritesOnly])
 
   const PER_PAGE = 24
   const total = data?.total ?? 0
@@ -43,11 +49,17 @@ export function GalleryGrid({ search = "" }: { search?: string }) {
       <div className="flex-1 flex flex-col items-center justify-center gap-3 text-zinc-600 py-24">
         <ImageOff className="h-10 w-10" />
         <p className="text-sm">
-          {search ? `No images match "${search}"` : "No images yet — generate your first!"}
+          {search
+            ? `No images match "${search}"`
+            : favoritesOnly
+              ? "No favorites yet — hover an image and click the heart"
+              : "No images yet — generate your first!"}
         </p>
       </div>
     )
   }
+
+  const selectedIndex = selectedId ? items.findIndex((i) => i.id === selectedId) : -1
 
   return (
     <>
@@ -93,6 +105,14 @@ export function GalleryGrid({ search = "" }: { search?: string }) {
       <GalleryDetail
         itemId={selectedId}
         onClose={() => setSelectedId(null)}
+        position={selectedIndex >= 0 ? selectedIndex + 1 : undefined}
+        count={items.length}
+        onPrev={selectedIndex > 0 ? () => setSelectedId(items[selectedIndex - 1].id) : undefined}
+        onNext={
+          selectedIndex >= 0 && selectedIndex < items.length - 1
+            ? () => setSelectedId(items[selectedIndex + 1].id)
+            : undefined
+        }
       />
     </>
   )

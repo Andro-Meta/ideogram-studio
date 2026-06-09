@@ -14,6 +14,7 @@ export interface GalleryItem {
   duration_ms: number | null
   created_at: string
   error_message: string | null
+  favorite: boolean
 }
 
 export interface GalleryListResponse {

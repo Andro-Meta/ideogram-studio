@@ -23,7 +23,8 @@ CREATE TABLE IF NOT EXISTS jobs (
     model_variant   TEXT,
     duration_ms     INTEGER,
     created_at      TEXT NOT NULL,
-    error_message   TEXT
+    error_message   TEXT,
+    favorite        INTEGER NOT NULL DEFAULT 0
 )
 """
 
@@ -31,6 +32,7 @@ _ROW_KEYS = [
     "id", "status", "prompt_json", "prompt_text", "settings_json",
     "image_path", "seed", "width", "height", "sampler_preset",
     "model_variant", "duration_ms", "created_at", "error_message",
+    "favorite",
 ]
 
 
@@ -40,6 +42,13 @@ def _row_to_dict(row: aiosqlite.Row) -> dict:
 
 async def init_db(db: aiosqlite.Connection) -> None:
     await db.execute(CREATE_TABLE)
+    # Migration for databases created before the favorite column existed
+    async with db.execute("PRAGMA table_info(jobs)") as cur:
+        columns = {row[1] for row in await cur.fetchall()}
+    if "favorite" not in columns:
+        await db.execute(
+            "ALTER TABLE jobs ADD COLUMN favorite INTEGER NOT NULL DEFAULT 0"
+        )
     await db.execute(
         "CREATE INDEX IF NOT EXISTS idx_jobs_created_at ON jobs(created_at DESC)"
     )
@@ -115,6 +124,7 @@ async def list_jobs(
     per_page: int = 20,
     status: str | None = "done",
     search: str | None = None,
+    favorites_only: bool = False,
 ) -> tuple[list[dict], int]:
     offset = (page - 1) * per_page
 
@@ -123,6 +133,8 @@ async def list_jobs(
     if status:
         clauses.append("status=?")
         filter_params.append(status)
+    if favorites_only:
+        clauses.append("favorite=1")
     if search:
         # Match against the stored caption JSON and plain prompt text
         clauses.append("(prompt_json LIKE ? OR prompt_text LIKE ?)")
@@ -145,6 +157,17 @@ async def list_jobs(
         rows = await cur.fetchall()
 
     return [_row_to_dict(r) for r in rows], total
+
+
+async def set_favorite(
+    db: aiosqlite.Connection, job_id: str, favorite: bool
+) -> bool:
+    """Returns False when the job does not exist."""
+    cur = await db.execute(
+        "UPDATE jobs SET favorite=? WHERE id=?", (1 if favorite else 0, job_id)
+    )
+    await db.commit()
+    return cur.rowcount > 0
 
 
 async def delete_job(db: aiosqlite.Connection, job_id: str) -> str | None:

@@ -36,6 +36,7 @@ from schemas import (
     GalleryItem,
     GalleryListResponse,
     GenerationRequest,
+    FavoriteRequest,
     MagicPromptRequest,
     MagicPromptResponse,
     ModelLoadRequest,
@@ -203,10 +204,12 @@ async def gallery_list(
     page: int = Query(default=1, ge=1),
     per_page: int = Query(default=20, ge=1, le=100),
     search: str | None = Query(default=None, max_length=200),
+    favorites: bool = Query(default=False),
 ):
     db = request.app.state.db
     items, total = await gallery_service.list_jobs(
-        db, page=page, per_page=per_page, status="done", search=search
+        db, page=page, per_page=per_page, status="done", search=search,
+        favorites_only=favorites,
     )
     return GalleryListResponse(
         items=[GalleryItem(**item) for item in items],
@@ -221,6 +224,15 @@ async def gallery_get(request: Request, job_id: str):
     if not item:
         raise HTTPException(404, "Job not found")
     return GalleryItem(**item)
+
+
+@app.post("/api/gallery/{job_id}/favorite")
+async def gallery_set_favorite(request: Request, job_id: str, body: FavoriteRequest):
+    db = request.app.state.db
+    found = await gallery_service.set_favorite(db, job_id, body.favorite)
+    if not found:
+        raise HTTPException(404, "Job not found")
+    return {"message": "Updated", "favorite": body.favorite}
 
 
 @app.delete("/api/gallery/{job_id}")
