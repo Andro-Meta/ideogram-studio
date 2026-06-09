@@ -39,5 +39,5 @@ echo Press Ctrl+C to stop the server.
 echo.
 call venv\Scripts\activate.bat
 cd backend
-start "" http://localhost:8000
+start "" /b cmd /c "timeout /t 3 /nobreak >nul && start http://localhost:8000"
 uvicorn main:app --host 0.0.0.0 --port 8000 --workers 1 --log-level info
