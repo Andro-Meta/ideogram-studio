@@ -1,0 +1,22 @@
+# Normalize line endings
+* text=auto
+
+# Python
+*.py text eol=lf
+
+# TypeScript / JavaScript
+*.ts  text eol=lf
+*.tsx text eol=lf
+*.js  text eol=lf
+*.jsx text eol=lf
+*.json text eol=lf
+*.css  text eol=lf
+*.html text eol=lf
+
+# Scripts
+*.bat text eol=crlf
+*.sh  text eol=lf
+
+# Docs
+*.md  text eol=lf
+*.txt text eol=lf

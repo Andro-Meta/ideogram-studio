@@ -1,0 +1,39 @@
+# ── Ideogram 4.0 Local Studio ─ Python Requirements ─────────────────────────
+# Install order matters — torch must come before ideogram4 and diffusers.
+#
+# PyTorch (CUDA 12.4 — adjust index URL if your driver needs a different version)
+# If torch is already installed for your GPU, skip this line and remove --index-url
+# from install.bat.
+torch>=2.11
+
+# Ideogram 4 official inference package (fp8 + nf4 support)
+# Installed from source in install.bat: pip install git+https://github.com/ideogram-oss/ideogram4.git
+# Listed here for reference only — do not pip install -r requirements.txt directly.
+# ideogram-4   <-- installed from git in install.bat
+
+# HuggingFace diffusers (main branch — Ideogram4Pipeline not yet in a release)
+# Installed from source in install.bat.
+# diffusers    <-- installed from git in install.bat
+
+# transformers (dependency of both ideogram4 and diffusers)
+transformers>=4.49.0
+safetensors>=0.4.5
+accelerate>=1.0.0
+einops>=0.7.0
+sentencepiece
+pillow
+huggingface_hub>=0.26.0
+requests>=2.28
+bitsandbytes>=0.49.2
+
+# Web framework
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+python-multipart>=0.0.9
+
+# Database
+aiosqlite>=0.20.0
+
+# Settings / env
+pydantic-settings>=2.0.0
+python-dotenv>=1.0.0
