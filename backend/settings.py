@@ -15,7 +15,7 @@ class AppSettings(BaseSettings):
     )
 
     # Model
-    model_variant: str = "fp8"          # "fp8" | "bf16"
+    model_variant: str = "fp8"          # "fp8" | "nf4" | "bf16"
     hf_token: str | None = None
 
     # Magic Prompt

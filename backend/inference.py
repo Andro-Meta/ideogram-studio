@@ -70,6 +70,7 @@ class FP8Pipeline(InferencePipeline):
     """
 
     REPO = "ideogram-ai/ideogram-4-fp8"
+    DTYPE_HINT = "fp8"
 
     # PRESETS in reverse loop order (index 0 = LAST step) — matches ideogram4 package
     PRESETS: dict = {
@@ -141,6 +142,40 @@ class FP8Pipeline(InferencePipeline):
             del self._pipe
             self._pipe = None
             torch.cuda.empty_cache()
+
+
+# ── nf4 pipeline ──────────────────────────────────────────────────────────────
+
+class NF4Pipeline(FP8Pipeline):
+    """
+    NF4-quantized variant of the ideogram4 package pipeline.
+    Weights from ideogram-ai/ideogram-4-nf4 (~24 GB VRAM vs ~32 GB for fp8).
+    Uses bitsandbytes 4-bit NormalFloat quantization.
+    """
+
+    REPO = "ideogram-ai/ideogram-4-nf4"
+    DTYPE_HINT = "nf4"
+
+    def load(self) -> None:
+        import torch
+        from ideogram4 import Ideogram4Pipeline, Ideogram4PipelineConfig
+
+        if hf_token := os.environ.get("HF_TOKEN"):
+            os.environ.setdefault("HUGGING_FACE_HUB_TOKEN", hf_token)
+
+        try:
+            from transformers import BitsAndBytesConfig
+            bnb_config = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_quant_type="nf4")
+        except ImportError:
+            bnb_config = None
+            logger.warning("bitsandbytes not installed — loading NF4 weights without explicit quantization config")
+
+        config = Ideogram4PipelineConfig(weights_repo=self.REPO)
+        kwargs: dict = {"device": "cuda", "dtype": torch.bfloat16}
+        if bnb_config is not None:
+            kwargs["quantization_config"] = bnb_config
+
+        self._pipe = Ideogram4Pipeline.from_pretrained(config=config, **kwargs)
 
 
 # ── bf16 pipeline ─────────────────────────────────────────────────────────────
@@ -267,6 +302,8 @@ class PipelineManager:
 
             if variant == "fp8":
                 pipeline: InferencePipeline = FP8Pipeline()
+            elif variant == "nf4":
+                pipeline = NF4Pipeline()
             elif variant == "bf16":
                 pipeline = BF16Pipeline()
             else:

@@ -2,6 +2,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Camera, Paintbrush } from "lucide-react"
 import { PhotoStyleForm } from "./PhotoStyleForm"
 import { IllustrationStyleForm } from "./IllustrationStyleForm"
+import { StylePresets } from "./StylePresets"
 import { usePromptStore } from "@/stores/promptStore"
 
 export function StylePanel() {
@@ -9,8 +10,9 @@ export function StylePanel() {
   const setStyleMode = usePromptStore((s) => s.setStyleMode)
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-3">
       <p className="text-xs font-medium text-zinc-300 uppercase tracking-wider">Style</p>
+      <StylePresets />
       <Tabs
         value={mode}
         onValueChange={(v) => setStyleMode(v as "photo" | "illustration")}

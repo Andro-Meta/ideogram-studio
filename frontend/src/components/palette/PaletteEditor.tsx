@@ -1,5 +1,6 @@
 import { Plus } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { PALETTE_MODES } from "@/lib/colorPalettes"
 import { ColorSwatch } from "./ColorSwatch"
 
 interface PaletteEditorProps {
@@ -13,10 +14,14 @@ interface PaletteEditorProps {
 export function PaletteEditor({ colors, maxColors, onChange, label, className }: PaletteEditorProps) {
   const addColor = () => {
     if (colors.length >= maxColors) return
-    // Pick a random pleasant color to start with
     const defaults = ["#6366F1", "#06B6D4", "#10B981", "#F59E0B", "#EF4444", "#8B5CF6", "#EC4899"]
     const next = defaults[colors.length % defaults.length]
     onChange([...colors, next])
+  }
+
+  const applyPreset = (presetColors: string[]) => {
+    const capped = presetColors.slice(0, maxColors)
+    onChange(capped)
   }
 
   const removeColor = (i: number) => {
@@ -34,6 +39,30 @@ export function PaletteEditor({ colors, maxColors, onChange, label, className }:
           {label} <span className="text-zinc-600">({colors.length}/{maxColors})</span>
         </p>
       )}
+
+      {/* Palette mode presets */}
+      <div className="flex flex-wrap gap-1">
+        {PALETTE_MODES.map((mode) => (
+          <button
+            key={mode.id}
+            type="button"
+            onClick={() => applyPreset(mode.colors)}
+            title={mode.label}
+            className="flex items-center gap-0.5 rounded border border-zinc-700 px-1.5 py-0.5 hover:border-zinc-500 transition-colors"
+          >
+            <span className="text-[9px] text-zinc-500 mr-0.5">{mode.label}</span>
+            {mode.colors.map((c) => (
+              <span
+                key={c}
+                className="h-2.5 w-2.5 rounded-sm inline-block shrink-0"
+                style={{ backgroundColor: c }}
+              />
+            ))}
+          </button>
+        ))}
+      </div>
+
+      {/* Individual color swatches */}
       <div className="flex flex-wrap gap-2 items-center">
         {colors.map((color, i) => (
           <ColorSwatch

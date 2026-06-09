@@ -43,6 +43,14 @@ _REGISTRY: dict[str, dict] = {
         "label": "4× AuraSR v2",
         "description": "Cutting-edge GigaGAN. Recommended for most images.",
     },
+    "4xLexicaHAT": {
+        "backend": "spandrel",
+        "repo_id": "Phips/4xLexicaHAT",
+        "filename": "4xLexicaHAT.pth",
+        "scale": 4,
+        "label": "4× LexicaHAT",
+        "description": "HAT transformer trained on AI-generated images. Sharpest on clean AI-gen output.",
+    },
     "4xNomosUniDAT": {
         "backend": "spandrel",
         "repo_id": "Phips/4xNomosUniDAT_otf",
