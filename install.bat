@@ -34,10 +34,10 @@ python -m pip install --upgrade pip --quiet
 echo.
 echo [2/7] Installing PyTorch with CUDA support...
 echo       (This downloads ~2 GB. Adjust --index-url if you need a different CUDA version.)
-pip install torch>=2.11 --index-url https://download.pytorch.org/whl/cu124 --quiet
+pip install "torch>=2.12.0" --index-url https://download.pytorch.org/whl/cu124 --quiet
 if errorlevel 1 (
     echo [WARN] CUDA 12.4 torch failed. Trying default PyTorch index...
-    pip install torch>=2.11 --quiet
+    pip install "torch>=2.12.0" --quiet
     if errorlevel 1 ( echo [ERROR] PyTorch install failed & pause & exit /b 1 )
 )
 
@@ -53,10 +53,25 @@ if errorlevel 1 ( echo [ERROR] diffusers install failed & pause & exit /b 1 )
 
 echo.
 echo [5/7] Installing remaining Python dependencies...
-pip install fastapi "uvicorn[standard]>=0.30.0" aiosqlite "pydantic-settings>=2.0.0" ^
-    python-dotenv python-multipart "transformers>=4.49.0" "safetensors>=0.4.5" ^
-    "accelerate>=1.0.0" einops sentencepiece pillow "huggingface_hub>=0.26.0" ^
-    requests "bitsandbytes>=0.49.2" --quiet
+pip install ^
+    "fastapi>=0.136.0" ^
+    "uvicorn[standard]>=0.49.0" ^
+    "aiosqlite>=0.22.1" ^
+    "pydantic-settings>=2.14.1" ^
+    "python-dotenv>=1.2.2" ^
+    python-multipart ^
+    "transformers>=4.49.0" ^
+    "safetensors>=0.8.0" ^
+    "accelerate>=1.13.0" ^
+    "einops>=0.7.0" ^
+    sentencepiece ^
+    pillow ^
+    "huggingface_hub>=1.18.0" ^
+    requests ^
+    "bitsandbytes>=0.49.2" ^
+    "spandrel>=0.4.2" ^
+    "aura-sr>=0.0.4" ^
+    --quiet
 if errorlevel 1 ( echo [ERROR] pip install failed & pause & exit /b 1 )
 
 :: ── Environment file ────────────────────────────────────────────

@@ -9,8 +9,9 @@ export function StylePresets() {
     const preset = STYLE_PRESETS.find((p) => p.id === presetId)
     if (!preset) return
     setStyleMode(preset.mode)
-    for (const [key, value] of Object.entries(preset.fields)) {
-      setStyleField(key as never, value as never)
+    for (const key of Object.keys(preset.fields) as Array<keyof typeof preset.fields>) {
+      const value = preset.fields[key]
+      if (value !== undefined) setStyleField(key, value)
     }
   }
 

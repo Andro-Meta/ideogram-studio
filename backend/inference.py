@@ -14,6 +14,7 @@ The BF16Pipeline presets are already in forward order.
 """
 from __future__ import annotations
 
+import logging
 import os
 import random
 from abc import ABC, abstractmethod
@@ -21,6 +22,8 @@ from dataclasses import dataclass
 from typing import Callable
 
 from PIL import Image
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass

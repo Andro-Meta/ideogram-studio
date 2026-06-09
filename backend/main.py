@@ -111,8 +111,8 @@ async def model_status(request: Request):
 @app.post("/api/model/load")
 async def model_load(request: Request, body: dict):
     variant = body.get("variant", app_settings.model_variant)
-    if variant not in ("fp8", "bf16"):
-        raise HTTPException(400, "variant must be 'fp8' or 'bf16'")
+    if variant not in ("fp8", "nf4", "bf16"):
+        raise HTTPException(400, "variant must be 'fp8', 'nf4', or 'bf16'")
 
     pm: PipelineManager = request.app.state.pipeline
     if pm.status == "loading":
