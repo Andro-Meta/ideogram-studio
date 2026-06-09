@@ -34,9 +34,9 @@ python -m pip install --upgrade pip --quiet
 echo.
 echo [2/7] Installing PyTorch with CUDA support...
 echo       (This downloads ~2 GB. Adjust --index-url if you need a different CUDA version.)
-pip install "torch>=2.12.0" --index-url https://download.pytorch.org/whl/cu124 --quiet
+pip install "torch>=2.12.0" --index-url https://download.pytorch.org/whl/cu126 --quiet
 if errorlevel 1 (
-    echo [WARN] CUDA 12.4 torch failed. Trying default PyTorch index...
+    echo [WARN] CUDA 12.6 torch failed. Trying default PyTorch index...
     pip install "torch>=2.12.0" --quiet
     if errorlevel 1 ( echo [ERROR] PyTorch install failed & pause & exit /b 1 )
 )

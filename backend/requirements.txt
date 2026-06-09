@@ -1,7 +1,8 @@
 # ── Ideogram 4.0 Local Studio ─ Python Requirements ─────────────────────────
 # Install order matters — torch must come before ideogram4 and diffusers.
 #
-# PyTorch (CUDA 12.4 — adjust index URL if your driver needs a different version)
+# PyTorch (CUDA 12.6 — adjust index URL if your driver needs a different version)
+# torch>=2.12.0 wheels exist on cu126; cu124 index only has up to 2.11.x.
 # If torch is already installed for your GPU, skip this line and remove --index-url
 # from install.bat.
 torch>=2.12.0
