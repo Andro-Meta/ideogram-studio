@@ -166,19 +166,12 @@ class NF4Pipeline(FP8Pipeline):
         if hf_token := os.environ.get("HF_TOKEN"):
             os.environ.setdefault("HUGGING_FACE_HUB_TOKEN", hf_token)
 
-        try:
-            from transformers import BitsAndBytesConfig
-            bnb_config = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_quant_type="nf4")
-        except ImportError:
-            bnb_config = None
-            logger.warning("bitsandbytes not installed — loading NF4 weights without explicit quantization config")
-
         config = Ideogram4PipelineConfig(weights_repo=self.REPO)
-        kwargs: dict = {"device": "cuda", "dtype": torch.bfloat16}
-        if bnb_config is not None:
-            kwargs["quantization_config"] = bnb_config
-
-        self._pipe = Ideogram4Pipeline.from_pretrained(config=config, **kwargs)
+        self._pipe = Ideogram4Pipeline.from_pretrained(
+            config=config,
+            device="cuda",
+            dtype=torch.bfloat16,
+        )
 
 
 # ── bf16 pipeline ─────────────────────────────────────────────────────────────
@@ -319,7 +312,6 @@ class PipelineManager:
         except Exception as exc:
             self.status = "error"
             self.error = str(exc)
-            raise
 
     def generate(
         self,
