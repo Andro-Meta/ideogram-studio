@@ -27,27 +27,39 @@ REPOS: dict[str, str] = {
     "bf16": "CalamitousFelicitousness/Ideogram-4-bf16-Diffusers",
 }
 
-# Conservative estimates (GB). download_gb = full repo snapshot on disk.
+# Requirements verified against the real repos (HfApi files_metadata) and the
+# installed ideogram4 loader source.
+#
+# download_gb — true repo snapshot sizes from the HF API:
+#   nf4 16.1 GB | fp8 27.5 GB | bf16 53.6 GB
+# vram_gb — every variant ships TWO transformers (conditional + unconditional)
+#   plus a Qwen3-VL-8B text encoder, all resident on the GPU:
+#   nf4: 5.2+5.2+5.5+0.2 ≈ 16.1 GB weights + activations → 20 GB floor
+#   fp8: 9.3+9.3+8.8+0.2 ≈ 27.5 GB weights → >30 GB, no consumer card fits
+# ram_gb — from_pretrained holds BOTH transformer state dicts in CPU RAM at
+#   once before building. The fp8/bf16 paths additionally run model.to(dtype)
+#   on the full float32 skeleton (≈37 GB for 9.3B params), which materializes
+#   real pages regardless of our init suppression — unfixable from our side,
+#   hence fp8's ~48 GB demand. The nf4 path (Params4bit.from_prequantized)
+#   moves quantized weights straight to GPU and only needs the state dicts.
 VARIANT_REQS: dict[str, dict[str, Any]] = {
     "nf4": {
-        "download_gb": 14.0,
+        "download_gb": 16.1,
         "vram_gb": 20.0,
-        "ram_gb": 12.0,
+        "ram_gb": 16.0,
         "label": "4-bit quantized — official pick for 24 GB GPUs (RTX 3090/4090)",
     },
     "fp8": {
-        "download_gb": 27.0,
-        # Upstream loader materializes full-precision transformer skeletons on
-        # the CPU before quantization — fp8 needs serious system RAM.
-        "vram_gb": 30.0,
-        "ram_gb": 40.0,
-        "label": "8-bit float — A100/H100-class GPUs and 40 GB+ system RAM",
-    },
-    "bf16": {
-        "download_gb": 38.0,
+        "download_gb": 27.5,
         "vram_gb": 30.0,
         "ram_gb": 48.0,
-        "label": "Community bf16 diffusers weights — experimental, very heavy",
+        "label": "8-bit float — needs A100/H100-class GPUs and ~48 GB system RAM",
+    },
+    "bf16": {
+        "download_gb": 53.6,
+        "vram_gb": 40.0,
+        "ram_gb": 48.0,
+        "label": "Community bf16 diffusers weights — experimental, datacenter-scale",
     },
 }
 
@@ -187,26 +199,73 @@ def _hf_cache_repo_dir(variant: str) -> Path:
 
 
 def variant_cache_size_gb(variant: str) -> float:
-    """Bytes currently on disk for this variant (including partial downloads)."""
+    """Decimal GB currently on disk for this variant (incl. partial downloads).
+
+    Uses lstat so snapshot symlinks don't double-count their blob targets, and
+    decimal GB (1e9) to match the sizes the HF API reports — VARIANT_REQS
+    download_gb values and the download progress monitor both rely on that.
+    """
     repo_dir = _hf_cache_repo_dir(variant)
     if not repo_dir.exists():
         return 0.0
+    import stat as stat_mod
+
     total = 0
     for p in repo_dir.rglob("*"):
         try:
-            if p.is_file():
-                total += p.stat().st_size
+            st = p.lstat()
+            if not stat_mod.S_ISDIR(st.st_mode):
+                total += st.st_size
         except OSError:
             continue
-    return total / (1024 ** 3)
+    return total / 1e9
 
 
 def is_variant_cached(variant: str) -> bool:
-    """Heuristic: snapshot exists and on-disk size is near the expected total."""
+    """Snapshot exists, no partial downloads, and size is near the true total.
+
+    huggingface_hub writes in-flight files as ``*.incomplete`` inside blobs/ —
+    any such file means the snapshot is NOT safe to load from yet, no matter
+    what the size heuristic says.
+    """
     repo_dir = _hf_cache_repo_dir(variant)
     if not (repo_dir / "snapshots").exists():
         return False
-    return variant_cache_size_gb(variant) >= VARIANT_REQS[variant]["download_gb"] * 0.85
+    blobs_dir = repo_dir / "blobs"
+    if blobs_dir.exists() and any(blobs_dir.glob("*.incomplete")):
+        return False
+    return variant_cache_size_gb(variant) >= VARIANT_REQS[variant]["download_gb"] * 0.95
+
+
+def get_gpu_processes() -> list[str]:
+    """Names of OTHER processes currently holding GPU memory (best effort).
+
+    Uses nvidia-smi because torch only sees its own allocations. Our own PID is
+    excluded. Returns [] when nvidia-smi is unavailable or nothing else runs.
+    """
+    import subprocess
+
+    try:
+        out = subprocess.run(
+            ["nvidia-smi", "--query-compute-apps=pid,process_name",
+             "--format=csv,noheader"],
+            capture_output=True, text=True, timeout=10,
+        ).stdout
+    except Exception:
+        return []
+
+    me = os.getpid()
+    names: list[str] = []
+    for line in out.splitlines():
+        parts = [p.strip() for p in line.split(",", 1)]
+        if len(parts) != 2 or not parts[0].isdigit():
+            continue
+        if int(parts[0]) == me:
+            continue
+        name = Path(parts[1]).name or parts[1]
+        if name not in names:
+            names.append(name)
+    return names
 
 
 # ── Assessment ────────────────────────────────────────────────────────────────
@@ -217,6 +276,9 @@ def assess_variant(
     vram_total_gb: float | None,
     ram_total_gb: float | None,
     disk_free_gb: float | None,
+    vram_free_gb: float | None = None,
+    gpu_processes: list[str] | None = None,
+    commit_available_gb: float | None = None,
 ) -> dict[str, Any]:
     """Returns {variant, cached, blockers, warnings, requirements}."""
     req = VARIANT_REQS[variant]
@@ -241,12 +303,39 @@ def assess_variant(
         )
     elif vram_total_gb is None:
         warnings.append("No CUDA GPU detected — generation will not work without one.")
+    elif vram_free_gb is not None and vram_free_gb + 0.5 < req["vram_gb"]:
+        # The card is big enough, but something else is occupying it right now.
+        others = [p for p in (gpu_processes or [])]
+        culprits = f" Apps using the GPU now: {', '.join(others)}." if others else ""
+        hint = (
+            " Ollama keeps models in VRAM after use — run 'ollama stop <model>' "
+            "or quit Ollama from the system tray."
+            if any("ollama" in p.lower() for p in others) else ""
+        )
+        blockers.append(
+            f"The {variant} variant needs ~{req['vram_gb']:.0f} GB of VRAM but only "
+            f"{vram_free_gb:.1f} GB of your {vram_total_gb:.1f} GB is free right now."
+            f"{culprits}{hint} Close those apps and try again."
+        )
 
     if ram_total_gb is not None and ram_total_gb + 0.5 < req["ram_gb"]:
         blockers.append(
             f"Loading the {variant} weights needs roughly {req['ram_gb']:.0f} GB of system RAM during "
             f"startup but this machine has {ram_total_gb:.1f} GB. Exceeding physical RAM is what "
             f"freezes/crashes Windows during model loads."
+        )
+
+    # Commit charge (RAM+pagefile) is a soft signal: Windows can grow the
+    # pagefile, so warn rather than block.
+    if (
+        not blockers
+        and commit_available_gb is not None
+        and commit_available_gb < req["ram_gb"] + 8.0
+    ):
+        warnings.append(
+            f"Windows commit charge headroom is low ({commit_available_gb:.1f} GB available). "
+            "Close memory-heavy apps before loading; the in-load watchdog will abort "
+            "safely if memory runs critically low."
         )
 
     return {
@@ -268,6 +357,8 @@ def get_system_report() -> dict[str, Any]:
     gpu_name, vram_total, vram_free = get_gpu_info()
     ram_total, ram_avail = get_ram_gb()
     disk_free = get_disk_free_gb()
+    gpu_procs = get_gpu_processes()
+    commit_limit, commit_avail = get_commit_gb()
 
     variants = []
     for v in ("nf4", "fp8", "bf16"):
@@ -277,6 +368,9 @@ def get_system_report() -> dict[str, Any]:
                 vram_total_gb=vram_total,
                 ram_total_gb=ram_total,
                 disk_free_gb=disk_free,
+                vram_free_gb=vram_free,
+                gpu_processes=gpu_procs,
+                commit_available_gb=commit_avail,
             )
         )
 
@@ -290,11 +384,11 @@ def get_system_report() -> dict[str, Any]:
     for item in variants:
         item["recommended"] = item["variant"] == recommended
 
-    commit_limit, commit_avail = get_commit_gb()
     return {
         "gpu_name": gpu_name,
         "vram_total_gb": round(vram_total, 1) if vram_total is not None else None,
         "vram_free_gb": round(vram_free, 1) if vram_free is not None else None,
+        "gpu_processes": gpu_procs,
         "ram_total_gb": round(ram_total, 1) if ram_total is not None else None,
         "ram_available_gb": round(ram_avail, 1) if ram_avail is not None else None,
         "commit_limit_gb": round(commit_limit, 1) if commit_limit is not None else None,

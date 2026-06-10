@@ -77,6 +77,17 @@ export function ModelVariantToggle() {
         </div>
       )}
 
+      {!blocked && (selected?.warnings.length ?? 0) > 0 && (
+        <div className="space-y-1">
+          {selected!.warnings.map((w, i) => (
+            <p key={i} className="text-[10px] text-yellow-500/70 flex items-start gap-1">
+              <AlertTriangle className="h-3 w-3 shrink-0 mt-px" />
+              {w}
+            </p>
+          ))}
+        </div>
+      )}
+
       {!blocked && selected?.requirements.label && (
         <p className="text-[10px] text-zinc-600">{selected.requirements.label}</p>
       )}

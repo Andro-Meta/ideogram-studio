@@ -285,6 +285,24 @@ export function Settings() {
                   {sysInfo.vram_total_gb != null && ` · ${sysInfo.vram_total_gb} GB VRAM`}
                 </span>
               </div>
+              {sysInfo.vram_free_gb != null && sysInfo.vram_total_gb != null && (
+                <div className="flex items-center justify-between">
+                  <span className="text-zinc-400">VRAM free right now</span>
+                  <span className={cn(
+                    sysInfo.vram_free_gb < sysInfo.vram_total_gb * 0.6
+                      ? "text-amber-400" : "text-zinc-300"
+                  )}>
+                    {sysInfo.vram_free_gb} / {sysInfo.vram_total_gb} GB
+                  </span>
+                </div>
+              )}
+              {sysInfo.gpu_processes.length > 0 && (
+                <p className="text-[11px] text-amber-400/90 bg-amber-500/10 rounded p-2">
+                  Other apps are using your GPU: {sysInfo.gpu_processes.join(", ")}.
+                  {sysInfo.gpu_processes.some((p) => p.toLowerCase().includes("ollama")) &&
+                    " Ollama keeps models in VRAM after use — quit it (or run 'ollama stop') before loading."}
+                </p>
+              )}
               <div className="flex items-center justify-between">
                 <span className="text-zinc-400">System RAM</span>
                 <span className="text-zinc-300">

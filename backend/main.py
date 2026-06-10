@@ -131,16 +131,28 @@ async def system_info():
 
 # ── Model API ─────────────────────────────────────────────────────────────────
 
-def _preflight_blockers(variant: str) -> list[str]:
-    """Hardware checks that protect the machine from RAM/disk exhaustion."""
-    gpu_name, vram_total, _vram_free = system_check.get_gpu_info()
+def _preflight_blockers(variant: str, pm: PipelineManager | None = None) -> list[str]:
+    """Hardware checks that protect the machine from RAM/VRAM/disk exhaustion."""
+    gpu_name, vram_total, vram_free = system_check.get_gpu_info()
     ram_total, _ram_avail = system_check.get_ram_gb()
     disk_free = system_check.get_disk_free_gb()
+    _climit, commit_avail = system_check.get_commit_gb()
+
+    # load() unloads any currently-loaded pipeline first, so VRAM held by OUR
+    # process comes back — credit it before judging free space.
+    if vram_free is not None and pm is not None:
+        ours_mb = pm.vram_used_mb()
+        if ours_mb:
+            vram_free = vram_free + ours_mb / 1024
+
     result = system_check.assess_variant(
         variant,
         vram_total_gb=vram_total,
         ram_total_gb=ram_total,
         disk_free_gb=disk_free,
+        vram_free_gb=vram_free,
+        gpu_processes=system_check.get_gpu_processes(),
+        commit_available_gb=commit_avail,
     )
     return result["blockers"]
 
@@ -167,7 +179,7 @@ async def model_load(request: Request, body: ModelLoadRequest):
     loop = asyncio.get_running_loop()
 
     if not body.force:
-        blockers = await loop.run_in_executor(None, lambda: _preflight_blockers(body.variant))
+        blockers = await loop.run_in_executor(None, lambda: _preflight_blockers(body.variant, pm))
         if blockers:
             raise HTTPException(422, " ".join(blockers))
 
@@ -386,7 +398,7 @@ async def generation_ws(websocket: WebSocket, job_id: str):
             # About to trigger a load — run the hardware preflight first so an
             # unsuitable variant can never freeze the machine.
             variant = gen_req.model_variant
-            blockers = await loop.run_in_executor(None, lambda: _preflight_blockers(variant))
+            blockers = await loop.run_in_executor(None, lambda: _preflight_blockers(variant, pm))
             if blockers:
                 await websocket.send_json({"type": "error", "message": " ".join(blockers)})
                 return

@@ -60,6 +60,7 @@ export interface SystemInfoResponse {
   gpu_name: string | null
   vram_total_gb: number | null
   vram_free_gb: number | null
+  gpu_processes: string[]
   ram_total_gb: number | null
   ram_available_gb: number | null
   commit_limit_gb: number | null

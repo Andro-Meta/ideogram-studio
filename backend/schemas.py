@@ -174,6 +174,7 @@ class SystemInfoResponse(BaseModel):
     gpu_name: str | None
     vram_total_gb: float | None
     vram_free_gb: float | None
+    gpu_processes: list[str] = []
     ram_total_gb: float | None
     ram_available_gb: float | None
     commit_limit_gb: float | None = None
