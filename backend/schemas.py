@@ -56,7 +56,7 @@ class GenerationRequest(BaseModel):
     width: int
     sampler_preset: Literal["V4_TURBO_12", "V4_DEFAULT_20", "V4_QUALITY_48"] = "V4_DEFAULT_20"
     seed: int | None = None
-    model_variant: Literal["fp8", "nf4", "bf16"] = "nf4"
+    model_variant: Literal["fp8", "nf4", "nf4d", "bf16"] = "nf4"
 
     @field_validator("height", "width")
     @classmethod
@@ -148,7 +148,7 @@ class ModelStatusResponse(BaseModel):
 
 
 class ModelLoadRequest(BaseModel):
-    variant: Literal["fp8", "nf4", "bf16"]
+    variant: Literal["fp8", "nf4", "nf4d", "bf16"]
     force: bool = False
 
 

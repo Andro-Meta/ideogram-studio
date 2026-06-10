@@ -13,7 +13,7 @@ import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
 import { useSettings, useUpdateSettings } from "@/hooks/useSettings"
 import { useModelStatus, useLoadModel, useUnloadModel } from "@/hooks/useModelStatus"
-import { useSystemInfo } from "@/hooks/useSystemInfo"
+import { useSystemInfo, variantAssessment } from "@/hooks/useSystemInfo"
 import { useSettingsStore } from "@/stores/settingsStore"
 import type { SettingsUpdateRequest } from "@/types/api"
 
@@ -144,6 +144,9 @@ export function Settings() {
 
   const vramMb = modelStatus?.vram_used_mb
   const vramGb = vramMb ? (vramMb / 1024).toFixed(1) : null
+
+  const selectedAssessment = variantAssessment(sysInfo, modelVariant)
+  const variantBlocked = sysInfo != null && (selectedAssessment?.blockers.length ?? 0) > 0
 
   return (
     <div className="h-full overflow-auto">
@@ -385,7 +388,8 @@ export function Settings() {
                 <Button
                   size="sm"
                   className="flex-1 bg-violet-600 hover:bg-violet-500 text-white text-xs h-8 gap-1.5"
-                  disabled={loadModelMutation.isPending}
+                  disabled={loadModelMutation.isPending || variantBlocked}
+                  title={variantBlocked ? selectedAssessment!.blockers[0] : undefined}
                   onClick={() => loadModelMutation.mutate({ variant: modelVariant })}
                 >
                   {loadModelMutation.isPending
@@ -393,6 +397,11 @@ export function Settings() {
                     : <Power className="h-3.5 w-3.5" />}
                   Load {modelVariant.toUpperCase()}
                 </Button>
+              )}
+              {variantBlocked && (modelStatus?.status === "unloaded" || modelStatus?.status === "error") && (
+                <p className="text-[11px] text-amber-400/90">
+                  {selectedAssessment!.blockers[0]}
+                </p>
               )}
               {modelStatus?.status === "ready" && (
                 <Button

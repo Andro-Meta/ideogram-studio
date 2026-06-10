@@ -346,7 +346,16 @@ class BF16Pipeline(InferencePipeline):
         if hf_token := os.environ.get("HF_TOKEN"):
             kwargs["token"] = hf_token
 
-        self._pipe = DiffusersPipeline.from_pretrained(self.REPO, **kwargs).to("cuda")
+        pipe = DiffusersPipeline.from_pretrained(self.REPO, **kwargs)
+        try:
+            pipe.to("cuda")
+        except ValueError as exc:
+            # bnb-quantized components are placed on the GPU by their
+            # quantization config and refuse a blanket .to() — that's fine.
+            if "quantiz" not in str(exc).lower() and "bitsandbytes" not in str(exc).lower():
+                raise
+            logger.info("Pipeline declined .to('cuda') (quantized components already placed): %s", exc)
+        self._pipe = pipe
 
     def generate(
         self,
@@ -394,6 +403,22 @@ class BF16Pipeline(InferencePipeline):
             torch.cuda.empty_cache()
 
 
+# ── nf4 diffusers pipeline ────────────────────────────────────────────────────
+
+class NF4DiffusersPipeline(BF16Pipeline):
+    """
+    Official ideogram-ai/ideogram-4-nf4-diffusers — the same 4-bit weights as
+    nf4 but in diffusers layout (16.1 GB, fits 24 GB GPUs).
+
+    Why it exists alongside nf4: the diffusers pipeline supports
+    callback_on_step_end, so the GUI gets real step-by-step progress instead
+    of an indeterminate spinner. Inherits everything from BF16Pipeline except
+    the weights repo.
+    """
+
+    REPO = "ideogram-ai/ideogram-4-nf4-diffusers"
+
+
 # ── Pipeline manager ─────────────────────────────────────────────────────────
 
 class PipelineManager:
@@ -411,6 +436,7 @@ class PipelineManager:
     REPOS = {
         "fp8": FP8Pipeline.REPO,
         "nf4": NF4Pipeline.REPO,
+        "nf4d": NF4DiffusersPipeline.REPO,
         "bf16": BF16Pipeline.REPO,
     }
 
@@ -575,6 +601,8 @@ class PipelineManager:
                     pipeline: InferencePipeline = FP8Pipeline()
                 elif variant == "nf4":
                     pipeline = NF4Pipeline()
+                elif variant == "nf4d":
+                    pipeline = NF4DiffusersPipeline()
                 else:
                     pipeline = BF16Pipeline()
 

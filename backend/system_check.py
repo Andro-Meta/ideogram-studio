@@ -24,6 +24,7 @@ from settings import MODELS_DIR
 REPOS: dict[str, str] = {
     "fp8": "ideogram-ai/ideogram-4-fp8",
     "nf4": "ideogram-ai/ideogram-4-nf4",
+    "nf4d": "ideogram-ai/ideogram-4-nf4-diffusers",
     "bf16": "CalamitousFelicitousness/Ideogram-4-bf16-Diffusers",
 }
 
@@ -48,6 +49,14 @@ VARIANT_REQS: dict[str, dict[str, Any]] = {
         "vram_gb": 20.0,
         "ram_gb": 16.0,
         "label": "4-bit quantized — official pick for 24 GB GPUs (RTX 3090/4090)",
+    },
+    "nf4d": {
+        "download_gb": 16.1,
+        "vram_gb": 20.0,
+        # diffusers loads checkpoint shards one at a time (low_cpu_mem_usage)
+        # instead of materializing whole state dicts — gentler than nf4.
+        "ram_gb": 12.0,
+        "label": "Official NF4 in diffusers layout — live step-by-step progress",
     },
     "fp8": {
         "download_gb": 27.5,
@@ -361,7 +370,7 @@ def get_system_report() -> dict[str, Any]:
     commit_limit, commit_avail = get_commit_gb()
 
     variants = []
-    for v in ("nf4", "fp8", "bf16"):
+    for v in ("nf4", "nf4d", "fp8", "bf16"):
         variants.append(
             assess_variant(
                 v,
