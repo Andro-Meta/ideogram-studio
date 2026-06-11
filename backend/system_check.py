@@ -409,6 +409,21 @@ def get_system_report() -> dict[str, Any]:
     gpu_procs = get_gpu_processes()
     commit_limit, commit_avail = get_commit_gb()
 
+    # Credit back the VRAM OUR OWN loaded model holds before judging variants —
+    # a (re)load releases it first, so it is effectively available. Without
+    # this, successfully loading a model locks every variant button in the
+    # GUI with "not enough hardware".
+    vram_free_for_assessment = vram_free
+    if vram_free_for_assessment is not None and "torch" in sys.modules:
+        try:
+            import torch
+
+            if torch.cuda.is_available():
+                ours_gb = torch.cuda.memory_reserved() / (1024 ** 3)
+                vram_free_for_assessment = vram_free_for_assessment + ours_gb
+        except Exception:
+            pass
+
     variants = []
     for v in ("nf4", "nf4d", "fp8", "bf16"):
         variants.append(
@@ -417,7 +432,7 @@ def get_system_report() -> dict[str, Any]:
                 vram_total_gb=vram_total,
                 ram_total_gb=ram_total,
                 disk_free_gb=disk_free,
-                vram_free_gb=vram_free,
+                vram_free_gb=vram_free_for_assessment,
                 gpu_processes=gpu_procs,
                 commit_available_gb=commit_avail,
             )

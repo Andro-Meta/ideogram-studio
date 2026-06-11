@@ -2,7 +2,7 @@ import { useEffect, useState } from "react"
 import { Link } from "react-router-dom"
 import {
   Zap, Square, RotateCcw, AlertTriangle, Loader2, Power,
-  ArrowUpCircle, Layers, Copy, ExternalLink, Brush,
+  ArrowUpCircle, Layers, Copy, Brush,
 } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
@@ -28,6 +28,7 @@ import { useGenerate } from "@/hooks/useGenerate"
 import { useModelStatus, useLoadModel } from "@/hooks/useModelStatus"
 import { useUpscale, useUpscaleModels } from "@/hooks/useUpscale"
 import { useBatchGenerate, type VariationResult } from "@/hooks/useBatchGenerate"
+import { Lightbox } from "@/components/lightbox/Lightbox"
 import { buildCaption, validatePromptState, estimateTokens } from "@/lib/caption"
 
 // ── Model status panel ────────────────────────────────────────────────────────
@@ -52,7 +53,7 @@ function ModelStatusPanel() {
 
   return (
     <div className="space-y-2">
-      <p className="text-xs font-medium text-zinc-300 uppercase tracking-wider">Model</p>
+      <p className="text-xs font-medium text-zinc-300 uppercase tracking-wider">Status</p>
       <div className={cn("flex items-center gap-1.5 px-2 py-1 rounded border text-[11px]", statusColors[status])}>
         {(status === "loading" || status === "downloading") && <Loader2 className="h-3 w-3 animate-spin" />}
         <span className="capitalize">{status}</span>
@@ -176,6 +177,9 @@ export function Generate() {
   const [upscaledUrl, setUpscaledUrl] = useState<string | null>(null)
   const [upscaledSize, setUpscaledSize] = useState<{ w: number; h: number } | null>(null)
 
+  // Lightbox for viewing results up close
+  const [lightboxOpen, setLightboxOpen] = useState(false)
+
   // Variation selection state
   const [selectedVariation, setSelectedVariation] = useState<VariationResult | null>(null)
 
@@ -251,8 +255,8 @@ export function Generate() {
   return (
     <div className="h-full flex overflow-hidden">
       {/* ── Left panel: Prompt building ────────────────────────────────── */}
-      <div className="w-80 shrink-0 border-r border-zinc-800 flex flex-col bg-zinc-900/30">
-        <ScrollArea className="flex-1">
+      <div className="w-80 shrink-0 border-r border-zinc-800 flex flex-col bg-zinc-900/30 min-h-0">
+        <ScrollArea className="flex-1 min-h-0">
           <div className="p-4 space-y-5">
             <PromptBar />
             <Separator className="bg-zinc-800" />
@@ -271,9 +275,28 @@ export function Generate() {
           {/* Canvas */}
           <BBoxCanvas />
 
-          {/* Result: single image */}
+          {/* Result: compact preview card — click to view in the lightbox */}
           {isDone && displayImageUrl && !batch.results.length && (
-            <>
+            <div className="rounded-xl border border-zinc-700 bg-zinc-900/60 p-3 space-y-2.5">
+              <button
+                type="button"
+                onClick={() => setLightboxOpen(true)}
+                className="group relative block mx-auto"
+                title="Click to view full size"
+              >
+                <img
+                  src={displayImageUrl}
+                  alt="Generated result"
+                  className="max-h-[38vh] max-w-full rounded-lg object-contain shadow-lg"
+                  draggable={false}
+                />
+                <span className="absolute inset-0 rounded-lg bg-zinc-950/0 group-hover:bg-zinc-950/30 transition-colors flex items-center justify-center">
+                  <span className="opacity-0 group-hover:opacity-100 transition-opacity text-[11px] text-zinc-200 bg-zinc-900/90 rounded-full px-3 py-1">
+                    Click to enlarge
+                  </span>
+                </span>
+              </button>
+
               {/* Metadata strip */}
               <div className="flex items-center gap-3 px-1 flex-wrap">
                 {displaySeed != null && (
@@ -289,17 +312,8 @@ export function Generate() {
                 )}
                 <a
                   href={displayImageUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="ml-auto text-xs text-zinc-400 hover:text-zinc-200 underline inline-flex items-center gap-1"
-                >
-                  <ExternalLink className="h-3 w-3" />
-                  Full size
-                </a>
-                <a
-                  href={displayImageUrl}
                   download={`ideogram-${displaySeed ?? "output"}.png`}
-                  className="text-xs text-violet-400 hover:text-violet-300 underline"
+                  className="ml-auto text-xs text-violet-400 hover:text-violet-300 underline"
                 >
                   Download PNG
                 </a>
@@ -322,7 +336,7 @@ export function Generate() {
                   setUpscaledSize({ w, h })
                 }}
               />
-            </>
+            </div>
           )}
 
           {/* Result: variation selected */}
@@ -537,8 +551,8 @@ export function Generate() {
       </div>
 
       {/* ── Right panel: Generation settings ────────────────────────────── */}
-      <div className="w-60 shrink-0 border-l border-zinc-800 bg-zinc-900/30 flex flex-col">
-        <ScrollArea className="flex-1">
+      <div className="w-60 shrink-0 border-l border-zinc-800 bg-zinc-900/30 flex flex-col min-h-0">
+        <ScrollArea className="flex-1 min-h-0">
           <div className="p-4 space-y-5">
             <ModelStatusPanel />
             <Separator className="bg-zinc-800" />
@@ -552,6 +566,22 @@ export function Generate() {
           </div>
         </ScrollArea>
       </div>
+
+      {/* ── Lightbox for the current result ─────────────────────────────── */}
+      {displayImageUrl && (
+        <Lightbox
+          open={lightboxOpen}
+          onClose={() => setLightboxOpen(false)}
+          imageUrl={displayImageUrl}
+          downloadName={`ideogram-${displaySeed ?? "output"}.png`}
+          editJobId={jobId}
+          caption={[
+            displaySeed != null ? `seed ${displaySeed}` : null,
+            displayDurationMs != null ? `${(displayDurationMs / 1000).toFixed(1)}s` : null,
+            upscaledSize ? `${upscaledSize.w}×${upscaledSize.h}` : null,
+          ].filter(Boolean).join(" · ")}
+        />
+      )}
     </div>
   )
 }

@@ -58,6 +58,9 @@ echo        Settings tab - model downloads will fail until it is set.
 
 :hf_ok
 echo.
+echo Freeing GPU memory held by other apps (Ollama models, if any)...
+venv\Scripts\python.exe -c "import sys; sys.path.insert(0, 'backend'); import system_check as sc; s = sc.stop_ollama_models(); print('  Freed: ' + (', '.join(s) if s else 'nothing was using the GPU'))" 2>nul
+echo.
 echo Starting server... your browser will open automatically.
 echo Press Ctrl+C in this window to stop the studio.
 echo.
