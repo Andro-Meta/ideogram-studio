@@ -269,10 +269,27 @@ export function Generate() {
     // output column is the remainder (~800px at full size).
     <div className="h-full flex justify-center overflow-hidden">
       <div className="h-full w-full max-w-[1480px] flex overflow-hidden border-x border-zinc-900">
-      {/* ── Left panel: Prompt building ────────────────────────────────── */}
-      <div className="w-[380px] shrink-0 border-r border-zinc-800 flex flex-col bg-zinc-900/30 min-h-0">
+      {/* ── 1. Settings — configure first (ordered by frequency of use) ── */}
+      <div className="w-[280px] shrink-0 border-r border-zinc-800 flex flex-col bg-zinc-900/30 min-h-0">
         <Rail>
-          <div className="p-4 space-y-5">
+          <div className="p-4 space-y-4">
+            <ModelStatusPanel />
+            <Separator className="bg-zinc-800" />
+            <SamplerPresetPicker />
+            <Separator className="bg-zinc-800" />
+            <ResolutionPicker />
+            <Separator className="bg-zinc-800" />
+            <ModelVariantToggle />
+            <Separator className="bg-zinc-800" />
+            <SeedControl />
+          </div>
+        </Rail>
+      </div>
+
+      {/* ── 2. Prompt — the primary work area, with the Generate bar ───── */}
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        <Rail>
+          <div className="max-w-[620px] mx-auto p-5 space-y-5">
             <PromptBar />
             <Separator className="bg-zinc-800" />
             <HighLevelDescription />
@@ -280,158 +297,20 @@ export function Generate() {
             <StylePanel />
             <Separator className="bg-zinc-800" />
             <ElementList />
+
+            {/* Validation warnings live with the prompt they describe */}
+            {warnings.length > 0 && status === "idle" && (
+              <div className="space-y-1">
+                {warnings.slice(0, 3).map((w, i) => (
+                  <div key={i} className="flex items-start gap-1.5 text-[11px] text-amber-400/80">
+                    <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                    {w}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </Rail>
-      </div>
-
-      {/* ── Center: Canvas + results ────────────────────────────────────── */}
-      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        <div className="flex-1 overflow-auto p-3">
-          <div className="w-full flex flex-col gap-3">
-          {/* Layout canvas — opt-in (most generations never pin elements) */}
-          {showCanvas ? (
-            <div className="space-y-1.5">
-              <BBoxCanvas />
-              {!hasPinnedElements && (
-                <button
-                  type="button"
-                  onClick={() => setCanvasOpen(false)}
-                  className="mx-auto flex items-center gap-1 text-[10px] text-zinc-600 hover:text-zinc-400 transition-colors"
-                >
-                  <X className="h-3 w-3" />
-                  Hide layout canvas
-                </button>
-              )}
-            </div>
-          ) : (
-            <button
-              type="button"
-              onClick={() => setCanvasOpen(true)}
-              className="flex items-center justify-center gap-2 rounded-lg border border-dashed border-zinc-800 hover:border-zinc-600 text-zinc-600 hover:text-zinc-400 text-xs py-2.5 transition-colors"
-            >
-              <LayoutGrid className="h-3.5 w-3.5" />
-              Open layout canvas — pin elements to exact positions
-            </button>
-          )}
-
-          {/* Result: compact preview card — click to view in the lightbox */}
-          {isDone && displayImageUrl && !batch.results.length && (
-            <div className="rounded-xl border border-zinc-700 bg-zinc-900/60 p-3 space-y-2.5">
-              <button
-                type="button"
-                onClick={() => setLightboxOpen(true)}
-                className="group relative block mx-auto"
-                title="Click to view full size"
-              >
-                <img
-                  src={displayImageUrl}
-                  alt="Generated result"
-                  className="max-h-[38vh] max-w-full rounded-lg object-contain shadow-lg"
-                  draggable={false}
-                />
-                <span className="absolute inset-0 rounded-lg bg-zinc-950/0 group-hover:bg-zinc-950/30 transition-colors flex items-center justify-center">
-                  <span className="opacity-0 group-hover:opacity-100 transition-opacity text-[11px] text-zinc-200 bg-zinc-900/90 rounded-full px-3 py-1">
-                    Click to enlarge
-                  </span>
-                </span>
-              </button>
-
-              {/* Metadata strip */}
-              <div className="flex items-center gap-3 px-1 flex-wrap">
-                {displaySeed != null && (
-                  <span className="text-xs text-zinc-500 font-mono">Seed: {displaySeed}</span>
-                )}
-                {displayDurationMs != null && (
-                  <span className="text-xs text-zinc-500">{(displayDurationMs / 1000).toFixed(1)}s</span>
-                )}
-                {upscaledSize && (
-                  <span className="text-xs text-violet-400/80">
-                    {upscaledSize.w}×{upscaledSize.h} upscaled
-                  </span>
-                )}
-                <a
-                  href={displayImageUrl}
-                  download={`ideogram-${displaySeed ?? "output"}.png`}
-                  className="ml-auto text-xs text-violet-400 hover:text-violet-300 underline"
-                >
-                  Download PNG
-                </a>
-                {jobId && (
-                  <Link
-                    to={`/editor?job=${jobId}`}
-                    className="text-xs text-violet-400 hover:text-violet-300 underline inline-flex items-center gap-1"
-                  >
-                    <Brush className="h-3 w-3" />
-                    Edit
-                  </Link>
-                )}
-              </div>
-
-              {/* Upscale controls */}
-              <UpscaleStrip
-                jobId={jobId}
-                onUpscaled={(url, w, h) => {
-                  setUpscaledUrl(url)
-                  setUpscaledSize({ w, h })
-                }}
-              />
-            </div>
-          )}
-
-          {/* Result: variation selected */}
-          {selectedVariation && (
-            <div className="flex items-center gap-3 px-1 flex-wrap">
-              <span className="text-xs text-zinc-500 font-mono">Seed: {selectedVariation.seed}</span>
-              <span className="text-xs text-zinc-500">{(selectedVariation.durationMs / 1000).toFixed(1)}s</span>
-              <span className="text-xs text-violet-400/70">variation selected</span>
-              <button
-                type="button"
-                onClick={() => setSelectedVariation(null)}
-                className="text-xs text-zinc-600 hover:text-zinc-400 ml-auto"
-              >
-                Back to main
-              </button>
-            </div>
-          )}
-
-          {/* Variations grid */}
-          {(batch.results.length > 0 || batch.isRunning) && (
-            <VariationsGrid
-              results={batch.results}
-              current={batch.current}
-              total={batch.total}
-              isRunning={batch.isRunning}
-              onSelect={handleSelectVariation}
-              onCancel={batch.cancel}
-              onClear={() => { batch.clear(); setSelectedVariation(null) }}
-            />
-          )}
-
-          {/* Error */}
-          {status === "error" && errorMessage && (
-            <div className="flex items-start gap-2 bg-red-500/10 border border-red-500/30 rounded-lg p-3 text-xs text-red-300">
-              <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
-              <span>{errorMessage}</span>
-            </div>
-          )}
-
-          {/* Validation warnings */}
-          {warnings.length > 0 && status === "idle" && (
-            <div className="space-y-1">
-              {warnings.slice(0, 3).map((w, i) => (
-                <div key={i} className="flex items-start gap-1.5 text-[11px] text-amber-400/80">
-                  <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-                  {w}
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* The center is a working surface, never a void: recent
-              generations fill whatever space the session isn't using. */}
-          <RecentGrid />
-          </div>
-        </div>
 
         {/* Generate controls — pinned to bottom */}
         <div className="shrink-0 px-4 py-2.5 border-t border-zinc-800 bg-zinc-900/50 space-y-2">
@@ -594,19 +473,139 @@ export function Generate() {
         </div>
       </div>
 
-      {/* ── Right panel: Generation settings ────────────────────────────── */}
-      <div className="w-[280px] shrink-0 border-l border-zinc-800 bg-zinc-900/30 flex flex-col min-h-0">
+      {/* ── 3. Output — compact preview pane, never the dominant column ── */}
+      <div className="w-[400px] shrink-0 border-l border-zinc-800 bg-zinc-900/20 flex flex-col min-h-0">
         <Rail>
-          <div className="p-4 space-y-4">
-            <ModelStatusPanel />
-            <Separator className="bg-zinc-800" />
-            <ModelVariantToggle />
-            <Separator className="bg-zinc-800" />
-            <SamplerPresetPicker />
-            <Separator className="bg-zinc-800" />
-            <ResolutionPicker />
-            <Separator className="bg-zinc-800" />
-            <SeedControl />
+          <div className="p-3 flex flex-col gap-3">
+            {/* Layout canvas — opt-in (most generations never pin elements) */}
+            {showCanvas ? (
+              <div className="space-y-1.5">
+                <BBoxCanvas />
+                {!hasPinnedElements && (
+                  <button
+                    type="button"
+                    onClick={() => setCanvasOpen(false)}
+                    className="mx-auto flex items-center gap-1 text-[10px] text-zinc-600 hover:text-zinc-400 transition-colors"
+                  >
+                    <X className="h-3 w-3" />
+                    Hide layout canvas
+                  </button>
+                )}
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setCanvasOpen(true)}
+                className="flex items-center justify-center gap-2 rounded-lg border border-dashed border-zinc-800 hover:border-zinc-600 text-zinc-600 hover:text-zinc-400 text-xs py-2 transition-colors"
+              >
+                <LayoutGrid className="h-3.5 w-3.5" />
+                Layout canvas
+              </button>
+            )}
+
+            {/* Result: compact preview card — click for the lightbox */}
+            {isDone && displayImageUrl && !batch.results.length && (
+              <div className="rounded-xl border border-zinc-700 bg-zinc-900/60 p-3 space-y-2.5">
+                <button
+                  type="button"
+                  onClick={() => setLightboxOpen(true)}
+                  className="group relative block mx-auto"
+                  title="Click to view full size"
+                >
+                  <img
+                    src={displayImageUrl}
+                    alt="Generated result"
+                    className="max-h-[38vh] max-w-full rounded-lg object-contain shadow-lg"
+                    draggable={false}
+                  />
+                  <span className="absolute inset-0 rounded-lg bg-zinc-950/0 group-hover:bg-zinc-950/30 transition-colors flex items-center justify-center">
+                    <span className="opacity-0 group-hover:opacity-100 transition-opacity text-[11px] text-zinc-200 bg-zinc-900/90 rounded-full px-3 py-1">
+                      Click to enlarge
+                    </span>
+                  </span>
+                </button>
+
+                {/* Metadata strip */}
+                <div className="flex items-center gap-3 px-1 flex-wrap">
+                  {displaySeed != null && (
+                    <span className="text-xs text-zinc-500 font-mono">Seed: {displaySeed}</span>
+                  )}
+                  {displayDurationMs != null && (
+                    <span className="text-xs text-zinc-500">{(displayDurationMs / 1000).toFixed(1)}s</span>
+                  )}
+                  {upscaledSize && (
+                    <span className="text-xs text-violet-400/80">
+                      {upscaledSize.w}×{upscaledSize.h} upscaled
+                    </span>
+                  )}
+                  <a
+                    href={displayImageUrl}
+                    download={`ideogram-${displaySeed ?? "output"}.png`}
+                    className="ml-auto text-xs text-violet-400 hover:text-violet-300 underline"
+                  >
+                    Download PNG
+                  </a>
+                  {jobId && (
+                    <Link
+                      to={`/editor?job=${jobId}`}
+                      className="text-xs text-violet-400 hover:text-violet-300 underline inline-flex items-center gap-1"
+                    >
+                      <Brush className="h-3 w-3" />
+                      Edit
+                    </Link>
+                  )}
+                </div>
+
+                {/* Upscale controls */}
+                <UpscaleStrip
+                  jobId={jobId}
+                  onUpscaled={(url, w, h) => {
+                    setUpscaledUrl(url)
+                    setUpscaledSize({ w, h })
+                  }}
+                />
+              </div>
+            )}
+
+            {/* Result: variation selected */}
+            {selectedVariation && (
+              <div className="flex items-center gap-3 px-1 flex-wrap">
+                <span className="text-xs text-zinc-500 font-mono">Seed: {selectedVariation.seed}</span>
+                <span className="text-xs text-zinc-500">{(selectedVariation.durationMs / 1000).toFixed(1)}s</span>
+                <span className="text-xs text-violet-400/70">variation selected</span>
+                <button
+                  type="button"
+                  onClick={() => setSelectedVariation(null)}
+                  className="text-xs text-zinc-600 hover:text-zinc-400 ml-auto"
+                >
+                  Back to main
+                </button>
+              </div>
+            )}
+
+            {/* Variations grid */}
+            {(batch.results.length > 0 || batch.isRunning) && (
+              <VariationsGrid
+                results={batch.results}
+                current={batch.current}
+                total={batch.total}
+                isRunning={batch.isRunning}
+                onSelect={handleSelectVariation}
+                onCancel={batch.cancel}
+                onClear={() => { batch.clear(); setSelectedVariation(null) }}
+              />
+            )}
+
+            {/* Error */}
+            {status === "error" && errorMessage && (
+              <div className="flex items-start gap-2 bg-red-500/10 border border-red-500/30 rounded-lg p-3 text-xs text-red-300">
+                <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+                <span>{errorMessage}</span>
+              </div>
+            )}
+
+            {/* Recent generations fill the rest of the pane */}
+            <RecentGrid />
           </div>
         </Rail>
       </div>
