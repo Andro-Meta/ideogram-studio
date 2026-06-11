@@ -13,7 +13,7 @@ import { usePromptStore } from "@/stores/promptStore"
 import { useSettingsStore } from "@/stores/settingsStore"
 import { useNavigate } from "react-router-dom"
 import { toast } from "sonner"
-import { ImageEditor } from "./ImageEditor"
+import { EditorDialog } from "@/components/editor/EditorDialog"
 
 interface Props {
   itemId: string | null
@@ -319,7 +319,7 @@ export function GalleryDetail({ itemId, onClose, position, count, onPrev, onNext
         </div>
       </DialogContent>
       {imageUrl && (
-        <ImageEditor
+        <EditorDialog
           open={editorOpen}
           onClose={() => setEditorOpen(false)}
           jobId={item.id}

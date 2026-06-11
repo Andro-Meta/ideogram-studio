@@ -187,27 +187,27 @@ class SystemInfoResponse(BaseModel):
 
 # ── Image editing ────────────────────────────────────────────────────────────
 
-class EditRequest(BaseModel):
-    job_id: str
-    rotate: Literal[0, 90, 180, 270] = 0
-    flip_h: bool = False
-    flip_v: bool = False
-    brightness: float = 1.0
-    contrast: float = 1.0
-    saturation: float = 1.0
-    sharpness: float = 1.0
+class EditSaveRequest(BaseModel):
+    """A client-flattened edit result. The browser canvas is the single source
+    of truth for pixels (exact WYSIWYG); the server only validates and stores."""
+    source_job_id: str
+    image_b64: str                     # base64-encoded PNG, no data: prefix
 
-    @field_validator("job_id")
+    @field_validator("source_job_id")
     @classmethod
     def job_id_must_be_uuid(cls, v: str) -> str:
         if not _UUID_RE.match(v):
-            raise ValueError("job_id must be a valid UUID")
+            raise ValueError("source_job_id must be a valid UUID")
         return v
 
-    @field_validator("brightness", "contrast", "saturation", "sharpness")
+    @field_validator("image_b64")
     @classmethod
-    def clamp_enhance(cls, v: float) -> float:
-        return max(0.2, min(3.0, v))
+    def image_must_be_reasonable(cls, v: str) -> str:
+        # 96 MB of base64 ≈ 72 MB binary — far above any 2048×2048 PNG, low
+        # enough to stop abuse of a localhost endpoint.
+        if len(v) > 96_000_000:
+            raise ValueError("image too large")
+        return v
 
 
 class EditResponse(BaseModel):

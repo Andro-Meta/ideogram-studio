@@ -33,7 +33,7 @@ from caption import build_caption, parse_caption_json
 from inference import GenerationSettings, PipelineManager
 from magic_prompt_service import MagicPromptService
 from schemas import (
-    EditRequest,
+    EditSaveRequest,
     EditResponse,
     GalleryItem,
     GalleryListResponse,
@@ -594,42 +594,45 @@ async def upscale_image_endpoint(request: Request, body: UpscaleRequest):
 
 # ── Image editing API ─────────────────────────────────────────────────────────
 # The Ideogram 4 open-weights release is text-to-image only (no inpainting /
-# img2img — Canvas and Magic Fill remain ideogram.ai server-side products), so
-# these are classic local edits applied with Pillow and saved as a new copy.
+# img2img — Canvas and Magic Fill remain ideogram.ai server-side products).
+# Editing happens in the browser (layered canvas editor, exact WYSIWYG); the
+# server validates the flattened result and stores it as a derived gallery item.
 
-@app.post("/api/edit", response_model=EditResponse)
-async def edit_image_endpoint(request: Request, body: EditRequest):
+def _decode_and_sanitize_png(image_b64: str) -> tuple[bytes, int, int]:
+    """Decode base64 → PIL → re-encoded PNG. Re-encoding strips anything that
+    isn't pixel data, so no client-controlled bytes hit disk verbatim."""
+    import base64
+    import io
+    from PIL import Image
+
+    raw = base64.b64decode(image_b64, validate=True)
+    img = Image.open(io.BytesIO(raw))
+    img.load()
+    if img.width > 8192 or img.height > 8192:
+        raise ValueError(f"image too large: {img.width}x{img.height}")
+    img = img.convert("RGB")
+    out = io.BytesIO()
+    img.save(out, format="PNG")
+    return out.getvalue(), img.width, img.height
+
+
+@app.post("/api/edit/save", response_model=EditResponse)
+async def edit_save_endpoint(request: Request, body: EditSaveRequest):
     import uuid as _uuid
-    from editor import apply_edits
 
     db = request.app.state.db
-    item = await gallery_service.get_job(db, body.job_id)
+    item = await gallery_service.get_job(db, body.source_job_id)
     if not item or not item.get("image_path"):
-        raise HTTPException(404, "Job not found")
+        raise HTTPException(404, "Source job not found")
 
-    source_path = OUTPUTS_DIR / Path(item["image_path"]).name
-    if not source_path.exists():
-        raise HTTPException(404, "Image file not found on disk")
-
-    image_bytes = source_path.read_bytes()
     loop = asyncio.get_running_loop()
     try:
-        png_bytes, (w, h) = await loop.run_in_executor(
-            None,
-            lambda: apply_edits(
-                image_bytes,
-                rotate=body.rotate,
-                flip_h=body.flip_h,
-                flip_v=body.flip_v,
-                brightness=body.brightness,
-                contrast=body.contrast,
-                saturation=body.saturation,
-                sharpness=body.sharpness,
-            ),
+        png_bytes, w, h = await loop.run_in_executor(
+            None, lambda: _decode_and_sanitize_png(body.image_b64)
         )
     except Exception as exc:
-        logger.exception("Edit failed for %s", body.job_id)
-        raise HTTPException(500, f"Edit failed: {exc}") from exc
+        logger.exception("Edit save failed for %s", body.source_job_id)
+        raise HTTPException(400, f"Invalid image data: {exc}") from exc
 
     new_id = str(_uuid.uuid4())
     out_name = f"{new_id}.png"
@@ -637,8 +640,7 @@ async def edit_image_endpoint(request: Request, body: EditRequest):
     await gallery_service.insert_derived(
         db, source=item, new_id=new_id, image_path=out_name, width=w, height=h
     )
-    logger.info("Edited %s -> %s (rotate=%s flip_h=%s flip_v=%s)",
-                body.job_id, new_id, body.rotate, body.flip_h, body.flip_v)
+    logger.info("Saved edit of %s -> %s (%dx%d)", body.source_job_id, new_id, w, h)
     return EditResponse(
         job_id=new_id, image_url=f"/outputs/{out_name}", width=w, height=h
     )
@@ -658,8 +660,24 @@ async def get_logs(lines: int = Query(default=200, ge=10, le=1000)):
 # /outputs: generated images; /: compiled React SPA with SPA-routing fallback.
 app.mount("/outputs", StaticFiles(directory=str(OUTPUTS_DIR)), name="outputs")
 
+
+class SPAStaticFiles(StaticFiles):
+    """StaticFiles that serves index.html for unknown paths, so client-side
+    routes (/gallery, /settings, …) survive refresh and deep links."""
+
+    async def get_response(self, path: str, scope):
+        from starlette.exceptions import HTTPException as StarletteHTTPException
+
+        try:
+            return await super().get_response(path, scope)
+        except StarletteHTTPException as exc:
+            if exc.status_code == 404:
+                return await super().get_response("index.html", scope)
+            raise
+
+
 if DIST_DIR.exists():
-    app.mount("/", StaticFiles(directory=str(DIST_DIR), html=True), name="spa")
+    app.mount("/", SPAStaticFiles(directory=str(DIST_DIR), html=True), name="spa")
 else:
     @app.get("/{full_path:path}")
     async def _no_frontend(_full_path: str):

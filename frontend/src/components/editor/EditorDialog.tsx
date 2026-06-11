@@ -1,0 +1,385 @@
+import { useCallback, useEffect, useState } from "react"
+import {
+  Hand, Square, Circle, Lasso, Brush, Wand2, Undo2, Redo2,
+  Plus, Trash2, Eye, EyeOff, ChevronUp, ChevronDown, X, Save,
+  Loader2, SquareDashed, FlipHorizontal2, Layers,
+} from "lucide-react"
+import { Dialog, DialogContent } from "@/components/ui/dialog"
+import { Button } from "@/components/ui/button"
+import { Slider } from "@/components/ui/slider"
+import { cn } from "@/lib/utils"
+import { useSaveEdit } from "@/hooks/useSaveEdit"
+import { useEditorEngine } from "./useEditorEngine"
+import { EditorStage } from "./EditorStage"
+import type { Adjustments, ToolId } from "./editorTypes"
+import { IDENTITY_ADJUSTMENTS } from "./editorTypes"
+
+interface Props {
+  open: boolean
+  onClose: () => void
+  jobId: string
+  imageUrl: string
+}
+
+const TOOLS: { id: ToolId; icon: typeof Hand; label: string; key: string }[] = [
+  { id: "pan",             icon: Hand,   label: "Pan / zoom",        key: "H" },
+  { id: "marquee-rect",    icon: Square, label: "Rectangle select",  key: "M" },
+  { id: "marquee-ellipse", icon: Circle, label: "Ellipse select",    key: "E" },
+  { id: "lasso",           icon: Lasso,  label: "Lasso select",      key: "L" },
+  { id: "brush",           icon: Brush,  label: "Brush select",      key: "B" },
+  { id: "wand",            icon: Wand2,  label: "Magic wand",        key: "W" },
+]
+
+const ADJUSTMENT_SLIDERS: {
+  key: keyof Adjustments; label: string; min: number; max: number; step: number; fmt: (v: number) => string
+}[] = [
+  { key: "brightness", label: "Brightness", min: 0.2, max: 2.5, step: 0.05, fmt: (v) => `${v.toFixed(2)}×` },
+  { key: "contrast",   label: "Contrast",   min: 0.2, max: 2.5, step: 0.05, fmt: (v) => `${v.toFixed(2)}×` },
+  { key: "saturation", label: "Saturation", min: 0,   max: 2.5, step: 0.05, fmt: (v) => `${v.toFixed(2)}×` },
+  { key: "hue",        label: "Hue shift",  min: -180, max: 180, step: 5,   fmt: (v) => `${v}°` },
+  { key: "blur",       label: "Blur",       min: 0,   max: 20,  step: 0.5,  fmt: (v) => `${v}px` },
+]
+
+/**
+ * Layered regional editor: make a selection (rectangle / ellipse / lasso /
+ * brush / magic wand), turn it into a non-destructive adjustment layer, and
+ * tune the layer. The canvas preview IS the saved output (client flatten).
+ */
+export function EditorDialog({ open, onClose, jobId, imageUrl }: Props) {
+  const engine = useEditorEngine(imageUrl, open)
+  const save = useSaveEdit()
+
+  const [tool, setTool] = useState<ToolId>("marquee-rect")
+  const [brushSize, setBrushSize] = useState(48)
+  const [brushSoftness, setBrushSoftness] = useState(0.5)
+  const [brushErase, setBrushErase] = useState(false)
+  const [wandTolerance, setWandTolerance] = useState(32)
+  const [feather, setFeather] = useState(4)
+  const [zoom, setZoom] = useState(1)
+
+  // ── keyboard shortcuts ──────────────────────────────────────────────────
+  const onKeyDown = useCallback((e: React.KeyboardEvent) => {
+    const inInput = (e.target as HTMLElement).tagName === "INPUT"
+    if (inInput) return
+    const k = e.key.toLowerCase()
+    if ((e.ctrlKey || e.metaKey) && k === "z" && !e.shiftKey) { e.preventDefault(); engine.undo(); return }
+    if ((e.ctrlKey || e.metaKey) && (k === "y" || (k === "z" && e.shiftKey))) { e.preventDefault(); engine.redo(); return }
+    if ((e.ctrlKey || e.metaKey) && k === "d") { e.preventDefault(); engine.deselect(); return }
+    if ((e.ctrlKey || e.metaKey) && k === "i") { e.preventDefault(); engine.invertSelection(); return }
+    if (e.ctrlKey || e.metaKey || e.altKey) return
+    const toolHit = TOOLS.find((t) => t.key.toLowerCase() === k)
+    if (toolHit) { setTool(toolHit.id) }
+  }, [engine])
+
+  // reset transient tool state when (re)opened
+  useEffect(() => {
+    if (open) { setTool("marquee-rect"); setBrushErase(false) }
+  }, [open])
+
+  const handleSave = async () => {
+    try {
+      const blob = await engine.flatten()
+      save.mutate(
+        { sourceJobId: jobId, blob },
+        { onSuccess: () => onClose() },
+      )
+    } catch (err) {
+      console.error(err)
+    }
+  }
+
+  const active = engine.activeLayer
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent
+        className="!max-w-[96vw] !w-[96vw] !h-[92vh] bg-zinc-900 border-zinc-700 p-0 overflow-hidden flex flex-col gap-0"
+        onKeyDown={onKeyDown}
+      >
+        {/* ── Header ── */}
+        <div className="flex items-center justify-between px-4 py-2 border-b border-zinc-700 shrink-0">
+          <div className="flex items-center gap-2">
+            <Layers className="h-4 w-4 text-violet-400" />
+            <h3 className="text-sm font-medium text-zinc-200">Image Editor</h3>
+            <span className="text-[11px] text-zinc-600">
+              {engine.base ? `${engine.base.width} × ${engine.base.height}px` : "loading…"}
+              {" · "}{Math.round(zoom * 100)}%
+            </span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <Button
+              size="sm" variant="ghost"
+              className="h-7 px-2 text-zinc-400 hover:text-zinc-200 disabled:opacity-30"
+              disabled={!engine.canUndo}
+              onClick={engine.undo}
+              title="Undo (Ctrl+Z)"
+            >
+              <Undo2 className="h-3.5 w-3.5" />
+            </Button>
+            <Button
+              size="sm" variant="ghost"
+              className="h-7 px-2 text-zinc-400 hover:text-zinc-200 disabled:opacity-30"
+              disabled={!engine.canRedo}
+              onClick={engine.redo}
+              title="Redo (Ctrl+Y)"
+            >
+              <Redo2 className="h-3.5 w-3.5" />
+            </Button>
+            <div className="w-px h-5 bg-zinc-700 mx-1" />
+            <Button
+              size="sm"
+              className="h-7 bg-violet-600 hover:bg-violet-500 text-white text-xs gap-1.5 disabled:opacity-40"
+              disabled={!engine.dirty || save.isPending || !engine.base}
+              onClick={handleSave}
+            >
+              {save.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+              Save as Copy
+            </Button>
+            <button onClick={onClose} className="ml-1 text-zinc-500 hover:text-zinc-300" title="Close">
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+
+        <div className="flex flex-1 min-h-0">
+          {/* ── Tool rail ── */}
+          <div className="w-12 border-r border-zinc-700 flex flex-col items-center py-2 gap-1 shrink-0">
+            {TOOLS.map(({ id, icon: Icon, label, key }) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => setTool(id)}
+                title={`${label} (${key})`}
+                className={cn(
+                  "w-9 h-9 rounded-lg flex items-center justify-center transition-all",
+                  tool === id
+                    ? "bg-violet-500/20 text-violet-300 ring-1 ring-violet-500/50"
+                    : "text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800",
+                )}
+              >
+                <Icon className="h-4 w-4" />
+              </button>
+            ))}
+            <div className="w-6 h-px bg-zinc-700 my-1" />
+            <button
+              type="button"
+              onClick={engine.invertSelection}
+              disabled={!engine.base}
+              title="Invert selection (Ctrl+I)"
+              className="w-9 h-9 rounded-lg flex items-center justify-center text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800 disabled:opacity-30"
+            >
+              <FlipHorizontal2 className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={engine.deselect}
+              disabled={!engine.hasSelection}
+              title="Deselect (Ctrl+D)"
+              className="w-9 h-9 rounded-lg flex items-center justify-center text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800 disabled:opacity-30"
+            >
+              <SquareDashed className="h-4 w-4" />
+            </button>
+          </div>
+
+          {/* ── Stage ── */}
+          {engine.loadError ? (
+            <div className="flex-1 flex items-center justify-center text-sm text-red-400">
+              {engine.loadError}
+            </div>
+          ) : (
+            <EditorStage
+              composite={engine.compositeCanvas}
+              selection={engine.selection}
+              tool={tool}
+              brushSize={brushSize}
+              brushSoftness={brushSoftness}
+              brushErase={brushErase}
+              wandTolerance={wandTolerance}
+              onSelectionShape={engine.applySelectionShape}
+              onZoomChange={setZoom}
+            />
+          )}
+
+          {/* ── Right panel ── */}
+          <div className="w-72 border-l border-zinc-700 flex flex-col shrink-0 overflow-y-auto">
+            {/* Tool options */}
+            <div className="p-3 border-b border-zinc-800 space-y-3">
+              <p className="text-[10px] text-zinc-500 uppercase tracking-wider">Tool options</p>
+              {tool === "brush" && (
+                <>
+                  <LabeledSlider label="Brush size" value={brushSize} min={4} max={300} step={2}
+                    fmt={(v) => `${v}px`} onChange={setBrushSize} />
+                  <LabeledSlider label="Softness" value={brushSoftness} min={0} max={1} step={0.05}
+                    fmt={(v) => `${Math.round(v * 100)}%`} onChange={setBrushSoftness} />
+                  <label className="flex items-center gap-2 text-xs text-zinc-300 cursor-pointer">
+                    <input type="checkbox" checked={brushErase} onChange={(e) => setBrushErase(e.target.checked)}
+                      className="accent-violet-500" />
+                    Erase mode (remove from selection)
+                  </label>
+                </>
+              )}
+              {tool === "wand" && (
+                <LabeledSlider label="Tolerance" value={wandTolerance} min={4} max={120} step={2}
+                  fmt={(v) => `${v}`} onChange={setWandTolerance} />
+              )}
+              {(tool === "marquee-rect" || tool === "marquee-ellipse" || tool === "lasso") && (
+                <p className="text-[11px] text-zinc-500 leading-relaxed">
+                  Drag to select. <kbd className="text-zinc-400">Shift</kbd> adds,{" "}
+                  <kbd className="text-zinc-400">Alt</kbd> subtracts.
+                </p>
+              )}
+              {tool === "pan" && (
+                <p className="text-[11px] text-zinc-500">Drag to pan · scroll to zoom (works with any tool)</p>
+              )}
+              <LabeledSlider label="Feather (on layer create)" value={feather} min={0} max={50} step={1}
+                fmt={(v) => `${v}px`} onChange={setFeather} />
+            </div>
+
+            {/* Layers */}
+            <div className="p-3 border-b border-zinc-800 space-y-2">
+              <div className="flex items-center justify-between">
+                <p className="text-[10px] text-zinc-500 uppercase tracking-wider">Layers</p>
+                <Button
+                  size="sm" variant="outline"
+                  className="h-6 text-[11px] gap-1 border-zinc-700 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 px-2"
+                  disabled={!engine.base}
+                  onClick={() => engine.addLayer(feather)}
+                  title={engine.hasSelection
+                    ? "New adjustment layer from the current selection"
+                    : "New adjustment layer covering the whole image"}
+                >
+                  <Plus className="h-3 w-3" />
+                  {engine.hasSelection ? "From selection" : "Whole image"}
+                </Button>
+              </div>
+
+              {engine.layers.length === 0 && (
+                <p className="text-[11px] text-zinc-600 leading-relaxed">
+                  Make a selection, then add a layer — adjustments only apply
+                  inside it. Without a selection the layer covers everything.
+                </p>
+              )}
+
+              <div className="space-y-1">
+                {[...engine.layers].reverse().map((layer) => {
+                  const isActive = layer.id === engine.activeLayerId
+                  return (
+                    <div
+                      key={layer.id}
+                      onClick={() => engine.setActiveLayerId(layer.id)}
+                      className={cn(
+                        "group flex items-center gap-1.5 rounded-md border px-2 py-1.5 cursor-pointer transition-all",
+                        isActive
+                          ? "border-violet-500/60 bg-violet-500/10"
+                          : "border-zinc-700/60 bg-zinc-800/40 hover:border-zinc-600",
+                      )}
+                    >
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); engine.patchLayer(layer.id, { visible: !layer.visible }) }}
+                        className="text-zinc-500 hover:text-zinc-200"
+                        title={layer.visible ? "Hide layer" : "Show layer"}
+                      >
+                        {layer.visible ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
+                      </button>
+                      <span className={cn("flex-1 text-[11px] truncate", isActive ? "text-violet-200" : "text-zinc-300")}>
+                        {layer.name}
+                      </span>
+                      <span className="text-[10px] text-zinc-600">{Math.round(layer.opacity * 100)}%</span>
+                      <div className="hidden group-hover:flex items-center gap-0.5">
+                        <button type="button" title="Move up"
+                          onClick={(e) => { e.stopPropagation(); engine.moveLayer(layer.id, 1) }}
+                          className="text-zinc-500 hover:text-zinc-200"><ChevronUp className="h-3 w-3" /></button>
+                        <button type="button" title="Move down"
+                          onClick={(e) => { e.stopPropagation(); engine.moveLayer(layer.id, -1) }}
+                          className="text-zinc-500 hover:text-zinc-200"><ChevronDown className="h-3 w-3" /></button>
+                        <button type="button" title="Delete layer"
+                          onClick={(e) => { e.stopPropagation(); engine.removeLayer(layer.id) }}
+                          className="text-zinc-500 hover:text-red-400"><Trash2 className="h-3 w-3" /></button>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+
+            {/* Active layer adjustments */}
+            <div className="p-3 space-y-3 flex-1">
+              <p className="text-[10px] text-zinc-500 uppercase tracking-wider">
+                {active ? `Adjustments — ${active.name}` : "Adjustments"}
+              </p>
+              {!active && (
+                <p className="text-[11px] text-zinc-600">Select or create a layer to adjust it.</p>
+              )}
+              {active && (
+                <>
+                  {ADJUSTMENT_SLIDERS.map(({ key, label, min, max, step, fmt }) => (
+                    <LabeledSlider
+                      key={key}
+                      label={label}
+                      value={active.adjustments[key]}
+                      min={min} max={max} step={step} fmt={fmt}
+                      onChange={(v) =>
+                        engine.previewAdjustments(active.id, { ...active.adjustments, [key]: v })}
+                      onCommit={(v) =>
+                        engine.commitAdjustments(active.id, { ...active.adjustments, [key]: v })}
+                    />
+                  ))}
+                  <LabeledSlider
+                    label="Layer opacity"
+                    value={active.opacity}
+                    min={0} max={1} step={0.05}
+                    fmt={(v) => `${Math.round(v * 100)}%`}
+                    onChange={(v) => engine.previewLayerPatch(active.id, { opacity: v })}
+                    onCommit={(v) => engine.patchLayer(active.id, { opacity: v })}
+                  />
+                  <Button
+                    size="sm" variant="outline"
+                    className="w-full h-7 text-[11px] border-zinc-700 bg-zinc-800 hover:bg-zinc-700 text-zinc-400"
+                    onClick={() =>
+                      engine.commitAdjustments(active.id, { ...IDENTITY_ADJUSTMENTS })}
+                  >
+                    Reset adjustments
+                  </Button>
+                </>
+              )}
+
+              <p className="text-[10px] text-zinc-600 leading-relaxed pt-2">
+                Saved as a new gallery copy — the original stays untouched.
+                AI fill inside selections isn't possible with Ideogram's
+                open-weights release (text-to-image only); these are exact,
+                local pixel edits.
+              </p>
+            </div>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function LabeledSlider({
+  label, value, min, max, step, fmt, onChange, onCommit,
+}: {
+  label: string
+  value: number
+  min: number; max: number; step: number
+  fmt: (v: number) => string
+  onChange: (v: number) => void
+  onCommit?: (v: number) => void
+}) {
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center justify-between">
+        <span className="text-xs text-zinc-300">{label}</span>
+        <span className="text-[10px] text-zinc-500 tabular-nums">{fmt(value)}</span>
+      </div>
+      <Slider
+        value={[value]}
+        min={min} max={max} step={step}
+        onValueChange={([v]) => onChange(v)}
+        onValueCommit={onCommit ? ([v]) => onCommit(v) : undefined}
+      />
+    </div>
+  )
+}
