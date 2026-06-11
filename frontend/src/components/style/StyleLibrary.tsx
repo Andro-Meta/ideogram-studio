@@ -1,8 +1,10 @@
 import { useState } from "react"
-import { ChevronDown, ChevronRight, Shuffle } from "lucide-react"
+import { ChevronDown, ChevronRight, Dices, FlaskConical, Shuffle } from "lucide-react"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
-import { STYLE_PRESETS, STYLE_CATEGORIES, type StylePreset } from "@/lib/stylePresets"
+import {
+  STYLE_PRESETS, STYLE_CATEGORIES, mashupStyles, type StylePreset,
+} from "@/lib/stylePresets"
 import { PALETTE_MODES } from "@/lib/colorPalettes"
 import { usePromptStore } from "@/stores/promptStore"
 
@@ -15,6 +17,8 @@ import { usePromptStore } from "@/stores/promptStore"
 export function StyleLibrary() {
   const { style_description, setStyleField, setStyleMode } = usePromptStore()
   const [open, setOpen] = useState<Record<string, boolean>>({ photography: true })
+  const [mashFormId, setMashFormId] = useState("")
+  const [mashMoodId, setMashMoodId] = useState("")
 
   const apply = (preset: StylePreset) => {
     setStyleMode(preset.mode)
@@ -44,6 +48,62 @@ export function StyleLibrary() {
     toast.success(`Style: ${preset.label} · Palette: ${palette.label}`)
   }
 
+  // ── Mash-up: FORM (technique) × MOOD (feel) ─────────────────────────────
+  const applyMashup = (form: StylePreset, mood: StylePreset) => {
+    const { mode, fields } = mashupStyles(form, mood)
+    setStyleMode(mode)
+    setStyleField("aesthetics", fields.aesthetics ?? "")
+    setStyleField("lighting", fields.lighting ?? "")
+    setStyleField("medium", fields.medium ?? "")
+    if (mode === "photo") {
+      setStyleField("photo", fields.photo ?? "")
+      setStyleField("art_style", "")
+    } else {
+      setStyleField("art_style", fields.art_style ?? "")
+      setStyleField("photo", "")
+    }
+    toast.success(`Mash-up: ${form.label} × ${mood.label}`)
+  }
+
+  const handleMashup = () => {
+    const form = STYLE_PRESETS.find((p) => p.id === mashFormId)
+    const mood = STYLE_PRESETS.find((p) => p.id === mashMoodId)
+    if (!form || !mood) return
+    applyMashup(form, mood)
+  }
+
+  const randomMashup = () => {
+    const form = STYLE_PRESETS[Math.floor(Math.random() * STYLE_PRESETS.length)]
+    let mood = form
+    while (mood.id === form.id) {
+      mood = STYLE_PRESETS[Math.floor(Math.random() * STYLE_PRESETS.length)]
+    }
+    setMashFormId(form.id)
+    setMashMoodId(mood.id)
+    applyMashup(form, mood)
+  }
+
+  const presetSelect = (
+    value: string,
+    onChange: (v: string) => void,
+    placeholder: string,
+  ) => (
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className="flex-1 min-w-0 h-6 rounded border border-zinc-700 bg-zinc-800 text-[10px] text-zinc-300 px-1 outline-none focus:border-violet-500"
+    >
+      <option value="">{placeholder}</option>
+      {STYLE_CATEGORIES.map(({ key, label }) => (
+        <optgroup key={key} label={label}>
+          {STYLE_PRESETS.filter((p) => p.category === key).map((p) => (
+            <option key={p.id} value={p.id}>{p.label}</option>
+          ))}
+        </optgroup>
+      ))}
+    </select>
+  )
+
   return (
     <div className="space-y-1.5">
       <div className="flex items-center justify-between">
@@ -57,6 +117,37 @@ export function StyleLibrary() {
           <Shuffle className="h-3 w-3" />
           Random
         </button>
+      </div>
+
+      {/* Mash-up lab: technique from one style, feel from another. Works
+          because the caption fields are orthogonal — medium/art_style say
+          HOW it's made, aesthetics/lighting say how it FEELS. */}
+      <div className="rounded-lg border border-violet-900/40 bg-violet-500/[0.04] px-2 py-1.5 space-y-1">
+        <div className="flex items-center gap-1.5">
+          <FlaskConical className="h-3 w-3 text-violet-400/70" />
+          <span className="text-[10px] text-zinc-400 uppercase tracking-widest">Mash-up</span>
+          <button
+            type="button"
+            onClick={randomMashup}
+            title="Random form × random mood"
+            className="ml-auto text-zinc-500 hover:text-violet-300 transition-colors"
+          >
+            <Dices className="h-3.5 w-3.5" />
+          </button>
+        </div>
+        <div className="flex items-center gap-1.5">
+          {presetSelect(mashFormId, setMashFormId, "Form (technique)…")}
+          <span className="text-[10px] text-zinc-600 shrink-0">×</span>
+          {presetSelect(mashMoodId, setMashMoodId, "Mood (feel)…")}
+          <button
+            type="button"
+            onClick={handleMashup}
+            disabled={!mashFormId || !mashMoodId}
+            className="shrink-0 text-[10px] px-2 h-6 rounded border border-violet-700/60 text-violet-300 hover:bg-violet-500/10 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          >
+            Mix
+          </button>
+        </div>
       </div>
 
       {STYLE_CATEGORIES.map(({ key, label }) => {

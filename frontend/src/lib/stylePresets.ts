@@ -6,6 +6,7 @@ export type StyleCategory =
   | "illustrated"
   | "classical"
   | "aesthetic"
+  | "utopia"
   | "horror"
 
 export interface StylePreset {
@@ -22,8 +23,36 @@ export const STYLE_CATEGORIES: { key: StyleCategory; label: string }[] = [
   { key: "illustrated", label: "Illustrated" },
   { key: "classical",   label: "Classical Painting" },
   { key: "aesthetic",   label: "Wonderful & Aesthetic" },
+  { key: "utopia",      label: "Utopia & Dystopia" },
   { key: "horror",      label: "Weird & Horror" },
 ]
+
+/**
+ * Mash two styles into one coherent set of fields by exploiting the caption
+ * format's orthogonality: the FORM style supplies the technique (mode,
+ * medium, art_style/photo), the MOOD style supplies the feel (aesthetics,
+ * lighting). The form's defining first clause is appended to the mood's
+ * aesthetics so the technique still flavors the description.
+ */
+export function mashupStyles(form: StylePreset, mood: StylePreset): {
+  mode: "photo" | "illustration"
+  fields: StylePreset["fields"]
+} {
+  const firstClause = (s?: string) => (s ?? "").split(",")[0]?.trim()
+  const fields: StylePreset["fields"] = {
+    medium: form.fields.medium,
+    aesthetics: [mood.fields.aesthetics, firstClause(form.fields.aesthetics)]
+      .filter(Boolean)
+      .join(", "),
+    lighting: mood.fields.lighting,
+  }
+  if (form.mode === "photo") {
+    fields.photo = form.fields.photo
+  } else {
+    fields.art_style = form.fields.art_style
+  }
+  return { mode: form.mode, fields }
+}
 
 export const STYLE_PRESETS: StylePreset[] = [
   // ── Photography ────────────────────────────────────────────────────────────
@@ -1293,6 +1322,273 @@ export const STYLE_PRESETS: StylePreset[] = [
       lighting:   "moonlight through blinds, a shadow darker than the dark",
       medium:     "digital painting",
       art_style:  "sleep paralysis horror art, Fuseli Nightmare descendant",
+    },
+  },
+// ── Utopia & Dystopia ──────────────────────────────────────────────────────
+  {
+    id: "arcadia",
+    label: "Arcadian Utopia",
+    category: "utopia",
+    mode: "illustration",
+    fields: {
+      aesthetics: "pastoral paradise, marble temples among orchards, humanity in harmony",
+      lighting:   "eternal late-spring afternoon, honeyed glow",
+      medium:     "oil on canvas",
+      art_style:  "classical Arcadian landscape, Claude Lorrain golden idyll",
+    },
+  },
+  {
+    id: "crystal-spires",
+    label: "Crystal Spires",
+    category: "utopia",
+    mode: "illustration",
+    fields: {
+      aesthetics: "gleaming crystal towers, anti-gravity gardens, serene post-scarcity grace",
+      lighting:   "prismatic daylight refracted through glass architecture",
+      medium:     "digital painting",
+      art_style:  "utopian sci-fi concept art, crystalline megastructure vista",
+    },
+  },
+  {
+    id: "afrofuturism",
+    label: "Afrofuturism",
+    category: "utopia",
+    mode: "illustration",
+    fields: {
+      aesthetics: "gold-threaded tradition fused with starships, regal future heritage",
+      lighting:   "warm equatorial sun on chrome and kente patterns",
+      medium:     "digital painting",
+      art_style:  "Afrofuturist concept art, ancestral futurism",
+    },
+  },
+  {
+    id: "garden-city",
+    label: "Garden City",
+    category: "utopia",
+    mode: "illustration",
+    fields: {
+      aesthetics: "architecture overgrown on purpose, canals and cycleways, civic calm",
+      lighting:   "clean morning light through leaf canopies onto white facades",
+      medium:     "architectural rendering",
+      art_style:  "eco-utopian architecture visualization, biophilic city design",
+    },
+  },
+  {
+    id: "retro-space-age",
+    label: "Space-Age Optimism",
+    category: "utopia",
+    mode: "illustration",
+    fields: {
+      aesthetics: "jet-age leisure on the Moon, families in glass domes, confident tomorrow",
+      lighting:   "bright poster sunshine, Earthrise glow",
+      medium:     "gouache poster illustration",
+      art_style:  "1960s NASA-era futurism, golden-age sci-fi magazine art",
+    },
+  },
+  {
+    id: "post-scarcity",
+    label: "Post-Scarcity",
+    category: "utopia",
+    mode: "photo",
+    fields: {
+      aesthetics: "abundant commons, technology invisible and kind, unhurried people",
+      lighting:   "soft overcast equality of light, no harsh contrast",
+      photo:      "35mm documentary of a world that works",
+      medium:     "documentary photography",
+    },
+  },
+  {
+    id: "cyberpunk-dystopia",
+    label: "Cyberpunk Dystopia",
+    category: "utopia",
+    mode: "illustration",
+    fields: {
+      aesthetics: "corporate arcologies over flooded slums, chrome above, mud below",
+      lighting:   "acid-rain neon haze, searchlight sweeps",
+      medium:     "digital painting",
+      art_style:  "dystopian cyberpunk concept art, high-tech low-life",
+    },
+  },
+  {
+    id: "orwellian",
+    label: "Orwellian",
+    category: "utopia",
+    mode: "photo",
+    fields: {
+      aesthetics: "surveillance monoliths, queueing citizens, posters of the leader watching",
+      lighting:   "flat grey institutional light, one red banner glowing",
+      photo:      "stark 50mm reportage, muted desaturated stock",
+      medium:     "documentary photography",
+    },
+  },
+  {
+    id: "brutalist-regime",
+    label: "Brutalist Regime",
+    category: "utopia",
+    mode: "photo",
+    fields: {
+      aesthetics: "raw concrete megastructures dwarfing crowds, monumental anonymity",
+      lighting:   "cold overcast, fog clipping tower tops",
+      photo:      "wide angle from below, human figures for scale",
+      medium:     "architectural photography",
+    },
+  },
+  {
+    id: "wasteland",
+    label: "Wasteland",
+    category: "utopia",
+    mode: "photo",
+    fields: {
+      aesthetics: "rust and bone-dry highways, scavenged armor, fuel-worship",
+      lighting:   "merciless desert sun, orange dust storms",
+      photo:      "gritty anamorphic action frame, heat shimmer",
+      medium:     "film still",
+    },
+  },
+  {
+    id: "drowned-world",
+    label: "Drowned World",
+    category: "utopia",
+    mode: "illustration",
+    fields: {
+      aesthetics: "skyscrapers as reefs, rooftop villages, ferries between office towers",
+      lighting:   "humid haze, sun glitter on floodwater",
+      medium:     "digital painting",
+      art_style:  "climate-fiction concept art, post-flood metropolis",
+    },
+  },
+  {
+    id: "zone-stalker",
+    label: "The Zone",
+    category: "utopia",
+    mode: "photo",
+    fields: {
+      aesthetics: "overgrown exclusion zone, rusting ferris wheels, beautiful abandonment",
+      lighting:   "pale northern light through birch and ruin",
+      photo:      "35mm with mist, muted greens, long quiet takes",
+      medium:     "film still",
+    },
+  },
+
+  // ── Weird & Horror (more weird) ────────────────────────────────────────────
+  {
+    id: "bosch",
+    label: "Bosch",
+    category: "horror",
+    mode: "illustration",
+    fields: {
+      aesthetics: "teeming hybrid creatures, moral chaos in triptych, delights and torments",
+      lighting:   "even medieval panel light over impossible scenes",
+      medium:     "oil on oak panel",
+      art_style:  "Hieronymus Bosch-style fantastical triptych, Garden of Earthly Delights detail",
+    },
+  },
+  {
+    id: "escher",
+    label: "Escher",
+    category: "horror",
+    mode: "illustration",
+    fields: {
+      aesthetics: "impossible architecture, stairs that loop forever, tessellated logic traps",
+      lighting:   "neutral lithographic shading, mathematically consistent and wrong",
+      medium:     "lithograph",
+      art_style:  "M.C. Escher-style impossible geometry, optical paradox print",
+    },
+  },
+  {
+    id: "dada",
+    label: "Dada Collage",
+    category: "horror",
+    mode: "illustration",
+    fields: {
+      aesthetics: "anti-sense photomontage, scissors-and-glue rebellion, newsprint absurdity",
+      lighting:   "flat collage lighting, mismatched sources per fragment",
+      medium:     "photomontage collage",
+      art_style:  "Dada photomontage, Hannah Hoech-style cut-and-paste anarchy",
+    },
+  },
+  {
+    id: "marginalia",
+    label: "Medieval Marginalia",
+    category: "horror",
+    mode: "illustration",
+    fields: {
+      aesthetics: "knights versus snails, rabbit revenge, monks doodling nonsense in gold margins",
+      lighting:   "flat illuminated-manuscript color with gold leaf",
+      medium:     "illuminated manuscript",
+      art_style:  "medieval marginalia, gothic manuscript drollery",
+    },
+  },
+  {
+    id: "seraphinianus",
+    label: "Codex Seraphinianus",
+    category: "horror",
+    mode: "illustration",
+    fields: {
+      aesthetics: "encyclopedia of an impossible world, annotated alien botany, untranslatable script",
+      lighting:   "soft colored-pencil scientific plate shading",
+      medium:     "colored pencil on paper",
+      art_style:  "Codex Seraphinianus-style surreal encyclopedia plate",
+    },
+  },
+  {
+    id: "fractal",
+    label: "Fractal Dimension",
+    category: "horror",
+    mode: "illustration",
+    fields: {
+      aesthetics: "infinite self-similar recursion, mandelbulb cathedrals, vertigo of scale",
+      lighting:   "raymarched glow from within the structure",
+      medium:     "3D render",
+      art_style:  "mandelbulb fractal render, infinite zoom geometry",
+    },
+  },
+  {
+    id: "visionary-anatomy",
+    label: "Visionary Anatomy",
+    category: "horror",
+    mode: "illustration",
+    fields: {
+      aesthetics: "translucent bodies of light, chakra lattices, sacred anatomical x-ray",
+      lighting:   "inner luminescence, aura spectrums",
+      medium:     "acrylic on canvas",
+      art_style:  "Alex Grey-style visionary art, psychedelic anatomical transparency",
+    },
+  },
+  {
+    id: "hellscape",
+    label: "Hellscape",
+    category: "horror",
+    mode: "illustration",
+    fields: {
+      aesthetics: "alien infernal ecology, wandering damned megafauna, sublime damnation",
+      lighting:   "furnace horizon, ash light, bioluminescent wounds",
+      medium:     "oil painting",
+      art_style:  "Wayne Barlowe-style inferno, speculative hell ecology",
+    },
+  },
+  {
+    id: "cursed-image",
+    label: "Cursed Image",
+    category: "horror",
+    mode: "photo",
+    fields: {
+      aesthetics: "context collapse, wrong objects in wrong rooms, deeply unexplainable",
+      lighting:   "direct on-camera flash at midnight, red-eye glare",
+      photo:      "low-res point-and-shoot, bad framing, date stamp",
+      medium:     "found photograph",
+    },
+  },
+  {
+    id: "art-brut",
+    label: "Art Brut",
+    category: "horror",
+    mode: "illustration",
+    fields: {
+      aesthetics: "obsessive untrained vision, every surface filled, private cosmology",
+      lighting:   "none — compulsive flat patterning",
+      medium:     "ballpoint and crayon on found paper",
+      art_style:  "outsider art brut, Darger-esque obsessive composition",
     },
   },
 ]
