@@ -29,6 +29,7 @@ import { useModelStatus, useLoadModel } from "@/hooks/useModelStatus"
 import { useUpscale, useUpscaleModels } from "@/hooks/useUpscale"
 import { useBatchGenerate, type VariationResult } from "@/hooks/useBatchGenerate"
 import { Lightbox } from "@/components/lightbox/Lightbox"
+import { RecentGrid } from "@/components/gallery/RecentGrid"
 import { buildCaption, validatePromptState, estimateTokens } from "@/lib/caption"
 
 // ── Model status panel ────────────────────────────────────────────────────────
@@ -280,7 +281,7 @@ export function Generate() {
       {/* ── Center: Canvas + results ────────────────────────────────────── */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         <div className="flex-1 overflow-auto p-3">
-          <div className="w-full max-w-3xl mx-auto flex flex-col gap-3">
+          <div className="w-full max-w-5xl mx-auto flex flex-col gap-3">
           {/* Layout canvas — opt-in (most generations never pin elements) */}
           {showCanvas ? (
             <div className="space-y-1.5">
@@ -419,6 +420,10 @@ export function Generate() {
               ))}
             </div>
           )}
+
+          {/* The center is a working surface, never a void: recent
+              generations fill whatever space the session isn't using. */}
+          <RecentGrid />
           </div>
         </div>
 
