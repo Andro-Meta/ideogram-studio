@@ -14,6 +14,7 @@ import { cn } from "@/lib/utils"
 import { useSettings, useUpdateSettings } from "@/hooks/useSettings"
 import { useModelStatus, useLoadModel, useUnloadModel } from "@/hooks/useModelStatus"
 import { useSystemInfo, variantAssessment } from "@/hooks/useSystemInfo"
+import { useFreeGpu } from "@/hooks/useFreeGpu"
 import { useSettingsStore } from "@/stores/settingsStore"
 import type { SettingsUpdateRequest } from "@/types/api"
 
@@ -116,6 +117,7 @@ export function Settings() {
   const updateMutation = useUpdateSettings()
   const loadModelMutation = useLoadModel()
   const unloadModelMutation = useUnloadModel()
+  const freeGpuMutation = useFreeGpu()
   const { modelVariant } = useSettingsStore()
 
   const [hfToken, setHfToken] = useState("")
@@ -300,11 +302,25 @@ export function Settings() {
                 </div>
               )}
               {sysInfo.gpu_processes.length > 0 && (
-                <p className="text-[11px] text-amber-400/90 bg-amber-500/10 rounded p-2">
-                  Other apps are using your GPU: {sysInfo.gpu_processes.join(", ")}.
-                  {sysInfo.gpu_processes.some((p) => p.toLowerCase().includes("ollama")) &&
-                    " Ollama keeps models in VRAM after use — quit it (or run 'ollama stop') before loading."}
-                </p>
+                <div className="text-[11px] text-amber-400/90 bg-amber-500/10 rounded p-2 space-y-2">
+                  <p>
+                    Other apps are using your GPU: {sysInfo.gpu_processes.join(", ")}.
+                    {sysInfo.gpu_processes.some((p) => p.toLowerCase().includes("ollama")) &&
+                      " Ollama keeps models in VRAM after use — free them below (the Ollama server keeps running)."}
+                  </p>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-[11px] border-amber-600/50 bg-transparent hover:bg-amber-500/20 text-amber-300"
+                    disabled={freeGpuMutation.isPending}
+                    onClick={() => freeGpuMutation.mutate()}
+                  >
+                    {freeGpuMutation.isPending
+                      ? <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                      : null}
+                    Free GPU memory
+                  </Button>
+                </div>
               )}
               <div className="flex items-center justify-between">
                 <span className="text-zinc-400">System RAM</span>

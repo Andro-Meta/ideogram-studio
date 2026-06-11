@@ -246,6 +246,46 @@ def is_variant_cached(variant: str) -> bool:
     return variant_cache_size_gb(variant) >= VARIANT_REQS[variant]["download_gb"] * 0.95
 
 
+OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
+
+
+def ollama_loaded_models() -> list[str]:
+    """Models Ollama currently holds in memory (GET /api/ps). [] if none/unreachable."""
+    import requests
+
+    try:
+        r = requests.get(f"{OLLAMA_BASE_URL}/api/ps", timeout=5)
+        r.raise_for_status()
+        return [m["name"] for m in r.json().get("models", []) if m.get("name")]
+    except Exception:
+        return []
+
+
+def stop_ollama_models() -> list[str]:
+    """Unload every model Ollama has resident, WITHOUT killing the server.
+
+    Sends keep_alive=0 per model — the documented way to evict weights from
+    VRAM. The Ollama server stays up, so other apps (e.g. the GLM legal
+    system) keep working: their next local call either reloads the model
+    (when the GPU is free again) or routes to their own fallback while our
+    lease file is held. Returns the names of models that were unloaded.
+    """
+    import requests
+
+    stopped: list[str] = []
+    for name in ollama_loaded_models():
+        try:
+            requests.post(
+                f"{OLLAMA_BASE_URL}/api/generate",
+                json={"model": name, "keep_alive": 0},
+                timeout=30,
+            ).raise_for_status()
+            stopped.append(name)
+        except Exception:
+            continue
+    return stopped
+
+
 def get_gpu_processes() -> list[str]:
     """Names of OTHER processes currently holding GPU memory (best effort).
 

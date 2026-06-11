@@ -24,6 +24,7 @@ import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Callable
 
 from PIL import Image
@@ -142,6 +143,43 @@ class LoadWatchdog:
                     "Memory running low while loading %s: %s",
                     self._variant, system_check.mem_snapshot(),
                 )
+
+
+# ── GPU lease (cross-app coordination) ───────────────────────────────────────
+# While our model is resident on the GPU we hold a lease file that other local
+# AI apps (the GLM legal system's local_llm.py) check before loading their own
+# models. They route routine work to Claude Haiku instead of Ollama while the
+# lease is held, so nobody fights over the 24 GB of VRAM. The lease includes
+# our pid; a reader treats a dead-pid lease as stale, so a crash can't wedge
+# the other app.
+
+GPU_LEASE_FILE = Path(
+    os.environ.get("GPU_LEASE_FILE", str(Path.home() / ".gpu-lease.json"))
+)
+
+
+def acquire_gpu_lease() -> None:
+    try:
+        GPU_LEASE_FILE.write_text(json.dumps({
+            "holder": "ideogram-studio",
+            "pid": os.getpid(),
+            "acquired": datetime.now(timezone.utc).isoformat(),
+        }, indent=2), encoding="utf-8")
+        logger.info("GPU lease acquired (%s)", GPU_LEASE_FILE)
+    except Exception as exc:
+        logger.warning("Could not write GPU lease file: %s", exc)
+
+
+def release_gpu_lease() -> None:
+    try:
+        lease = json.loads(GPU_LEASE_FILE.read_text(encoding="utf-8"))
+        if lease.get("holder") == "ideogram-studio":
+            GPU_LEASE_FILE.unlink()
+            logger.info("GPU lease released")
+    except FileNotFoundError:
+        pass
+    except Exception as exc:
+        logger.warning("Could not release GPU lease file: %s", exc)
 
 
 @dataclass
@@ -588,6 +626,16 @@ class PipelineManager:
                 logger.info("Download phase done after %.1fs | %s",
                             time.monotonic() - t0, system_check.mem_snapshot())
 
+                # Take the GPU for ourselves: lease it (GLM's local_llm sees
+                # this and routes routine work to Haiku), then evict any
+                # Ollama models still resident in VRAM. Ollama's server stays
+                # up — only the weights are unloaded.
+                acquire_gpu_lease()
+                stopped = system_check.stop_ollama_models()
+                if stopped:
+                    logger.info("Freed VRAM from Ollama models: %s", ", ".join(stopped))
+                    self.progress_message = f"Freed GPU memory from Ollama ({', '.join(stopped)})…"
+
                 self.status = "loading"
                 self.progress_message = f"Loading {variant} weights into GPU memory…"
 
@@ -621,6 +669,7 @@ class PipelineManager:
                              variant, time.monotonic() - t0, system_check.mem_snapshot())
             self.status = "error"
             self.error = self._friendly_load_error(exc, self.REPOS.get(variant, variant))
+            release_gpu_lease()   # failed load holds no VRAM — let others have the GPU
         finally:
             self.progress_message = None
             self.download_pct = None
@@ -636,6 +685,7 @@ class PipelineManager:
         self._variant = None
         self.status = "unloaded"
         self.error = None
+        release_gpu_lease()
 
     def generate(
         self,

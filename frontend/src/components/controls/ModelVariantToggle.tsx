@@ -1,9 +1,10 @@
 import { useEffect } from "react"
-import { CheckCircle2, AlertTriangle, HardDriveDownload, Lock } from "lucide-react"
+import { CheckCircle2, AlertTriangle, HardDriveDownload, Lock, Recycle, Loader2 } from "lucide-react"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 import { useSettingsStore } from "@/stores/settingsStore"
 import { useSystemInfo, variantAssessment } from "@/hooks/useSystemInfo"
+import { useFreeGpu } from "@/hooks/useFreeGpu"
 import type { ModelVariant } from "@/types/caption"
 
 // VRAM figures follow the official ideogram-oss/ideogram4 guidance:
@@ -18,9 +19,11 @@ const VARIANTS: { value: ModelVariant; label: string; vram: string; desc: string
 export function ModelVariantToggle() {
   const { modelVariant, setModelVariant } = useSettingsStore()
   const { data: sys } = useSystemInfo()
+  const freeGpu = useFreeGpu()
 
   const selected = variantAssessment(sys, modelVariant)
   const blocked = (selected?.blockers.length ?? 0) > 0
+  const gpuOccupied = (sys?.gpu_processes.length ?? 0) > 0
 
   // If a previously-saved selection is blocked on this hardware, move off it
   // automatically so the user can never sit on an unusable variant.
@@ -95,6 +98,21 @@ export function ModelVariantToggle() {
             </p>
           ))}
         </div>
+      )}
+
+      {gpuOccupied && (
+        <button
+          type="button"
+          onClick={() => freeGpu.mutate()}
+          disabled={freeGpu.isPending}
+          className="w-full flex items-center justify-center gap-1.5 rounded-md border border-amber-600/50 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 text-[11px] py-1.5 transition-colors disabled:opacity-50"
+          title={`Unload other apps' models from the GPU (${sys!.gpu_processes.join(", ")}). Their servers keep running.`}
+        >
+          {freeGpu.isPending
+            ? <Loader2 className="h-3 w-3 animate-spin" />
+            : <Recycle className="h-3 w-3" />}
+          Free GPU memory ({sys!.gpu_processes.join(", ")})
+        </button>
       )}
 
       {!blocked && (selected?.warnings.length ?? 0) > 0 && (

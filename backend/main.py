@@ -105,6 +105,8 @@ async def lifespan(app: FastAPI):
     yield
 
     # SHUTDOWN
+    from inference import release_gpu_lease
+    release_gpu_lease()   # never leave a lease behind — GLM checks pid, but be tidy
     await app.state.db.close()
 
 
@@ -128,6 +130,24 @@ async def system_info():
     # Probes (torch import, disk walk) can block — keep them off the event loop.
     report = await loop.run_in_executor(None, system_check.get_system_report)
     return SystemInfoResponse(**report)
+
+
+@app.post("/api/system/free-gpu")
+async def free_gpu():
+    """Unload other apps' models from VRAM (currently: Ollama).
+
+    Sends keep_alive=0 per resident model — the Ollama server keeps running,
+    so the GLM legal system stays functional (it routes routine work to Haiku
+    while our GPU lease is held). Returns what was freed and the new state.
+    """
+    loop = asyncio.get_running_loop()
+    stopped = await loop.run_in_executor(None, system_check.stop_ollama_models)
+    _name, _total, vram_free = await loop.run_in_executor(None, system_check.get_gpu_info)
+    logger.info("free-gpu: stopped=%s vram_free=%.1f GB", stopped, vram_free or -1)
+    return {
+        "stopped": stopped,
+        "vram_free_gb": round(vram_free, 1) if vram_free is not None else None,
+    }
 
 
 # ── Model API ─────────────────────────────────────────────────────────────────
