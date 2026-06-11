@@ -17,7 +17,6 @@ import { StylePanel } from "@/components/style/StylePanel"
 import { ElementList } from "@/components/elements/ElementList"
 import { BBoxCanvas } from "@/components/canvas/BBoxCanvas"
 import { ModelVariantToggle } from "@/components/controls/ModelVariantToggle"
-import { StyleLibrary } from "@/components/style/StyleLibrary"
 import { SamplerPresetPicker } from "@/components/controls/SamplerPresetPicker"
 import { ResolutionPicker } from "@/components/controls/ResolutionPicker"
 import { SeedControl } from "@/components/controls/SeedControl"
@@ -96,6 +95,32 @@ function ModelStatusPanel() {
         <p className="text-[10px] text-red-400 bg-red-500/10 rounded px-2 py-1">{data.error}</p>
       )}
     </div>
+  )
+}
+
+// ── Flow section card ─────────────────────────────────────────────────────────
+// Gives the prompt column its visual rhythm: numbered steps the eye can walk
+// (1 Describe → 2 Style → 3 Elements), each in its own card.
+
+function FlowSection({
+  step, title, hint, children,
+}: {
+  step: number
+  title: string
+  hint?: string
+  children: React.ReactNode
+}) {
+  return (
+    <section className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4 space-y-4">
+      <div className="flex items-center gap-2">
+        <span className="flex items-center justify-center h-[18px] w-[18px] rounded-full bg-violet-500/20 text-violet-300 text-[10px] font-bold shrink-0">
+          {step}
+        </span>
+        <span className="text-[11px] font-semibold text-zinc-300 uppercase tracking-widest">{title}</span>
+        {hint && <span className="text-[10px] text-zinc-600 ml-auto">{hint}</span>}
+      </div>
+      {children}
+    </section>
   )
 }
 
@@ -283,8 +308,6 @@ export function Generate() {
             <ModelVariantToggle />
             <Separator className="bg-zinc-800" />
             <SeedControl />
-            <Separator className="bg-zinc-800" />
-            <StyleLibrary />
           </div>
         </Rail>
       </div>
@@ -292,14 +315,21 @@ export function Generate() {
       {/* ── 2. Prompt — the primary work area, with the Generate bar ───── */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         <Rail>
-          <div className="max-w-[620px] mx-auto p-5 space-y-5">
-            <PromptBar />
-            <Separator className="bg-zinc-800" />
-            <HighLevelDescription />
-            <BackgroundField />
-            <StylePanel />
-            <Separator className="bg-zinc-800" />
-            <ElementList />
+          <div className="max-w-[620px] mx-auto p-5 space-y-4">
+            <FlowSection step={1} title="Describe" hint="what is the image?">
+              <PromptBar />
+              <Separator className="bg-zinc-800" />
+              <HighLevelDescription />
+              <BackgroundField />
+            </FlowSection>
+
+            <FlowSection step={2} title="Style" hint="how should it look?">
+              <StylePanel />
+            </FlowSection>
+
+            <FlowSection step={3} title="Elements" hint="optional — exact objects & text">
+              <ElementList />
+            </FlowSection>
 
             {/* Validation warnings live with the prompt they describe */}
             {warnings.length > 0 && status === "idle" && (

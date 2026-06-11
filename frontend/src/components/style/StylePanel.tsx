@@ -2,18 +2,18 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Camera, Paintbrush } from "lucide-react"
 import { PhotoStyleForm } from "./PhotoStyleForm"
 import { IllustrationStyleForm } from "./IllustrationStyleForm"
+import { StyleLibrary } from "./StyleLibrary"
 import { usePromptStore } from "@/stores/promptStore"
 
+/** Style section body: preset library on top, then mode tabs + fields.
+ *  The section title comes from the FlowSection wrapper in Generate. */
 export function StylePanel() {
   const mode = usePromptStore((s) => s.style_description.mode)
   const setStyleMode = usePromptStore((s) => s.setStyleMode)
 
   return (
     <div className="space-y-3">
-      <div className="flex items-baseline justify-between">
-        <p className="text-xs font-medium text-zinc-300 uppercase tracking-wider">Style</p>
-        <p className="text-[10px] text-zinc-600">presets in the Style Library ←</p>
-      </div>
+      <StyleLibrary />
       <Tabs
         value={mode}
         onValueChange={(v) => setStyleMode(v as "photo" | "illustration")}

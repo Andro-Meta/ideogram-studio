@@ -11,12 +11,12 @@ export function ElementList({ focusedElementId, onFocusElement }: Props) {
   const elements = usePromptStore((s) => s.elements)
 
   return (
+    // Section title comes from the FlowSection wrapper in Generate; only the
+    // live count renders here.
     <div className="space-y-2">
-      <div className="flex items-center justify-between">
-        <p className="text-xs font-medium text-zinc-300 uppercase tracking-wider">
-          Elements <span className="text-zinc-600 normal-case font-normal">({elements.length})</span>
-        </p>
-      </div>
+      {elements.length > 0 && (
+        <p className="text-[10px] text-zinc-600">{elements.length} element{elements.length === 1 ? "" : "s"}</p>
+      )}
 
       {elements.length === 0 && (
         <p className="text-xs text-zinc-600 py-2 text-center">
