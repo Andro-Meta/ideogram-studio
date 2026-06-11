@@ -262,9 +262,15 @@ export function Generate() {
   const progressPct = progress ? Math.round((progress.step / progress.total) * 100) : 0
 
   return (
-    <div className="h-full flex overflow-hidden">
+    // The workspace is BOUNDED (max 1480px) and centered: on very wide
+    // windows the leftover width becomes gutters outside the app instead of
+    // an oversized output column inside it. Within the workspace the input
+    // panels get the generous widths (they're what the user works in); the
+    // output column is the remainder (~800px at full size).
+    <div className="h-full flex justify-center overflow-hidden">
+      <div className="h-full w-full max-w-[1480px] flex overflow-hidden border-x border-zinc-900">
       {/* ── Left panel: Prompt building ────────────────────────────────── */}
-      <div className="w-80 shrink-0 border-r border-zinc-800 flex flex-col bg-zinc-900/30 min-h-0">
+      <div className="w-[380px] shrink-0 border-r border-zinc-800 flex flex-col bg-zinc-900/30 min-h-0">
         <Rail>
           <div className="p-4 space-y-5">
             <PromptBar />
@@ -281,7 +287,7 @@ export function Generate() {
       {/* ── Center: Canvas + results ────────────────────────────────────── */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         <div className="flex-1 overflow-auto p-3">
-          <div className="w-full max-w-5xl mx-auto flex flex-col gap-3">
+          <div className="w-full flex flex-col gap-3">
           {/* Layout canvas — opt-in (most generations never pin elements) */}
           {showCanvas ? (
             <div className="space-y-1.5">
@@ -589,7 +595,7 @@ export function Generate() {
       </div>
 
       {/* ── Right panel: Generation settings ────────────────────────────── */}
-      <div className="w-60 shrink-0 border-l border-zinc-800 bg-zinc-900/30 flex flex-col min-h-0">
+      <div className="w-[280px] shrink-0 border-l border-zinc-800 bg-zinc-900/30 flex flex-col min-h-0">
         <Rail>
           <div className="p-4 space-y-4">
             <ModelStatusPanel />
@@ -620,6 +626,7 @@ export function Generate() {
           ].filter(Boolean).join(" · ")}
         />
       )}
+      </div>
     </div>
   )
 }
