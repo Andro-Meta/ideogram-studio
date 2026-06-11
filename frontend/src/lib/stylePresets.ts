@@ -1,6 +1,11 @@
 import type { StyleDescription } from "@/types/caption"
 
-export type StyleCategory = "photography" | "rendered" | "illustrated" | "weird"
+export type StyleCategory =
+  | "photography"
+  | "rendered"
+  | "illustrated"
+  | "aesthetic"
+  | "horror"
 
 export interface StylePreset {
   id: string
@@ -14,7 +19,8 @@ export const STYLE_CATEGORIES: { key: StyleCategory; label: string }[] = [
   { key: "photography", label: "Photography" },
   { key: "rendered",    label: "Rendered / 3D" },
   { key: "illustrated", label: "Illustrated" },
-  { key: "weird",       label: "Weird & Wonderful" },
+  { key: "aesthetic",   label: "Wonderful & Aesthetic" },
+  { key: "horror",      label: "Weird & Horror" },
 ]
 
 export const STYLE_PRESETS: StylePreset[] = [
@@ -472,7 +478,7 @@ export const STYLE_PRESETS: StylePreset[] = [
   {
     id: "beksinski",
     label: "Beksiński",
-    category: "weird",
+    category: "horror",
     mode: "illustration",
     fields: {
       aesthetics: "dystopian surrealism, decaying monumental forms, beautiful dread",
@@ -484,7 +490,7 @@ export const STYLE_PRESETS: StylePreset[] = [
   {
     id: "frutiger-aero",
     label: "Frutiger Aero",
-    category: "weird",
+    category: "aesthetic",
     mode: "illustration",
     fields: {
       aesthetics: "glossy optimism, water droplets, grass and sky, 2000s tech utopia",
@@ -496,7 +502,7 @@ export const STYLE_PRESETS: StylePreset[] = [
   {
     id: "vaporwave",
     label: "Vaporwave",
-    category: "weird",
+    category: "aesthetic",
     mode: "illustration",
     fields: {
       aesthetics: "retro-futurist nostalgia, marble busts, palm trees, checkerboard floors",
@@ -508,7 +514,7 @@ export const STYLE_PRESETS: StylePreset[] = [
   {
     id: "dreamcore",
     label: "Dreamcore",
-    category: "weird",
+    category: "horror",
     mode: "illustration",
     fields: {
       aesthetics: "familiar yet wrong, nostalgic unease, soft surreal emptiness",
@@ -520,7 +526,7 @@ export const STYLE_PRESETS: StylePreset[] = [
   {
     id: "liminal",
     label: "Liminal Space",
-    category: "weird",
+    category: "horror",
     mode: "photo",
     fields: {
       aesthetics: "empty transitional spaces, eerie stillness, nobody home",
@@ -532,7 +538,7 @@ export const STYLE_PRESETS: StylePreset[] = [
   {
     id: "giger",
     label: "Biomechanical",
-    category: "weird",
+    category: "horror",
     mode: "illustration",
     fields: {
       aesthetics: "fusion of flesh and machine, ribbed corridors, elegant horror",
@@ -544,7 +550,7 @@ export const STYLE_PRESETS: StylePreset[] = [
   {
     id: "dali",
     label: "Surrealist",
-    category: "weird",
+    category: "horror",
     mode: "illustration",
     fields: {
       aesthetics: "melting logic, impossible landscapes, precise absurdity",
@@ -556,7 +562,7 @@ export const STYLE_PRESETS: StylePreset[] = [
   {
     id: "cosmic-horror",
     label: "Cosmic Horror",
-    category: "weird",
+    category: "horror",
     mode: "illustration",
     fields: {
       aesthetics: "incomprehensible scale, tentacled geometry, humanity dwarfed",
@@ -568,7 +574,7 @@ export const STYLE_PRESETS: StylePreset[] = [
   {
     id: "glitch",
     label: "Glitch Art",
-    category: "weird",
+    category: "horror",
     mode: "illustration",
     fields: {
       aesthetics: "corrupted data beauty, RGB channel splits, databending artifacts",
@@ -580,7 +586,7 @@ export const STYLE_PRESETS: StylePreset[] = [
   {
     id: "analog-horror",
     label: "Analog Horror",
-    category: "weird",
+    category: "horror",
     mode: "photo",
     fields: {
       aesthetics: "wrong broadcast, emergency-alert dread, degraded familiarity",
@@ -592,7 +598,7 @@ export const STYLE_PRESETS: StylePreset[] = [
   {
     id: "y2k",
     label: "Y2K Chrome",
-    category: "weird",
+    category: "aesthetic",
     mode: "illustration",
     fields: {
       aesthetics: "millennium futurism, liquid chrome, cyber butterflies, blobjects",
@@ -604,7 +610,7 @@ export const STYLE_PRESETS: StylePreset[] = [
   {
     id: "memphis",
     label: "Memphis",
-    category: "weird",
+    category: "aesthetic",
     mode: "illustration",
     fields: {
       aesthetics: "playful clashing geometry, squiggles, confetti shapes, 80s postmodern",
@@ -616,7 +622,7 @@ export const STYLE_PRESETS: StylePreset[] = [
   {
     id: "psychedelic",
     label: "Psychedelic",
-    category: "weird",
+    category: "aesthetic",
     mode: "illustration",
     fields: {
       aesthetics: "melting rainbows, kaleidoscopic symmetry, concert-poster swirl",
@@ -628,7 +634,7 @@ export const STYLE_PRESETS: StylePreset[] = [
   {
     id: "solarpunk",
     label: "Solarpunk",
-    category: "weird",
+    category: "aesthetic",
     mode: "illustration",
     fields: {
       aesthetics: "optimistic green future, vine-wrapped architecture, community warmth",
@@ -640,13 +646,160 @@ export const STYLE_PRESETS: StylePreset[] = [
   {
     id: "dark-academia",
     label: "Dark Academia",
-    category: "weird",
+    category: "aesthetic",
     mode: "photo",
     fields: {
       aesthetics: "old libraries, tweed and candlelight, scholarly melancholy",
       lighting:   "low amber lamplight, dust motes in window shafts",
       photo:      "50mm, muted film stock, deep shadow detail",
       medium:     "film photography",
+    },
+  },
+// ── Wonderful & Aesthetic (additions) ─────────────────────────────────────
+  {
+    id: "synthwave",
+    label: "Synthwave",
+    category: "aesthetic",
+    mode: "illustration",
+    fields: {
+      aesthetics: "retro 80s night-drive, neon grids, chrome sunsets, outrun energy",
+      lighting:   "glowing neon horizon, purple-orange gradient dusk",
+      medium:     "digital art",
+      art_style:  "synthwave outrun aesthetic, retrowave album-cover art",
+    },
+  },
+  {
+    id: "cottagecore",
+    label: "Cottagecore",
+    category: "aesthetic",
+    mode: "photo",
+    fields: {
+      aesthetics: "pastoral coziness, wildflowers, linen and fresh bread, gentle nostalgia",
+      lighting:   "soft morning light through cottage windows, hazy meadow sun",
+      photo:      "50mm, f/2, warm film tones",
+      medium:     "lifestyle film photography",
+    },
+  },
+  {
+    id: "retrofuturism",
+    label: "Retrofuturism",
+    category: "aesthetic",
+    mode: "illustration",
+    fields: {
+      aesthetics: "atomic-age optimism, raygun gothic, googie curves, space-age families",
+      lighting:   "bright optimistic key light, mid-century poster glow",
+      medium:     "gouache poster illustration",
+      art_style:  "1950s retrofuturism, atomic-age advertising art",
+    },
+  },
+  {
+    id: "art-deco",
+    label: "Art Deco",
+    category: "aesthetic",
+    mode: "illustration",
+    fields: {
+      aesthetics: "geometric elegance, gold and black, sunburst motifs, Gatsby glamour",
+      lighting:   "dramatic uplighting, metallic sheen",
+      medium:     "screen print poster",
+      art_style:  "Art Deco poster design, 1920s geometric luxury",
+    },
+  },
+  {
+    id: "ethereal-dream",
+    label: "Ethereal Dream",
+    category: "aesthetic",
+    mode: "photo",
+    fields: {
+      aesthetics: "weightless, luminous, soft-focus reverie, floating fabric and light",
+      lighting:   "backlit haze, prismatic flares, glowing skin tones",
+      photo:      "85mm, f/1.2, pro-mist diffusion filter",
+      medium:     "fine-art photography",
+    },
+  },
+  {
+    id: "fairycore",
+    label: "Fairycore",
+    category: "aesthetic",
+    mode: "illustration",
+    fields: {
+      aesthetics: "enchanted forest glow, mushroom rings, glittering wings, storybook magic",
+      lighting:   "dappled golden light through ancient trees, fireflies",
+      medium:     "watercolor and gouache",
+      art_style:  "fairycore fantasy illustration, whimsical woodland detail",
+    },
+  },
+
+  // ── Weird & Horror (additions) ─────────────────────────────────────────────
+  {
+    id: "body-horror",
+    label: "Body Horror",
+    category: "horror",
+    mode: "illustration",
+    fields: {
+      aesthetics: "anatomical wrongness, fused forms, beautiful grotesque transformation",
+      lighting:   "clinical fluorescent over warm visceral tones",
+      medium:     "oil painting",
+      art_style:  "Cronenberg-inspired body horror, surreal anatomical art",
+    },
+  },
+  {
+    id: "junji-ito",
+    label: "Junji Ito",
+    category: "horror",
+    mode: "illustration",
+    fields: {
+      aesthetics: "spiraling obsession, dense linework dread, mundane turned monstrous",
+      lighting:   "stark manga blacks, hatched shadow gradients",
+      medium:     "ink on paper",
+      art_style:  "Junji Ito-style horror manga, meticulous crosshatched terror",
+    },
+  },
+  {
+    id: "gothic-horror",
+    label: "Gothic Horror",
+    category: "horror",
+    mode: "illustration",
+    fields: {
+      aesthetics: "crumbling manors, candlelit corridors, romantic decay, Victorian dread",
+      lighting:   "single candelabra, moonlight through torn curtains",
+      medium:     "oil painting",
+      art_style:  "gothic horror romanticism, dark academia oil technique",
+    },
+  },
+  {
+    id: "folk-horror",
+    label: "Folk Horror",
+    category: "horror",
+    mode: "photo",
+    fields: {
+      aesthetics: "pagan idylls gone wrong, wicker effigies, sunlit dread in open fields",
+      lighting:   "flat overcast daylight that should feel safe but does not",
+      photo:      "16mm film texture, 1970s color timing",
+      medium:     "film still",
+    },
+  },
+  {
+    id: "occult",
+    label: "Occult",
+    category: "horror",
+    mode: "illustration",
+    fields: {
+      aesthetics: "ritual geometry, alchemical diagrams, candle smoke and sigils",
+      lighting:   "ring of candlelight in absolute darkness",
+      medium:     "engraving",
+      art_style:  "occult woodcut engraving, esoteric grimoire illustration",
+    },
+  },
+  {
+    id: "uncanny-dolls",
+    label: "Uncanny Dolls",
+    category: "horror",
+    mode: "photo",
+    fields: {
+      aesthetics: "porcelain stares, almost-human faces, dusty nursery stillness",
+      lighting:   "dim attic shaft of light, deep shadow corners",
+      photo:      "medium format, shallow focus on glass eyes",
+      medium:     "fine-art photography",
     },
   },
 ]

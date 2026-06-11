@@ -22,6 +22,10 @@ export function StyleLibrary() {
       const value = preset.fields[key]
       if (value !== undefined) setStyleField(key, value)
     }
+    // Clear the opposite mode's field so the caption (and the unified form's
+    // mode indicator) stays unambiguous.
+    if (preset.mode === "photo") setStyleField("art_style", "")
+    else setStyleField("photo", "")
   }
 
   const activePreset = STYLE_PRESETS.find((p) => {
