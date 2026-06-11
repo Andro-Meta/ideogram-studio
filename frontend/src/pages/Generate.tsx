@@ -2,14 +2,14 @@ import { useEffect, useState } from "react"
 import { Link } from "react-router-dom"
 import {
   Zap, Square, RotateCcw, AlertTriangle, Loader2, Power,
-  ArrowUpCircle, Layers, Copy, Brush,
+  ArrowUpCircle, Layers, Copy, Brush, LayoutGrid, X,
 } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { Progress } from "@/components/ui/progress"
 import { Separator } from "@/components/ui/separator"
-import { ScrollArea } from "@/components/ui/scroll-area"
+import { Rail } from "@/components/ui/rail"
 import { cn } from "@/lib/utils"
 import { PromptBar } from "@/components/prompt/PromptBar"
 import { HighLevelDescription } from "@/components/prompt/HighLevelDescription"
@@ -167,7 +167,10 @@ function UpscaleStrip({ jobId, onUpscaled }: UpscaleStripProps) {
 
 export function Generate() {
   const promptState = usePromptStore()
-  const { modelVariant, samplerPreset, width, height, fixedSeed, seed, variationCount } = useSettingsStore()
+  const {
+    modelVariant, samplerPreset, width, height, fixedSeed, seed, variationCount,
+    canvasOpen, setCanvasOpen,
+  } = useSettingsStore()
   const { status, progress, resultImageUrl, resultSeed, resultDurationMs, errorMessage, jobId } =
     useGenerationStore()
   const { generate, cancel } = useGenerate()
@@ -196,6 +199,11 @@ export function Generate() {
   const tokenCount = estimateTokens(promptState)
   const isRunning = status === "running" || status === "loading-model"
   const isDone = status === "done"
+
+  // Layout canvas: opt-in. Pinned elements force it open (hiding them would
+  // misrepresent what will be generated).
+  const hasPinnedElements = promptState.elements.some((el) => !!el.bbox)
+  const showCanvas = canvasOpen || hasPinnedElements
 
   // An effectively empty prompt produces garbage — require at least one of
   // description / background / elements before allowing generation.
@@ -256,7 +264,7 @@ export function Generate() {
     <div className="h-full flex overflow-hidden">
       {/* ── Left panel: Prompt building ────────────────────────────────── */}
       <div className="w-80 shrink-0 border-r border-zinc-800 flex flex-col bg-zinc-900/30 min-h-0">
-        <ScrollArea className="flex-1 min-h-0">
+        <Rail>
           <div className="p-4 space-y-5">
             <PromptBar />
             <Separator className="bg-zinc-800" />
@@ -266,14 +274,38 @@ export function Generate() {
             <Separator className="bg-zinc-800" />
             <ElementList />
           </div>
-        </ScrollArea>
+        </Rail>
       </div>
 
       {/* ── Center: Canvas + results ────────────────────────────────────── */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        <div className="flex-1 overflow-auto p-4 flex flex-col gap-4">
-          {/* Canvas */}
-          <BBoxCanvas />
+        <div className="flex-1 overflow-auto p-3">
+          <div className="w-full max-w-3xl mx-auto flex flex-col gap-3">
+          {/* Layout canvas — opt-in (most generations never pin elements) */}
+          {showCanvas ? (
+            <div className="space-y-1.5">
+              <BBoxCanvas />
+              {!hasPinnedElements && (
+                <button
+                  type="button"
+                  onClick={() => setCanvasOpen(false)}
+                  className="mx-auto flex items-center gap-1 text-[10px] text-zinc-600 hover:text-zinc-400 transition-colors"
+                >
+                  <X className="h-3 w-3" />
+                  Hide layout canvas
+                </button>
+              )}
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setCanvasOpen(true)}
+              className="flex items-center justify-center gap-2 rounded-lg border border-dashed border-zinc-800 hover:border-zinc-600 text-zinc-600 hover:text-zinc-400 text-xs py-2.5 transition-colors"
+            >
+              <LayoutGrid className="h-3.5 w-3.5" />
+              Open layout canvas — pin elements to exact positions
+            </button>
+          )}
 
           {/* Result: compact preview card — click to view in the lightbox */}
           {isDone && displayImageUrl && !batch.results.length && (
@@ -387,10 +419,11 @@ export function Generate() {
               ))}
             </div>
           )}
+          </div>
         </div>
 
         {/* Generate controls — pinned to bottom */}
-        <div className="shrink-0 p-4 border-t border-zinc-800 bg-zinc-900/50 space-y-3">
+        <div className="shrink-0 px-4 py-2.5 border-t border-zinc-800 bg-zinc-900/50 space-y-2">
           {/* Token budget meter */}
           <div className="flex items-center gap-2">
             <div className="flex-1 h-1 rounded-full bg-zinc-700 overflow-hidden">
@@ -552,8 +585,8 @@ export function Generate() {
 
       {/* ── Right panel: Generation settings ────────────────────────────── */}
       <div className="w-60 shrink-0 border-l border-zinc-800 bg-zinc-900/30 flex flex-col min-h-0">
-        <ScrollArea className="flex-1 min-h-0">
-          <div className="p-4 space-y-5">
+        <Rail>
+          <div className="p-4 space-y-4">
             <ModelStatusPanel />
             <Separator className="bg-zinc-800" />
             <ModelVariantToggle />
@@ -564,7 +597,7 @@ export function Generate() {
             <Separator className="bg-zinc-800" />
             <SeedControl />
           </div>
-        </ScrollArea>
+        </Rail>
       </div>
 
       {/* ── Lightbox for the current result ─────────────────────────────── */}

@@ -31,14 +31,14 @@ export function BBoxCanvas() {
   const isGenerating = status === "running" || status === "loading-model"
 
   return (
-    // Composition tool, not an image viewer: cap the canvas at ~46vh tall.
+    // Composition tool, not an image viewer: cap the canvas at ~36vh tall.
     // aspect-ratio (not the padding-bottom hack — % padding resolves against
     // the PARENT width, which is what made the old canvas enormous).
     <div
       className="relative w-full mx-auto"
       style={{
         aspectRatio: `${width} / ${height}`,
-        maxWidth: `min(100%, calc(46vh * ${(width / height).toFixed(4)}))`,
+        maxWidth: `min(100%, calc(36vh * ${(width / height).toFixed(4)}))`,
       }}
     >
       <div

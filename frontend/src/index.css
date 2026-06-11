@@ -48,3 +48,22 @@
     background: hsl(0 0% 30%);
   }
 }
+
+/* Rail scroll: an honest, always-visible scrollbar for the side panels.
+   The global thumb at 20% lightness is nearly invisible on zinc-900 —
+   rails get a brighter one so "there is more content" is unmistakable. */
+.rail-scroll {
+  overflow-y: auto;
+  scrollbar-width: thin;                  /* Firefox */
+  scrollbar-color: hsl(0 0% 38%) transparent;
+}
+.rail-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+.rail-scroll::-webkit-scrollbar-thumb {
+  background: hsl(0 0% 38%);
+  border-radius: 4px;
+}
+.rail-scroll::-webkit-scrollbar-thumb:hover {
+  background: hsl(0 0% 50%);
+}

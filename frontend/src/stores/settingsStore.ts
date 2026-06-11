@@ -11,8 +11,11 @@ interface SettingsStore {
   fixedSeed: boolean
   seed: number
   variationCount: 2 | 4 | 8
+  /** Layout canvas is opt-in — most generations never pin elements. */
+  canvasOpen: boolean
 
   setModelVariant: (v: ModelVariant) => void
+  setCanvasOpen: (v: boolean) => void
   setSamplerPreset: (v: SamplerPreset) => void
   setResolution: (w: number, h: number) => void
   setFixedSeed: (v: boolean) => void
@@ -33,8 +36,10 @@ export const useSettingsStore = create<SettingsStore>()(
       fixedSeed: false,
       seed: 42,
       variationCount: 4,
+      canvasOpen: false,
 
       setModelVariant: (v) => set({ modelVariant: v }),
+      setCanvasOpen: (v) => set({ canvasOpen: v }),
       setSamplerPreset: (v) => set({ samplerPreset: v }),
       setResolution: (w, h) => set({ width: w, height: h }),
       setFixedSeed: (v) => set({ fixedSeed: v }),
