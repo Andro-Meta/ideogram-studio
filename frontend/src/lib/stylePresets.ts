@@ -4,6 +4,7 @@ export type StyleCategory =
   | "photography"
   | "rendered"
   | "illustrated"
+  | "classical"
   | "aesthetic"
   | "horror"
 
@@ -19,6 +20,7 @@ export const STYLE_CATEGORIES: { key: StyleCategory; label: string }[] = [
   { key: "photography", label: "Photography" },
   { key: "rendered",    label: "Rendered / 3D" },
   { key: "illustrated", label: "Illustrated" },
+  { key: "classical",   label: "Classical Painting" },
   { key: "aesthetic",   label: "Wonderful & Aesthetic" },
   { key: "horror",      label: "Weird & Horror" },
 ]
@@ -368,7 +370,7 @@ export const STYLE_PRESETS: StylePreset[] = [
   {
     id: "impressionist",
     label: "Impressionist",
-    category: "illustrated",
+    category: "classical",
     mode: "illustration",
     fields: {
       aesthetics: "fleeting light, broken color, outdoor immediacy",
@@ -800,6 +802,497 @@ export const STYLE_PRESETS: StylePreset[] = [
       lighting:   "dim attic shaft of light, deep shadow corners",
       photo:      "medium format, shallow focus on glass eyes",
       medium:     "fine-art photography",
+    },
+  },
+// ── Classical Painting ─────────────────────────────────────────────────────
+  {
+    id: "renaissance",
+    label: "Renaissance",
+    category: "classical",
+    mode: "illustration",
+    fields: {
+      aesthetics: "divine proportion, sfumato softness, serene idealized figures",
+      lighting:   "gentle directional light, atmospheric perspective",
+      medium:     "oil and tempera on panel",
+      art_style:  "High Renaissance painting, Leonardo-style sfumato and balance",
+    },
+  },
+  {
+    id: "baroque",
+    label: "Baroque",
+    category: "classical",
+    mode: "illustration",
+    fields: {
+      aesthetics: "theatrical intensity, dramatic gesture, darkness pierced by revelation",
+      lighting:   "Caravaggio chiaroscuro, single shaft of hard light from above",
+      medium:     "oil on canvas",
+      art_style:  "Baroque tenebrism, Caravaggio-style dramatic realism",
+    },
+  },
+  {
+    id: "dutch-golden",
+    label: "Dutch Golden Age",
+    category: "classical",
+    mode: "illustration",
+    fields: {
+      aesthetics: "quiet domestic intimacy, pearl-like detail, stillness and care",
+      lighting:   "soft north window light from the left, luminous shadow",
+      medium:     "oil on canvas",
+      art_style:  "Dutch Golden Age interior, Vermeer-style light and calm",
+    },
+  },
+  {
+    id: "rococo",
+    label: "Rococo",
+    category: "classical",
+    mode: "illustration",
+    fields: {
+      aesthetics: "powdered pastel frivolity, swirling silk, garden flirtation",
+      lighting:   "airy diffused daylight, shimmering highlights on fabric",
+      medium:     "oil on canvas",
+      art_style:  "Rococo painting, Fragonard-style playful elegance",
+    },
+  },
+  {
+    id: "neoclassical",
+    label: "Neoclassical",
+    category: "classical",
+    mode: "illustration",
+    fields: {
+      aesthetics: "stoic grandeur, marble-smooth figures, moral clarity, antique drapery",
+      lighting:   "cool sculptural studio light, crisp edges",
+      medium:     "oil on canvas",
+      art_style:  "Neoclassicism, Jacques-Louis David-style history painting",
+    },
+  },
+  {
+    id: "romanticism",
+    label: "Romanticism",
+    category: "classical",
+    mode: "illustration",
+    fields: {
+      aesthetics: "sublime nature dwarfing humanity, storm and longing, awe",
+      lighting:   "turbulent skies, breaking light through clouds, glowing horizon",
+      medium:     "oil on canvas",
+      art_style:  "Romanticism, Caspar David Friedrich and Turner-style sublime landscape",
+    },
+  },
+  {
+    id: "pre-raphaelite",
+    label: "Pre-Raphaelite",
+    category: "classical",
+    mode: "illustration",
+    fields: {
+      aesthetics: "jewel-toned medieval revival, flowing red hair, symbolic flowers",
+      lighting:   "clear even daylight, every petal in focus",
+      medium:     "oil on canvas",
+      art_style:  "Pre-Raphaelite Brotherhood painting, Waterhouse-style romantic detail",
+    },
+  },
+  {
+    id: "post-impressionist",
+    label: "Post-Impressionist",
+    category: "classical",
+    mode: "illustration",
+    fields: {
+      aesthetics: "emotional color, writhing energy, thick directional strokes",
+      lighting:   "swirling night skies, halos around lights",
+      medium:     "oil on canvas",
+      art_style:  "Post-Impressionism, Van Gogh-style impasto swirls",
+    },
+  },
+  {
+    id: "pointillism",
+    label: "Pointillism",
+    category: "classical",
+    mode: "illustration",
+    fields: {
+      aesthetics: "shimmering optical mixing, serene park scenes, dotted discipline",
+      lighting:   "bright afternoon sun built from pure-color dots",
+      medium:     "oil on canvas",
+      art_style:  "Pointillism, Seurat-style divisionist dots",
+    },
+  },
+  {
+    id: "fauvism",
+    label: "Fauvism",
+    category: "classical",
+    mode: "illustration",
+    fields: {
+      aesthetics: "wild liberated color, joy over accuracy, bold flat planes",
+      lighting:   "color IS the light — vermilion shadows, green skin",
+      medium:     "oil on canvas",
+      art_style:  "Fauvism, Matisse-style expressive color",
+    },
+  },
+  {
+    id: "expressionism",
+    label: "Expressionism",
+    category: "classical",
+    mode: "illustration",
+    fields: {
+      aesthetics: "raw psychological distortion, anxiety made visible, jagged forms",
+      lighting:   "unnatural acid hues, oppressive skies",
+      medium:     "oil on canvas",
+      art_style:  "German Expressionism, Munch and Kirchner-style emotional distortion",
+    },
+  },
+  {
+    id: "cubism",
+    label: "Cubism",
+    category: "classical",
+    mode: "illustration",
+    fields: {
+      aesthetics: "fractured simultaneous viewpoints, faceted geometry, muted earth tones",
+      lighting:   "flattened analytical planes, no single light source",
+      medium:     "oil on canvas",
+      art_style:  "Analytical Cubism, Picasso and Braque-style fragmentation",
+    },
+  },
+  {
+    id: "klimt-golden",
+    label: "Klimt Golden",
+    category: "classical",
+    mode: "illustration",
+    fields: {
+      aesthetics: "gilded ornament, mosaic patterns, embrace and ecstasy",
+      lighting:   "shimmering gold-leaf glow",
+      medium:     "oil and gold leaf on canvas",
+      art_style:  "Gustav Klimt golden phase, Vienna Secession ornamental painting",
+    },
+  },
+  {
+    id: "symbolist",
+    label: "Symbolist",
+    category: "classical",
+    mode: "illustration",
+    fields: {
+      aesthetics: "dream logic, myth and mystery, jeweled decadence",
+      lighting:   "otherworldly glow from within the scene",
+      medium:     "oil on canvas",
+      art_style:  "Symbolism, Gustave Moreau-style mythic reverie",
+    },
+  },
+
+  // ── Photography (additions) ────────────────────────────────────────────────
+  {
+    id: "underwater",
+    label: "Underwater",
+    category: "photography",
+    mode: "photo",
+    fields: {
+      aesthetics: "weightless silence, shafts of blue, drifting particles",
+      lighting:   "sun rays refracting down through the surface, cyan falloff",
+      photo:      "underwater housing, wide angle, strobes for true color",
+      medium:     "underwater photography",
+    },
+  },
+  {
+    id: "wildlife",
+    label: "Wildlife",
+    category: "photography",
+    mode: "photo",
+    fields: {
+      aesthetics: "intimate animal portraiture, habitat context, patient observation",
+      lighting:   "dawn mist light, golden backlit fur and feathers",
+      photo:      "600mm telephoto, f/4, fast shutter, eye-level perspective",
+      medium:     "wildlife photography",
+    },
+  },
+  {
+    id: "astro",
+    label: "Astrophotography",
+    category: "photography",
+    mode: "photo",
+    fields: {
+      aesthetics: "Milky Way arch, cosmic scale over tiny foreground, deep night",
+      lighting:   "starlight and airglow only, faint horizon glow",
+      photo:      "14mm f/1.8, 20-second tracked exposure, high ISO",
+      medium:     "astrophotography",
+    },
+  },
+  {
+    id: "sports-action",
+    label: "Sports Action",
+    category: "photography",
+    mode: "photo",
+    fields: {
+      aesthetics: "peak-moment tension, frozen sweat and grit, decisive athleticism",
+      lighting:   "stadium floodlights, hard rim separation",
+      photo:      "400mm f/2.8, 1/2000s freeze, panning option",
+      medium:     "sports photography",
+    },
+  },
+  {
+    id: "infrared",
+    label: "Infrared",
+    category: "photography",
+    mode: "photo",
+    fields: {
+      aesthetics: "false-color dreamworld, white foliage, alien familiar landscapes",
+      lighting:   "full sun rendered as snow-bright canopy",
+      photo:      "infrared-converted sensor, 590nm filter",
+      medium:     "infrared photography",
+    },
+  },
+  {
+    id: "tilt-shift-mini",
+    label: "Tilt-Shift Mini",
+    category: "photography",
+    mode: "photo",
+    fields: {
+      aesthetics: "real world as toy diorama, miniature charm at city scale",
+      lighting:   "bright saturated midday for the model-kit look",
+      photo:      "tilt-shift lens, razor focal band, elevated vantage",
+      medium:     "tilt-shift photography",
+    },
+  },
+
+  // ── Rendered / 3D (additions) ──────────────────────────────────────────────
+  {
+    id: "papercraft",
+    label: "Papercraft",
+    category: "rendered",
+    mode: "illustration",
+    fields: {
+      aesthetics: "layered cut paper, folded geometry, handcrafted depth",
+      lighting:   "soft top light casting tiny paper shadows between layers",
+      medium:     "paper diorama",
+      art_style:  "papercraft layered paper-cut art, origami-inspired 3D scene",
+    },
+  },
+  {
+    id: "needle-felt",
+    label: "Needle Felt",
+    category: "rendered",
+    mode: "illustration",
+    fields: {
+      aesthetics: "fuzzy wool warmth, handmade imperfection, huggable characters",
+      lighting:   "soft window light catching individual fibers",
+      medium:     "needle-felted wool",
+      art_style:  "needle felt stop-motion style, fuzzy wool miniature",
+    },
+  },
+  {
+    id: "toy-bricks",
+    label: "Toy Bricks",
+    category: "rendered",
+    mode: "illustration",
+    fields: {
+      aesthetics: "modular plastic brick world, studs and seams, playset charm",
+      lighting:   "clean toy-photography lighting, glossy plastic highlights",
+      medium:     "3D render",
+      art_style:  "plastic building-brick render, minifigure-scale diorama",
+    },
+  },
+  {
+    id: "porcelain",
+    label: "Porcelain",
+    category: "rendered",
+    mode: "illustration",
+    fields: {
+      aesthetics: "delicate glazed figurines, blue-on-white painted detail, fragile elegance",
+      lighting:   "museum vitrine lighting, soft specular glaze",
+      medium:     "porcelain sculpture",
+      art_style:  "glazed porcelain figurine render, fine ceramic detail",
+    },
+  },
+  {
+    id: "inflatable",
+    label: "Inflatable",
+    category: "rendered",
+    mode: "illustration",
+    fields: {
+      aesthetics: "puffy balloon forms, taut shiny vinyl, playful squish",
+      lighting:   "bright studio softbox, big specular balloon highlights",
+      medium:     "3D render",
+      art_style:  "inflatable balloon 3D art, glossy vinyl blow-up objects",
+    },
+  },
+  {
+    id: "gummy",
+    label: "Gummy Candy",
+    category: "rendered",
+    mode: "illustration",
+    fields: {
+      aesthetics: "translucent jelly glow, sugar-dusted edges, edible everything",
+      lighting:   "backlit subsurface scattering through candy flesh",
+      medium:     "3D render",
+      art_style:  "gummy candy render, translucent jelly material study",
+    },
+  },
+
+  // ── Illustrated (additions) ────────────────────────────────────────────────
+  {
+    id: "ligne-claire",
+    label: "Ligne Claire",
+    category: "illustrated",
+    mode: "illustration",
+    fields: {
+      aesthetics: "uniform clean outlines, flat color, clear readable adventure",
+      lighting:   "no hatching, shadow as flat shape only",
+      medium:     "ink and flat color",
+      art_style:  "ligne claire Franco-Belgian comic style, Tintin-school clarity",
+    },
+  },
+  {
+    id: "graffiti",
+    label: "Graffiti",
+    category: "illustrated",
+    mode: "illustration",
+    fields: {
+      aesthetics: "wildstyle letters, drips and fades, urban wall energy",
+      lighting:   "flat daylight on brick, aerosol sheen",
+      medium:     "spray paint on wall",
+      art_style:  "graffiti street art, wildstyle burner with character",
+    },
+  },
+  {
+    id: "botanical-plate",
+    label: "Botanical Plate",
+    category: "illustrated",
+    mode: "illustration",
+    fields: {
+      aesthetics: "scientific elegance, labeled specimens, antique paper",
+      lighting:   "flat even illustration light",
+      medium:     "copperplate engraving with watercolor",
+      art_style:  "vintage botanical illustration, 19th-century natural history plate",
+    },
+  },
+  {
+    id: "tarot",
+    label: "Tarot Card",
+    category: "illustrated",
+    mode: "illustration",
+    fields: {
+      aesthetics: "mystic symbolism, ornate borders, archetypal figures",
+      lighting:   "flat medieval shading with celestial accents",
+      medium:     "illustrated card",
+      art_style:  "Rider-Waite-inspired tarot card art, esoteric line and wash",
+    },
+  },
+  {
+    id: "tattoo-flash",
+    label: "Tattoo Flash",
+    category: "illustrated",
+    mode: "illustration",
+    fields: {
+      aesthetics: "bold iconic motifs, banners and daggers, sailor swagger",
+      lighting:   "none — bold line and solid fill",
+      medium:     "flash sheet",
+      art_style:  "American traditional tattoo flash, thick lines, limited palette",
+    },
+  },
+  {
+    id: "paper-collage",
+    label: "Paper Collage",
+    category: "illustrated",
+    mode: "illustration",
+    fields: {
+      aesthetics: "torn and cut shapes, layered texture, playful composition",
+      lighting:   "subtle real shadows between paper layers",
+      medium:     "cut-paper collage",
+      art_style:  "Matisse-style cut-out collage, hand-torn paper shapes",
+    },
+  },
+
+  // ── Wonderful & Aesthetic (additions) ──────────────────────────────────────
+  {
+    id: "steampunk",
+    label: "Steampunk",
+    category: "aesthetic",
+    mode: "illustration",
+    fields: {
+      aesthetics: "brass and leather, exposed gears, Victorian invention romance",
+      lighting:   "warm gaslight and boiler glow, steam haze",
+      medium:     "digital painting",
+      art_style:  "steampunk concept art, Victorian retro-tech detail",
+    },
+  },
+  {
+    id: "wabi-sabi",
+    label: "Wabi-Sabi",
+    category: "aesthetic",
+    mode: "photo",
+    fields: {
+      aesthetics: "imperfect beauty, weathered texture, emptiness as luxury",
+      lighting:   "single soft window, long quiet shadows",
+      photo:      "50mm, natural film tones, deliberate negative space",
+      medium:     "fine-art photography",
+    },
+  },
+  {
+    id: "kawaii-pastel",
+    label: "Kawaii Pastel",
+    category: "aesthetic",
+    mode: "illustration",
+    fields: {
+      aesthetics: "round-cheeked cuteness, candy pastels, sparkles and blush",
+      lighting:   "soft dreamy glow, no hard shadows",
+      medium:     "digital illustration",
+      art_style:  "kawaii pastel art, chibi proportions, sticker-sheet charm",
+    },
+  },
+  {
+    id: "disco-glam",
+    label: "Disco Glam",
+    category: "aesthetic",
+    mode: "photo",
+    fields: {
+      aesthetics: "mirror-ball sparkle, sequins and satin, 70s nightlife euphoria",
+      lighting:   "spinning mirror-ball speckles, colored gel spots",
+      photo:      "85mm, starburst filter, kodachrome warmth",
+      medium:     "fashion photography",
+    },
+  },
+
+  // ── Weird & Horror (additions) ─────────────────────────────────────────────
+  {
+    id: "spirit-photo",
+    label: "Spirit Photography",
+    category: "horror",
+    mode: "photo",
+    fields: {
+      aesthetics: "Victorian seance, translucent figures, sincere fakery turned real",
+      lighting:   "harsh early flash powder, vignetted darkness",
+      photo:      "wet-plate collodion, double exposure ghosting, scratched plate",
+      medium:     "antique daguerreotype",
+    },
+  },
+  {
+    id: "trailcam",
+    label: "Trailcam Cryptid",
+    category: "horror",
+    mode: "photo",
+    fields: {
+      aesthetics: "something in the treeline, motion-triggered dread, almost-identifiable shape",
+      lighting:   "infrared night-vision glare, white reflective eyes",
+      photo:      "trail camera, timestamp overlay, low resolution noise",
+      medium:     "trail camera footage",
+    },
+  },
+  {
+    id: "memento-mori",
+    label: "Memento Mori",
+    category: "horror",
+    mode: "illustration",
+    fields: {
+      aesthetics: "vanitas still life, skulls and wilting flowers, time running out beautifully",
+      lighting:   "single candle against velvet black",
+      medium:     "oil on canvas",
+      art_style:  "Dutch vanitas still life, memento mori symbolism",
+    },
+  },
+  {
+    id: "sleep-paralysis",
+    label: "Sleep Paralysis",
+    category: "horror",
+    mode: "illustration",
+    fields: {
+      aesthetics: "weight on the chest, watcher in the doorway, bedroom geometry gone wrong",
+      lighting:   "moonlight through blinds, a shadow darker than the dark",
+      medium:     "digital painting",
+      art_style:  "sleep paralysis horror art, Fuseli Nightmare descendant",
     },
   },
 ]
