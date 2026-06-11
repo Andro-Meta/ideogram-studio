@@ -183,6 +183,31 @@ async def insert_derived(
     await db.commit()
 
 
+async def insert_imported(
+    db: aiosqlite.Connection,
+    *,
+    new_id: str,
+    image_path: str,
+    width: int,
+    height: int,
+    label: str,
+) -> None:
+    """Insert a user-imported image as a completed gallery record.
+
+    No seed/sampler/variant — those only exist for generated images; the
+    GalleryItem schema and cards already treat them as nullable.
+    """
+    now = datetime.now(timezone.utc).isoformat()
+    await db.execute(
+        """INSERT INTO jobs (id, status, prompt_json, prompt_text, settings_json,
+           image_path, seed, width, height, sampler_preset, model_variant,
+           duration_ms, created_at)
+           VALUES (?, 'done', NULL, ?, '{}', ?, NULL, ?, ?, NULL, NULL, NULL, ?)""",
+        (new_id, label, image_path, width, height, now),
+    )
+    await db.commit()
+
+
 async def set_favorite(
     db: aiosqlite.Connection, job_id: str, favorite: bool
 ) -> bool:

@@ -1,13 +1,15 @@
 import { BrowserRouter, Routes, Route, Navigate, NavLink } from "react-router-dom"
-import { Layers, Images, Settings } from "lucide-react"
+import { Layers, Images, Settings, Brush } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useModelStatus } from "@/hooks/useModelStatus"
 import { Generate } from "@/pages/Generate"
 import { Gallery } from "@/pages/Gallery"
+import { Editor } from "@/pages/Editor"
 import { Settings as SettingsPage } from "@/pages/Settings"
 
 const NAV_ITEMS = [
   { to: "/generate", icon: Layers,  label: "Generate" },
+  { to: "/editor",   icon: Brush,   label: "Editor"   },
   { to: "/gallery",  icon: Images,  label: "Gallery"  },
   { to: "/settings", icon: Settings, label: "Settings" },
 ] as const
@@ -93,6 +95,7 @@ export default function App() {
           <Routes>
             <Route path="/"         element={<Navigate to="/generate" replace />} />
             <Route path="/generate" element={<Generate />} />
+            <Route path="/editor"   element={<Editor />} />
             <Route path="/gallery"  element={<Gallery />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="*"         element={<Navigate to="/generate" replace />} />

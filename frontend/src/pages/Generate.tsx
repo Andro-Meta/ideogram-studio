@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react"
+import { Link } from "react-router-dom"
 import {
   Zap, Square, RotateCcw, AlertTriangle, Loader2, Power,
-  ArrowUpCircle, Layers, Copy, ExternalLink,
+  ArrowUpCircle, Layers, Copy, ExternalLink, Brush,
 } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
@@ -302,6 +303,15 @@ export function Generate() {
                 >
                   Download PNG
                 </a>
+                {jobId && (
+                  <Link
+                    to={`/editor?job=${jobId}`}
+                    className="text-xs text-violet-400 hover:text-violet-300 underline inline-flex items-center gap-1"
+                  >
+                    <Brush className="h-3 w-3" />
+                    Edit
+                  </Link>
+                )}
               </div>
 
               {/* Upscale controls */}

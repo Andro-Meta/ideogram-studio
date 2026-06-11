@@ -217,6 +217,26 @@ class EditResponse(BaseModel):
     height: int
 
 
+class ImportImageRequest(BaseModel):
+    """A user-supplied image to bring into the gallery for editing."""
+    image_b64: str                     # base64-encoded image, no data: prefix
+    filename: str | None = None        # display label only — never used as a path
+
+    @field_validator("image_b64")
+    @classmethod
+    def image_must_be_reasonable(cls, v: str) -> str:
+        if len(v) > 96_000_000:
+            raise ValueError("image too large")
+        return v
+
+    @field_validator("filename")
+    @classmethod
+    def filename_is_label_only(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        return v.replace("\\", "/").split("/")[-1][:120]
+
+
 # ── Logs ─────────────────────────────────────────────────────────────────────
 
 class LogsResponse(BaseModel):

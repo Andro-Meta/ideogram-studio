@@ -35,6 +35,7 @@ from magic_prompt_service import MagicPromptService
 from schemas import (
     EditSaveRequest,
     EditResponse,
+    ImportImageRequest,
     GalleryItem,
     GalleryListResponse,
     GenerationRequest,
@@ -614,6 +615,34 @@ def _decode_and_sanitize_png(image_b64: str) -> tuple[bytes, int, int]:
     out = io.BytesIO()
     img.save(out, format="PNG")
     return out.getvalue(), img.width, img.height
+
+
+@app.post("/api/import", response_model=EditResponse)
+async def import_image_endpoint(request: Request, body: ImportImageRequest):
+    """Bring a user-supplied image into the gallery (e.g. to edit it)."""
+    import uuid as _uuid
+
+    db = request.app.state.db
+    loop = asyncio.get_running_loop()
+    try:
+        png_bytes, w, h = await loop.run_in_executor(
+            None, lambda: _decode_and_sanitize_png(body.image_b64)
+        )
+    except Exception as exc:
+        logger.exception("Image import failed")
+        raise HTTPException(400, f"Invalid image data: {exc}") from exc
+
+    new_id = str(_uuid.uuid4())
+    out_name = f"{new_id}.png"
+    (OUTPUTS_DIR / out_name).write_bytes(png_bytes)
+    label = f"Imported — {body.filename}" if body.filename else "Imported image"
+    await gallery_service.insert_imported(
+        db, new_id=new_id, image_path=out_name, width=w, height=h, label=label
+    )
+    logger.info("Imported image -> %s (%dx%d, %s)", new_id, w, h, label)
+    return EditResponse(
+        job_id=new_id, image_url=f"/outputs/{out_name}", width=w, height=h
+    )
 
 
 @app.post("/api/edit/save", response_model=EditResponse)
