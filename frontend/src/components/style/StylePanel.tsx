@@ -2,7 +2,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Camera, Paintbrush } from "lucide-react"
 import { PhotoStyleForm } from "./PhotoStyleForm"
 import { IllustrationStyleForm } from "./IllustrationStyleForm"
-import { StylePresets } from "./StylePresets"
 import { usePromptStore } from "@/stores/promptStore"
 
 export function StylePanel() {
@@ -11,8 +10,10 @@ export function StylePanel() {
 
   return (
     <div className="space-y-3">
-      <p className="text-xs font-medium text-zinc-300 uppercase tracking-wider">Style</p>
-      <StylePresets />
+      <div className="flex items-baseline justify-between">
+        <p className="text-xs font-medium text-zinc-300 uppercase tracking-wider">Style</p>
+        <p className="text-[10px] text-zinc-600">presets in the Style Library ←</p>
+      </div>
       <Tabs
         value={mode}
         onValueChange={(v) => setStyleMode(v as "photo" | "illustration")}

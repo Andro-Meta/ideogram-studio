@@ -1,16 +1,28 @@
 import type { StyleDescription } from "@/types/caption"
 
+export type StyleCategory = "photography" | "rendered" | "illustrated" | "weird"
+
 export interface StylePreset {
   id: string
   label: string
+  category: StyleCategory
   mode: "photo" | "illustration"
   fields: Partial<Omit<StyleDescription, "mode" | "color_palette">>
 }
 
+export const STYLE_CATEGORIES: { key: StyleCategory; label: string }[] = [
+  { key: "photography", label: "Photography" },
+  { key: "rendered",    label: "Rendered / 3D" },
+  { key: "illustrated", label: "Illustrated" },
+  { key: "weird",       label: "Weird & Wonderful" },
+]
+
 export const STYLE_PRESETS: StylePreset[] = [
+  // ── Photography ────────────────────────────────────────────────────────────
   {
     id: "cinematic",
     label: "Cinematic",
+    category: "photography",
     mode: "photo",
     fields: {
       aesthetics: "cinematic, widescreen, dramatic, filmic",
@@ -22,6 +34,7 @@ export const STYLE_PRESETS: StylePreset[] = [
   {
     id: "product",
     label: "Product",
+    category: "photography",
     mode: "photo",
     fields: {
       aesthetics: "clean, commercial, minimalist, professional",
@@ -33,6 +46,7 @@ export const STYLE_PRESETS: StylePreset[] = [
   {
     id: "editorial",
     label: "Editorial",
+    category: "photography",
     mode: "photo",
     fields: {
       aesthetics: "editorial, luxury, sophisticated, magazine-quality",
@@ -44,6 +58,7 @@ export const STYLE_PRESETS: StylePreset[] = [
   {
     id: "documentary",
     label: "Documentary",
+    category: "photography",
     mode: "photo",
     fields: {
       aesthetics: "raw, authentic, candid, journalistic",
@@ -53,8 +68,241 @@ export const STYLE_PRESETS: StylePreset[] = [
     },
   },
   {
+    id: "street",
+    label: "Street",
+    category: "photography",
+    mode: "photo",
+    fields: {
+      aesthetics: "gritty, urban, spontaneous, decisive-moment energy",
+      lighting:   "harsh sunlight and deep shadow, neon at night",
+      photo:      "28mm, zone focus, slight motion blur",
+      medium:     "street photography",
+    },
+  },
+  {
+    id: "film-noir",
+    label: "Film Noir",
+    category: "photography",
+    mode: "photo",
+    fields: {
+      aesthetics: "moody, mysterious, high-contrast monochrome, 1940s crime drama",
+      lighting:   "single hard key light, venetian-blind shadows, cigarette smoke haze",
+      photo:      "50mm, deep blacks, silver gelatin look",
+      medium:     "black and white film photography",
+    },
+  },
+  {
+    id: "golden-portrait",
+    label: "Golden Hour",
+    category: "photography",
+    mode: "photo",
+    fields: {
+      aesthetics: "warm, intimate, sun-kissed, glowing",
+      lighting:   "low golden-hour sun, rim light, soft flare, long shadows",
+      photo:      "85mm portrait lens, f/1.4, creamy bokeh",
+      medium:     "portrait photography",
+    },
+  },
+  {
+    id: "macro",
+    label: "Macro",
+    category: "photography",
+    mode: "photo",
+    fields: {
+      aesthetics: "intricate, otherworldly detail, abstract natural geometry",
+      lighting:   "diffused ring light, dewdrop highlights",
+      photo:      "1:1 macro lens, razor-thin focus plane, focus stacking",
+      medium:     "macro photography",
+    },
+  },
+  {
+    id: "food",
+    label: "Food",
+    category: "photography",
+    mode: "photo",
+    fields: {
+      aesthetics: "appetizing, rustic-modern, rich textures, styled props",
+      lighting:   "soft window side-light, gentle fill, steam catching light",
+      photo:      "50mm, f/2.8, overhead and 45-degree angles",
+      medium:     "food photography",
+    },
+  },
+  {
+    id: "architecture",
+    label: "Architecture",
+    category: "photography",
+    mode: "photo",
+    fields: {
+      aesthetics: "geometric, monumental, clean lines, human scale for contrast",
+      lighting:   "blue hour, interior glow against dusk sky",
+      photo:      "tilt-shift, corrected verticals, wide angle",
+      medium:     "architectural photography",
+    },
+  },
+  {
+    id: "long-exposure",
+    label: "Long Exposure",
+    category: "photography",
+    mode: "photo",
+    fields: {
+      aesthetics: "ethereal, smooth motion, time made visible",
+      lighting:   "twilight, light trails, silky water and streaking clouds",
+      photo:      "tripod, 30-second exposure, ND filter, f/11",
+      medium:     "long-exposure photography",
+    },
+  },
+  {
+    id: "polaroid",
+    label: "Polaroid",
+    category: "photography",
+    mode: "photo",
+    fields: {
+      aesthetics: "nostalgic, faded, candid, white instant-film border",
+      lighting:   "direct on-camera flash, slightly washed out",
+      photo:      "instant film, soft focus, light leaks, muted color shift",
+      medium:     "instant film photography",
+    },
+  },
+  {
+    id: "analog-35mm",
+    label: "35mm Film",
+    category: "photography",
+    mode: "photo",
+    fields: {
+      aesthetics: "timeless, organic grain, true-to-life color memory",
+      lighting:   "available light, honest exposure",
+      photo:      "35mm film stock, visible grain, halation on highlights",
+      medium:     "analog film photography",
+    },
+  },
+  {
+    id: "aerial",
+    label: "Aerial",
+    category: "photography",
+    mode: "photo",
+    fields: {
+      aesthetics: "sweeping, patterns from above, abstract landscape geometry",
+      lighting:   "low sun raking across terrain, long shadows",
+      photo:      "drone top-down and oblique angles, wide dynamic range",
+      medium:     "aerial drone photography",
+    },
+  },
+
+  // ── Rendered / 3D ──────────────────────────────────────────────────────────
+  {
+    id: "octane-render",
+    label: "Octane Render",
+    category: "rendered",
+    mode: "illustration",
+    fields: {
+      aesthetics: "hyperreal, pristine surfaces, physically-based materials",
+      lighting:   "HDRI studio environment, soft global illumination, caustics",
+      medium:     "3D render",
+      art_style:  "octane render, photorealistic CGI, 8k product visualization",
+    },
+  },
+  {
+    id: "stylized-3d",
+    label: "Stylized 3D",
+    category: "rendered",
+    mode: "illustration",
+    fields: {
+      aesthetics: "charming, rounded forms, big expressive eyes, animated-feature warmth",
+      lighting:   "soft three-point lighting, warm bounce, subsurface scattering",
+      medium:     "3D render",
+      art_style:  "stylized 3D animation still, feature-film character render",
+    },
+  },
+  {
+    id: "claymation",
+    label: "Claymation",
+    category: "rendered",
+    mode: "illustration",
+    fields: {
+      aesthetics: "handmade, fingerprint textures, miniature set charm",
+      lighting:   "practical miniature studio lights, tiny soft shadows",
+      medium:     "stop-motion claymation",
+      art_style:  "plasticine stop-motion, Aardman-style claymation still",
+    },
+  },
+  {
+    id: "low-poly",
+    label: "Low Poly",
+    category: "rendered",
+    mode: "illustration",
+    fields: {
+      aesthetics: "faceted, minimalist geometry, flat-shaded triangles",
+      lighting:   "single directional light, hard facet shading",
+      medium:     "3D render",
+      art_style:  "low-poly 3D art, isometric game asset style",
+    },
+  },
+  {
+    id: "isometric",
+    label: "Isometric",
+    category: "rendered",
+    mode: "illustration",
+    fields: {
+      aesthetics: "tidy diorama, miniature world, satisfying order",
+      lighting:   "soft ambient occlusion, gentle top-left key",
+      medium:     "3D render",
+      art_style:  "isometric 3D diorama, clean game-art presentation",
+    },
+  },
+  {
+    id: "voxel",
+    label: "Voxel",
+    category: "rendered",
+    mode: "illustration",
+    fields: {
+      aesthetics: "blocky, playful, pixel-art in three dimensions",
+      lighting:   "soft global illumination over cubic forms",
+      medium:     "3D render",
+      art_style:  "voxel art, MagicaVoxel render",
+    },
+  },
+  {
+    id: "game-cinematic",
+    label: "Game Cinematic",
+    category: "rendered",
+    mode: "illustration",
+    fields: {
+      aesthetics: "epic, AAA production value, atmospheric depth",
+      lighting:   "dramatic volumetric god rays, particle effects, lens dirt",
+      medium:     "3D render",
+      art_style:  "Unreal Engine 5 cinematic, ray-traced game trailer still",
+    },
+  },
+  {
+    id: "cyberpunk-render",
+    label: "Neon Cyberpunk",
+    category: "rendered",
+    mode: "illustration",
+    fields: {
+      aesthetics: "rain-slick streets, holographic ads, dense future city",
+      lighting:   "neon magenta and cyan, wet reflections, fog glow",
+      medium:     "3D render",
+      art_style:  "cyberpunk concept render, Blade Runner-inspired CGI",
+    },
+  },
+  {
+    id: "iridescent",
+    label: "Holographic",
+    category: "rendered",
+    mode: "illustration",
+    fields: {
+      aesthetics: "dreamlike chrome, oil-slick iridescence, soft gradients",
+      lighting:   "studio HDRI with rainbow specular sweeps",
+      medium:     "3D render",
+      art_style:  "holographic iridescent 3D art, abstract chrome blobs",
+    },
+  },
+
+  // ── Illustrated ────────────────────────────────────────────────────────────
+  {
     id: "anime",
     label: "Anime",
+    category: "illustrated",
     mode: "illustration",
     fields: {
       aesthetics: "anime, vibrant, expressive, high detail",
@@ -66,6 +314,7 @@ export const STYLE_PRESETS: StylePreset[] = [
   {
     id: "concept-art",
     label: "Concept Art",
+    category: "illustrated",
     mode: "illustration",
     fields: {
       aesthetics: "concept art, painterly, detailed world-building",
@@ -77,6 +326,7 @@ export const STYLE_PRESETS: StylePreset[] = [
   {
     id: "watercolor",
     label: "Watercolor",
+    category: "illustrated",
     mode: "illustration",
     fields: {
       aesthetics: "soft, dreamy, organic, translucent washes",
@@ -88,12 +338,315 @@ export const STYLE_PRESETS: StylePreset[] = [
   {
     id: "flat-design",
     label: "Flat Design",
+    category: "illustrated",
     mode: "illustration",
     fields: {
       aesthetics: "flat, geometric, bold, graphic design",
       lighting:   "no shadows, flat colors",
       medium:     "vector illustration",
       art_style:  "flat design, modern graphic illustration",
+    },
+  },
+  {
+    id: "oil-painting",
+    label: "Oil Painting",
+    category: "illustrated",
+    mode: "illustration",
+    fields: {
+      aesthetics: "rich impasto texture, classical composition, gallery presence",
+      lighting:   "chiaroscuro, single warm window light",
+      medium:     "oil painting on canvas",
+      art_style:  "classical oil painting, visible brushstrokes, old-master technique",
+    },
+  },
+  {
+    id: "impressionist",
+    label: "Impressionist",
+    category: "illustrated",
+    mode: "illustration",
+    fields: {
+      aesthetics: "fleeting light, broken color, outdoor immediacy",
+      lighting:   "dappled sunlight, plein-air glow",
+      medium:     "oil painting",
+      art_style:  "impressionism, Monet-style loose dabs of pure color",
+    },
+  },
+  {
+    id: "art-nouveau",
+    label: "Art Nouveau",
+    category: "illustrated",
+    mode: "illustration",
+    fields: {
+      aesthetics: "ornamental, flowing organic lines, decorative borders, elegant figures",
+      lighting:   "flat decorative tones with gold accents",
+      medium:     "lithograph poster",
+      art_style:  "Art Nouveau, Alphonse Mucha-style poster illustration",
+    },
+  },
+  {
+    id: "ukiyo-e",
+    label: "Ukiyo-e",
+    category: "illustrated",
+    mode: "illustration",
+    fields: {
+      aesthetics: "flattened perspective, bold outlines, wave and cloud motifs",
+      lighting:   "flat woodblock tones, no cast shadows",
+      medium:     "woodblock print",
+      art_style:  "ukiyo-e Japanese woodblock print, Hokusai style",
+    },
+  },
+  {
+    id: "comic-book",
+    label: "Comic Book",
+    category: "illustrated",
+    mode: "illustration",
+    fields: {
+      aesthetics: "dynamic action, bold inks, halftone dots, panel energy",
+      lighting:   "hard comic shading, dramatic spot blacks",
+      medium:     "comic book illustration",
+      art_style:  "American comic book art, inked linework, screen-tone shading",
+    },
+  },
+  {
+    id: "pixel-art",
+    label: "Pixel Art",
+    category: "illustrated",
+    mode: "illustration",
+    fields: {
+      aesthetics: "retro game charm, chunky pixels, limited palette",
+      lighting:   "dithered shading, palette-constrained highlights",
+      medium:     "pixel art",
+      art_style:  "16-bit pixel art, SNES-era sprite style",
+    },
+  },
+  {
+    id: "childrens-book",
+    label: "Children's Book",
+    category: "illustrated",
+    mode: "illustration",
+    fields: {
+      aesthetics: "whimsical, gentle, friendly characters, cozy detail",
+      lighting:   "soft storybook glow, warm and safe",
+      medium:     "gouache illustration",
+      art_style:  "children's picture-book illustration, hand-painted charm",
+    },
+  },
+  {
+    id: "ink-sketch",
+    label: "Ink Sketch",
+    category: "illustrated",
+    mode: "illustration",
+    fields: {
+      aesthetics: "spontaneous, confident linework, white space as air",
+      lighting:   "implied by hatching and wash only",
+      medium:     "pen and ink with light wash",
+      art_style:  "urban sketching, crosshatched ink drawing",
+    },
+  },
+  {
+    id: "pop-art",
+    label: "Pop Art",
+    category: "illustrated",
+    mode: "illustration",
+    fields: {
+      aesthetics: "bold, ironic, mass-culture iconography, Ben-Day dots",
+      lighting:   "flat poster lighting, hard primary-color blocks",
+      medium:     "screen print",
+      art_style:  "1960s pop art, Lichtenstein-style comic enlargement",
+    },
+  },
+  {
+    id: "stained-glass",
+    label: "Stained Glass",
+    category: "illustrated",
+    mode: "illustration",
+    fields: {
+      aesthetics: "luminous color panes, black leading, sacred geometry",
+      lighting:   "backlit, sunlight streaming through colored glass",
+      medium:     "stained glass window",
+      art_style:  "stained-glass design, bold lead outlines, jewel tones",
+    },
+  },
+
+  // ── Weird & Wonderful ─────────────────────────────────────────────────────
+  {
+    id: "beksinski",
+    label: "Beksiński",
+    category: "weird",
+    mode: "illustration",
+    fields: {
+      aesthetics: "dystopian surrealism, decaying monumental forms, beautiful dread",
+      lighting:   "sickly amber haze, light from a dying sky",
+      medium:     "oil painting on hardboard",
+      art_style:  "Zdzisław Beksiński-style dystopian surrealism, nightmarish fantastic realism",
+    },
+  },
+  {
+    id: "frutiger-aero",
+    label: "Frutiger Aero",
+    category: "weird",
+    mode: "illustration",
+    fields: {
+      aesthetics: "glossy optimism, water droplets, grass and sky, 2000s tech utopia",
+      lighting:   "bright clean daylight, glassy reflections, aqua glow",
+      medium:     "digital render",
+      art_style:  "Frutiger Aero aesthetic, glossy skeuomorphic 2000s design, bubbles and lens flares",
+    },
+  },
+  {
+    id: "vaporwave",
+    label: "Vaporwave",
+    category: "weird",
+    mode: "illustration",
+    fields: {
+      aesthetics: "retro-futurist nostalgia, marble busts, palm trees, checkerboard floors",
+      lighting:   "magenta and teal sunset gradient, VHS glow",
+      medium:     "digital collage",
+      art_style:  "vaporwave aesthetic, 80s grid horizon, Greco-Roman statues, Windows 95 motifs",
+    },
+  },
+  {
+    id: "dreamcore",
+    label: "Dreamcore",
+    category: "weird",
+    mode: "illustration",
+    fields: {
+      aesthetics: "familiar yet wrong, nostalgic unease, soft surreal emptiness",
+      lighting:   "overexposed flash in dim rooms, glowing doorways",
+      medium:     "digital art",
+      art_style:  "dreamcore weirdcore aesthetic, surreal nostalgic imagery, low-fidelity dream logic",
+    },
+  },
+  {
+    id: "liminal",
+    label: "Liminal Space",
+    category: "weird",
+    mode: "photo",
+    fields: {
+      aesthetics: "empty transitional spaces, eerie stillness, nobody home",
+      lighting:   "humming fluorescent tubes, no natural light",
+      photo:      "flash photography, slightly tilted amateur framing",
+      medium:     "found photograph",
+    },
+  },
+  {
+    id: "giger",
+    label: "Biomechanical",
+    category: "weird",
+    mode: "illustration",
+    fields: {
+      aesthetics: "fusion of flesh and machine, ribbed corridors, elegant horror",
+      lighting:   "cold metallic sheen, deep airbrushed shadows",
+      medium:     "airbrush on board",
+      art_style:  "H.R. Giger-style biomechanical art, monochrome airbrushed xenomorph design",
+    },
+  },
+  {
+    id: "dali",
+    label: "Surrealist",
+    category: "weird",
+    mode: "illustration",
+    fields: {
+      aesthetics: "melting logic, impossible landscapes, precise absurdity",
+      lighting:   "long desert shadows, hyper-clear horizon",
+      medium:     "oil painting",
+      art_style:  "Salvador Dalí-style surrealism, dreamlike precision rendering",
+    },
+  },
+  {
+    id: "cosmic-horror",
+    label: "Cosmic Horror",
+    category: "weird",
+    mode: "illustration",
+    fields: {
+      aesthetics: "incomprehensible scale, tentacled geometry, humanity dwarfed",
+      lighting:   "bioluminescent glow from the abyss, storm-lit silhouettes",
+      medium:     "digital painting",
+      art_style:  "Lovecraftian cosmic horror, eldritch dark fantasy illustration",
+    },
+  },
+  {
+    id: "glitch",
+    label: "Glitch Art",
+    category: "weird",
+    mode: "illustration",
+    fields: {
+      aesthetics: "corrupted data beauty, RGB channel splits, databending artifacts",
+      lighting:   "screen glow, scanline flicker",
+      medium:     "digital art",
+      art_style:  "glitch art, pixel sorting, chromatic aberration, datamosh",
+    },
+  },
+  {
+    id: "analog-horror",
+    label: "Analog Horror",
+    category: "weird",
+    mode: "photo",
+    fields: {
+      aesthetics: "wrong broadcast, emergency-alert dread, degraded familiarity",
+      lighting:   "CRT glow in a dark room, harsh camcorder light",
+      photo:      "VHS tape artifacts, tracking errors, timestamp overlay",
+      medium:     "found footage still",
+    },
+  },
+  {
+    id: "y2k",
+    label: "Y2K Chrome",
+    category: "weird",
+    mode: "illustration",
+    fields: {
+      aesthetics: "millennium futurism, liquid chrome, cyber butterflies, blobjects",
+      lighting:   "studio gloss, lens-flare sparkles",
+      medium:     "digital render",
+      art_style:  "Y2K aesthetic, chrome liquid metal type, translucent tech plastic",
+    },
+  },
+  {
+    id: "memphis",
+    label: "Memphis",
+    category: "weird",
+    mode: "illustration",
+    fields: {
+      aesthetics: "playful clashing geometry, squiggles, confetti shapes, 80s postmodern",
+      lighting:   "flat poster color, no shading",
+      medium:     "vector illustration",
+      art_style:  "Memphis Group design, 1980s postmodern pattern chaos",
+    },
+  },
+  {
+    id: "psychedelic",
+    label: "Psychedelic",
+    category: "weird",
+    mode: "illustration",
+    fields: {
+      aesthetics: "melting rainbows, kaleidoscopic symmetry, concert-poster swirl",
+      lighting:   "vibrating complementary colors, glowing auras",
+      medium:     "screen print poster",
+      art_style:  "1960s psychedelic poster art, swirling op-art typography",
+    },
+  },
+  {
+    id: "solarpunk",
+    label: "Solarpunk",
+    category: "weird",
+    mode: "illustration",
+    fields: {
+      aesthetics: "optimistic green future, vine-wrapped architecture, community warmth",
+      lighting:   "abundant sunshine through glass and leaves",
+      medium:     "digital painting",
+      art_style:  "solarpunk concept art, Art Nouveau meets sustainable futurism",
+    },
+  },
+  {
+    id: "dark-academia",
+    label: "Dark Academia",
+    category: "weird",
+    mode: "photo",
+    fields: {
+      aesthetics: "old libraries, tweed and candlelight, scholarly melancholy",
+      lighting:   "low amber lamplight, dust motes in window shafts",
+      photo:      "50mm, muted film stock, deep shadow detail",
+      medium:     "film photography",
     },
   },
 ]

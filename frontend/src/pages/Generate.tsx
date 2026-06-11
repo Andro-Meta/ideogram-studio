@@ -17,6 +17,7 @@ import { StylePanel } from "@/components/style/StylePanel"
 import { ElementList } from "@/components/elements/ElementList"
 import { BBoxCanvas } from "@/components/canvas/BBoxCanvas"
 import { ModelVariantToggle } from "@/components/controls/ModelVariantToggle"
+import { StyleLibrary } from "@/components/style/StyleLibrary"
 import { SamplerPresetPicker } from "@/components/controls/SamplerPresetPicker"
 import { ResolutionPicker } from "@/components/controls/ResolutionPicker"
 import { SeedControl } from "@/components/controls/SeedControl"
@@ -282,6 +283,8 @@ export function Generate() {
             <ModelVariantToggle />
             <Separator className="bg-zinc-800" />
             <SeedControl />
+            <Separator className="bg-zinc-800" />
+            <StyleLibrary />
           </div>
         </Rail>
       </div>
