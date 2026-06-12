@@ -85,19 +85,27 @@ export function RecentGrid() {
         ))}
       </div>
 
-      {viewing && (
-        <Lightbox
-          open
-          onClose={() => setViewing(null)}
-          imageUrl={itemUrl(viewing)}
-          downloadName={`ideogram-${viewing.seed ?? viewing.id.slice(0, 8)}.png`}
-          editJobId={viewing.id}
-          caption={[
-            viewing.seed != null ? `seed ${viewing.seed}` : null,
-            viewing.width && viewing.height ? `${viewing.width}×${viewing.height}` : null,
-          ].filter(Boolean).join(" · ")}
-        />
-      )}
+      {viewing && (() => {
+        const idx = items.findIndex((i) => i.id === viewing.id)
+        const at = (n: number) => setViewing(items[(n + items.length) % items.length])
+        return (
+          <Lightbox
+            open
+            onClose={() => setViewing(null)}
+            imageUrl={itemUrl(viewing)}
+            downloadName={`ideogram-${viewing.seed ?? viewing.id.slice(0, 8)}.png`}
+            editJobId={viewing.id}
+            position={idx + 1}
+            count={items.length}
+            onPrev={items.length > 1 ? () => at(idx - 1) : undefined}
+            onNext={items.length > 1 ? () => at(idx + 1) : undefined}
+            caption={[
+              viewing.seed != null ? `seed ${viewing.seed}` : null,
+              viewing.width && viewing.height ? `${viewing.width}×${viewing.height}` : null,
+            ].filter(Boolean).join(" · ")}
+          />
+        )
+      })()}
     </div>
   )
 }

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { createPortal } from "react-dom"
-import { X, Download, Brush, ZoomIn, ZoomOut, Maximize2 } from "lucide-react"
+import { X, Download, Brush, ZoomIn, ZoomOut, Maximize2, ChevronLeft, ChevronRight } from "lucide-react"
 import { Link } from "react-router-dom"
 
 interface LightboxProps {
@@ -13,6 +13,12 @@ interface LightboxProps {
   editJobId?: string | null
   /** Extra caption line under the actions (seed, duration, …) */
   caption?: string
+  /** Previous / next image — enables ← → keys and on-screen arrows. */
+  onPrev?: () => void
+  onNext?: () => void
+  /** Optional "3 / 12" position indicator. */
+  position?: number
+  count?: number
 }
 
 interface View { scale: number; x: number; y: number }
@@ -25,6 +31,7 @@ const FIT: View = { scale: 1, x: 0, y: 0 }
  */
 export function Lightbox({
   open, onClose, imageUrl, downloadName = "image.png", editJobId, caption,
+  onPrev, onNext, position, count,
 }: LightboxProps) {
   const [view, setView] = useState<View>(FIT)
   const dragRef = useRef<{ startX: number; startY: number; vx: number; vy: number } | null>(null)
@@ -38,6 +45,8 @@ export function Lightbox({
     if (!open) return
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose()
+      else if (e.key === "ArrowLeft" && onPrev) { e.preventDefault(); onPrev() }
+      else if (e.key === "ArrowRight" && onNext) { e.preventDefault(); onNext() }
     }
     window.addEventListener("keydown", onKey)
     // Prevent the page behind from scrolling while open
@@ -47,7 +56,7 @@ export function Lightbox({
       window.removeEventListener("keydown", onKey)
       document.body.style.overflow = prev
     }
-  }, [open, onClose])
+  }, [open, onClose, onPrev, onNext])
 
   const zoomBy = useCallback((factor: number, cx?: number, cy?: number) => {
     setView((v) => {
@@ -101,6 +110,28 @@ export function Lightbox({
         }}
         onPointerUp={() => { dragRef.current = null }}
       />
+
+      {/* Prev / next arrows (when a list is provided) */}
+      {onPrev && (
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onPrev() }}
+          className="absolute left-3 top-1/2 -translate-y-1/2 p-2.5 rounded-full bg-zinc-900/70 text-zinc-300 hover:text-white hover:bg-zinc-800 transition-colors"
+          title="Previous (←)"
+        >
+          <ChevronLeft className="h-6 w-6" />
+        </button>
+      )}
+      {onNext && (
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onNext() }}
+          className="absolute right-3 top-1/2 -translate-y-1/2 p-2.5 rounded-full bg-zinc-900/70 text-zinc-300 hover:text-white hover:bg-zinc-800 transition-colors"
+          title="Next (→)"
+        >
+          <ChevronRight className="h-6 w-6" />
+        </button>
+      )}
 
       {/* Top-right actions */}
       <div
@@ -164,9 +195,14 @@ export function Lightbox({
         className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-3 text-[11px] text-zinc-400 bg-zinc-900/80 rounded-full px-4 py-1.5"
         onClick={(e) => e.stopPropagation()}
       >
+        {position != null && count != null && (
+          <span className="tabular-nums text-zinc-300">{position} / {count}</span>
+        )}
         {caption && <span>{caption}</span>}
         <span className="tabular-nums">{Math.round(view.scale * 100)}%</span>
-        <span className="text-zinc-600">scroll to zoom · drag to pan · double-click to toggle</span>
+        <span className="text-zinc-600">
+          {onPrev || onNext ? "← → to browse · " : ""}scroll to zoom · drag to pan · double-click to toggle
+        </span>
       </div>
     </div>,
     document.body,
