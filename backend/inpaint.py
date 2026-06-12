@@ -75,6 +75,31 @@ def _mask_to_tokens(mask_img: Image.Image, grid_h: int, grid_w: int):
     return t
 
 
+def build_outpaint(image: Image.Image, target_w: int, target_h: int):
+    """Place `image` centered on a target_w×target_h canvas and return
+    (padded_image, mask) for outpainting. The new border is edge-replicated
+    (a plausible img2img start, not black) and the mask marks it white =
+    regenerate; the original area is black = keep."""
+    ow, oh = image.size
+    target_w = max(ow, target_w)
+    target_h = max(oh, target_h)
+    left = (target_w - ow) // 2
+    top = (target_h - oh) // 2
+
+    arr = np.asarray(image.convert("RGB"))
+    padded = np.pad(
+        arr,
+        ((top, target_h - oh - top), (left, target_w - ow - left), (0, 0)),
+        mode="edge",                       # replicate border pixels into the new area
+    )
+    padded_img = Image.fromarray(padded)
+
+    mask = np.full((target_h, target_w), 255, dtype=np.uint8)
+    mask[top:top + oh, left:left + ow] = 0   # keep the original, regenerate the rest
+    mask_img = Image.fromarray(mask, mode="L")
+    return padded_img, mask_img
+
+
 def inpaint_region(
     pipe,
     image: Image.Image,

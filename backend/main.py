@@ -36,6 +36,7 @@ import style_fuse
 from schemas import (
     EditSaveRequest,
     EditResponse,
+    ExtendRequest,
     InpaintRequest,
     ImportImageRequest,
     GalleryItem,
@@ -1080,6 +1081,72 @@ async def inpaint_endpoint(request: Request, body: InpaintRequest):
     else:
         await gallery_service.insert_imported(db, new_id=new_id, image_path=out_name, width=w, height=h, label="AI region fill")
     logger.info("Inpaint -> %s (%dx%d)", new_id, w, h)
+    return EditResponse(job_id=new_id, image_url=f"/outputs/{out_name}", width=w, height=h)
+
+
+@app.post("/api/edit/extend", response_model=EditResponse)
+async def extend_endpoint(request: Request, body: ExtendRequest):
+    """Outpaint / reframe — grow the canvas to a target ratio, fill the new
+    area by continuing the scene (the original is kept exactly)."""
+    import uuid as _uuid
+    import inpaint as _inpaint
+
+    pm: PipelineManager = request.app.state.pipeline
+    if pm.status != "ready":
+        raise HTTPException(409, "Load a model first.")
+    if not pm.supports_inpaint:
+        raise HTTPException(409, f"Extend needs a diffusers model — switch to NF4·D or BF16 and reload.")
+
+    loop = asyncio.get_running_loop()
+    try:
+        image = await loop.run_in_executor(None, lambda: _decode_b64_to_pil(body.image_b64, "RGB"))
+    except Exception as exc:
+        raise HTTPException(400, f"Invalid image data: {exc}") from exc
+
+    # Target canvas that contains the original at the requested ratio.
+    tw, th = (int(x) for x in body.target_ratio.split(":"))
+    ow, oh = image.size
+    if ow / oh < tw / th:          # need it wider
+        new_w, new_h = round(oh * tw / th), oh
+    else:                          # need it taller
+        new_w, new_h = ow, round(ow * th / tw)
+    padded, mask = _inpaint.build_outpaint(image, new_w, new_h)
+
+    prompt = body.prompt.strip() or "seamlessly continue and extend the scene, matching the existing style, lighting, perspective, and subject"
+    mp: MagicPromptService | None = request.app.state.magic_prompt
+    if mp is not None:
+        try:
+            prompt = await mp.expand(prompt, padded.width, padded.height)
+        except Exception as exc:
+            logger.warning("Extend prompt structuring failed (using raw): %s", exc)
+
+    settings = GenerationSettings(
+        height=padded.height, width=padded.width,
+        sampler_preset="V4_DEFAULT_20", seed=body.seed, raise_on_caption_issues=False,
+    )
+
+    def _run():
+        # High strength: the new border is freely generated; the edge-replicated
+        # init + the pinned original give continuity.
+        return pm.inpaint(padded, mask, prompt, settings, 0.95)
+
+    try:
+        out_img, _seed = await loop.run_in_executor(_inference_executor, _run)
+    except Exception as exc:
+        logger.exception("Extend failed")
+        raise HTTPException(500, f"Extend failed: {exc}") from exc
+
+    db = request.app.state.db
+    new_id = str(_uuid.uuid4())
+    out_name = f"{new_id}.png"
+    out_img.convert("RGB").save(str(OUTPUTS_DIR / out_name), format="PNG")
+    w, h = out_img.size
+    source = await gallery_service.get_job(db, body.source_job_id) if body.source_job_id else None
+    if source and source.get("image_path"):
+        await gallery_service.insert_derived(db, source=source, new_id=new_id, image_path=out_name, width=w, height=h)
+    else:
+        await gallery_service.insert_imported(db, new_id=new_id, image_path=out_name, width=w, height=h, label="Extended")
+    logger.info("Extend -> %s (%dx%d, %s)", new_id, w, h, body.target_ratio)
     return EditResponse(job_id=new_id, image_url=f"/outputs/{out_name}", width=w, height=h)
 
 

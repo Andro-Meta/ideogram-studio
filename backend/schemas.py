@@ -273,6 +273,23 @@ class InpaintRequest(BaseModel):
         return v.strip()
 
 
+class ExtendRequest(BaseModel):
+    """Outpaint / reframe: grow the canvas to a target aspect ratio and fill
+    the new area by continuing the scene."""
+    image_b64: str
+    target_ratio: Literal["16:9", "9:16", "4:3", "3:4", "3:2", "2:3", "1:1"] = "16:9"
+    prompt: str = ""                   # optional; blank = "continue the scene"
+    seed: int | None = None
+    source_job_id: str | None = None
+
+    @field_validator("image_b64")
+    @classmethod
+    def image_must_be_reasonable(cls, v: str) -> str:
+        if len(v) > 96_000_000:
+            raise ValueError("image too large")
+        return v
+
+
 class EditResponse(BaseModel):
     job_id: str
     image_url: str

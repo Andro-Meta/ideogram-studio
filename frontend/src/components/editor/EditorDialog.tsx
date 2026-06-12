@@ -12,6 +12,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
 import { useSaveEdit } from "@/hooks/useSaveEdit"
 import { useInpaint } from "@/hooks/useInpaint"
+import { useExtend } from "@/hooks/useExtend"
 import { useModelStatus } from "@/hooks/useModelStatus"
 import { useEditorEngine } from "./useEditorEngine"
 import { EditorStage } from "./EditorStage"
@@ -56,6 +57,7 @@ export function EditorDialog({ open, onClose, jobId, imageUrl }: Props) {
   const engine = useEditorEngine(liveUrl, open)
   const save = useSaveEdit()
   const inpaint = useInpaint()
+  const extend = useExtend()
   const { data: modelStatus } = useModelStatus()
   const canInpaint = modelStatus?.status === "ready" && !!modelStatus?.supports_inpaint
 
@@ -92,6 +94,26 @@ export function EditorDialog({ open, onClose, jobId, imageUrl }: Props) {
           onSuccess: (res) => {
             toast.success(whole ? "Image remixed" : "Region filled")
             setLiveUrl(`${res.image_url}?t=${res.job_id}`)   // reload editor with the result
+          },
+        },
+      )
+    } catch (err) {
+      console.error(err)
+      toast.error("Could not prepare the image")
+    }
+  }
+
+  const busy = inpaint.isPending || extend.isPending
+  const handleExtend = async (targetRatio: string) => {
+    if (busy || !engine.base) return
+    try {
+      const blob = await engine.flatten()
+      extend.mutate(
+        { imageBlob: blob, targetRatio, prompt: fillPrompt.trim(), sourceJobId: jobId },
+        {
+          onSuccess: (res) => {
+            toast.success(`Extended to ${targetRatio}`)
+            setLiveUrl(`${res.image_url}?t=${res.job_id}`)
           },
         },
       )
@@ -333,6 +355,34 @@ export function EditorDialog({ open, onClose, jobId, imageUrl }: Props) {
                 </p>
               )}
             </div>
+
+            {/* Extend / Reframe (outpaint) */}
+            {canInpaint && (
+              <div className="p-3 border-b border-zinc-800 space-y-2">
+                <p className="text-[10px] text-zinc-500 uppercase tracking-wider flex items-center gap-1.5">
+                  <Sparkles className="h-3 w-3 text-violet-400" />
+                  Extend / Reframe
+                </p>
+                <div className="grid grid-cols-3 gap-1.5">
+                  {["16:9", "9:16", "4:3", "3:4", "3:2", "2:3"].map((r) => (
+                    <Button
+                      key={r}
+                      size="sm" variant="outline"
+                      className="h-7 text-[11px] border-zinc-700 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 disabled:opacity-40"
+                      disabled={busy}
+                      onClick={() => handleExtend(r)}
+                    >
+                      {extend.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : r}
+                    </Button>
+                  ))}
+                </div>
+                <p className="text-[11px] text-zinc-600 leading-relaxed">
+                  Grows the canvas to that ratio and paints the new area by continuing the scene
+                  (your original stays exact). Uses the AI Edit prompt above if you've typed one,
+                  otherwise just continues naturally.
+                </p>
+              </div>
+            )}
 
             {/* Layers */}
             <div className="p-3 border-b border-zinc-800 space-y-2">
