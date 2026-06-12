@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Switch } from "@/components/ui/switch"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
 import { useSettings, useUpdateSettings } from "@/hooks/useSettings"
@@ -124,8 +125,12 @@ export function Settings() {
   const [ideogramKey, setIdeogramKey] = useState("")
   const [openrouterKey, setOpenrouterKey] = useState("")
   const [mpBackend, setMpBackend] = useState<string>("")
+  const [safetyOn, setSafetyOn] = useState<boolean | null>(null)
+  const [hiveText, setHiveText] = useState("")
+  const [hiveVisual, setHiveVisual] = useState("")
 
   const effectiveMpBackend = mpBackend || serverSettings?.magic_prompt_backend || "ideogram-4-v1"
+  const effectiveSafety = safetyOn ?? serverSettings?.safety_moderation_enabled ?? false
 
   const handleSave = () => {
     const payload: SettingsUpdateRequest = {}
@@ -133,6 +138,9 @@ export function Settings() {
     if (ideogramKey)   payload.ideogram_api_key    = ideogramKey
     if (openrouterKey) payload.openrouter_api_key  = openrouterKey
     if (mpBackend)     payload.magic_prompt_backend = mpBackend
+    if (safetyOn !== null) payload.safety_moderation_enabled = safetyOn
+    if (hiveText)      payload.hive_text_key   = hiveText
+    if (hiveVisual)    payload.hive_visual_key = hiveVisual
     updateMutation.mutate(payload)
   }
 
@@ -279,6 +287,64 @@ export function Settings() {
               Magic Prompt translates plain-English descriptions into structured Ideogram 4 captions.
               Captions carry style inside the description prose, so your Style section is left
               untouched. OpenRouter backends need the OpenRouter key above.
+            </p>
+          </div>
+        </div>
+
+        {/* ── Content Safety ── */}
+        <div className="space-y-3">
+          <SectionTitle>Content Safety</SectionTitle>
+          <div className="rounded-xl border border-zinc-700 bg-zinc-800/40 p-4 space-y-3">
+            <div className="flex items-start justify-between gap-4">
+              <div className="space-y-0.5">
+                <Label className="text-sm text-zinc-200">Content moderation (Hive)</Label>
+                <p className="text-[11px] text-zinc-500">
+                  Screen each prompt and image through Hive's moderation API and block on a hit.
+                </p>
+              </div>
+              <Switch
+                checked={effectiveSafety}
+                onCheckedChange={(v) => setSafetyOn(v)}
+              />
+            </div>
+
+            {effectiveSafety && (
+              <div className="space-y-3 pt-1">
+                <div className="space-y-1">
+                  <Label className="text-xs text-zinc-400">Hive text-moderation key</Label>
+                  <SecretInput
+                    value={hiveText}
+                    onChange={setHiveText}
+                    placeholder="screens prompts"
+                    hasValue={!!serverSettings?.has_hive_text_key}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs text-zinc-400">Hive visual-moderation key</Label>
+                  <SecretInput
+                    value={hiveVisual}
+                    onChange={setHiveVisual}
+                    placeholder="screens generated images"
+                    hasValue={!!serverSettings?.has_hive_visual_key}
+                  />
+                </div>
+                {!serverSettings?.has_hive_text_key && !hiveText &&
+                 !serverSettings?.has_hive_visual_key && !hiveVisual && (
+                  <p className="text-[11px] text-amber-400/90">
+                    Moderation is on but no Hive key is set — nothing will actually be screened
+                    until you add a key. Get one at{" "}
+                    <a href="https://thehive.ai" target="_blank" rel="noreferrer"
+                       className="underline hover:text-amber-300">thehive.ai</a>.
+                  </p>
+                )}
+              </div>
+            )}
+
+            <p className="text-[11px] text-zinc-500 leading-relaxed border-t border-zinc-800 pt-2">
+              This is the only content filter in the app, and it's off by default — prompts and
+              images are never sent anywhere unless you turn it on and add a key. It is separate
+              from the model's own built-in refusals, which live in the weights and can't be
+              toggled in software.
             </p>
           </div>
         </div>

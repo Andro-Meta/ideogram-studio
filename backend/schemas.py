@@ -279,6 +279,9 @@ class SettingsResponse(BaseModel):
     has_ideogram_api_key: bool
     has_openrouter_api_key: bool
     has_hf_token: bool
+    safety_moderation_enabled: bool = False
+    has_hive_text_key: bool = False
+    has_hive_visual_key: bool = False
 
 
 class SettingsUpdateRequest(BaseModel):
@@ -287,3 +290,56 @@ class SettingsUpdateRequest(BaseModel):
     ideogram_api_key: SecretStr | None = None
     openrouter_api_key: SecretStr | None = None
     hf_token: SecretStr | None = None
+    safety_moderation_enabled: bool | None = None
+    hive_text_key: SecretStr | None = None
+    hive_visual_key: SecretStr | None = None
+
+
+# ── LoRA adapters ────────────────────────────────────────────────────────────
+
+class LoraInfo(BaseModel):
+    name: str
+    weight: float
+    source: str
+
+
+class LoraListResponse(BaseModel):
+    supported: bool          # current pipeline can load LoRA (nf4d / bf16)
+    variant: str | None      # the loaded variant, for the UI's explanation
+    available: list[str]     # *.safetensors filenames found in loras/
+    loaded: list[LoraInfo]   # currently applied adapters
+    loras_dir: str
+
+
+class LoraApplyRequest(BaseModel):
+    filename: str | None = None   # a file inside loras/ (no path separators)
+    hf_repo: str | None = None    # or a Hugging Face repo id
+    weight: float = 1.0
+
+    @field_validator("weight")
+    @classmethod
+    def _clamp_weight(cls, v: float) -> float:
+        return max(0.0, min(2.0, v))
+
+    @field_validator("filename")
+    @classmethod
+    def _safe_filename(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        if "/" in v or "\\" in v or ".." in v:
+            raise ValueError("filename must not contain path separators")
+        return v
+
+
+class LoraWeightRequest(BaseModel):
+    name: str
+    weight: float
+
+    @field_validator("weight")
+    @classmethod
+    def _clamp_weight(cls, v: float) -> float:
+        return max(0.0, min(2.0, v))
+
+
+class LoraRemoveRequest(BaseModel):
+    name: str

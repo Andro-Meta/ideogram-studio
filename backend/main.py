@@ -46,6 +46,11 @@ from schemas import (
     MagicPromptResponse,
     ModelLoadRequest,
     ModelStatusResponse,
+    LoraApplyRequest,
+    LoraInfo,
+    LoraListResponse,
+    LoraRemoveRequest,
+    LoraWeightRequest,
     SettingsResponse,
     SettingsUpdateRequest,
     StyleFuseRequest,
@@ -57,7 +62,7 @@ from schemas import (
 )
 import system_check
 import log_setup
-from settings import DIST_DIR, OUTPUTS_DIR, DB_PATH, settings as app_settings
+from settings import DIST_DIR, OUTPUTS_DIR, DB_PATH, LORAS_DIR, settings as app_settings
 
 # Persistent rotating log — survives crashes; this is where post-mortems live.
 log_setup.setup_logging()
@@ -76,6 +81,33 @@ def _magic_prompt_key(backend_name: str) -> str | None:
     if backend_name == "ideogram-4-v1":
         return app_settings.ideogram_api_key
     return app_settings.openrouter_api_key
+
+
+# ── Optional content moderation (Hive) ────────────────────────────────────────
+# The only filter in the stack. OFF by default; when ON and keyed, generation
+# is screened and blocked on a hit. Both screens FAIL OPEN: if Hive errors, we
+# log and allow, so a moderation outage never bricks a personal local tool.
+
+def _moderate_prompt_sync(text: str) -> list[str]:
+    if not (app_settings.safety_moderation_enabled and app_settings.hive_text_key):
+        return []
+    try:
+        from ideogram4.safety import moderate_prompt
+        return [cls for cls, _ in moderate_prompt(text, app_settings.hive_text_key)]
+    except Exception as exc:
+        logger.warning("Hive text moderation error (allowing generation): %s", exc)
+        return []
+
+
+def _moderate_image_sync(image) -> list[str]:
+    if not (app_settings.safety_moderation_enabled and app_settings.hive_visual_key):
+        return []
+    try:
+        from ideogram4.safety import moderate_image
+        return [cls for cls, _ in moderate_image(image, app_settings.hive_visual_key)]
+    except Exception as exc:
+        logger.warning("Hive visual moderation error (allowing image): %s", exc)
+        return []
 
 
 # ── Lifespan ──────────────────────────────────────────────────────────────────
@@ -274,6 +306,96 @@ async def style_fuse_endpoint(body: StyleFuseRequest):
     return StyleFuseResponse(**fused)
 
 
+# ── LoRA adapters ─────────────────────────────────────────────────────────────
+# Only the diffusers pipelines (nf4d, bf16) can load adapters. The frontend
+# hides the whole panel when `supported` is false, so these endpoints are a
+# no-op surface for fp8/nf4.
+
+_LORA_EXTS = (".safetensors",)
+
+
+def _scan_lora_files() -> list[str]:
+    LORAS_DIR.mkdir(parents=True, exist_ok=True)
+    return sorted(
+        p.name for p in LORAS_DIR.iterdir()
+        if p.is_file() and p.suffix.lower() in _LORA_EXTS
+    )
+
+
+def _adapter_name_from(source: str) -> str:
+    """A stable, peft-safe adapter id from a filename or repo id."""
+    stem = Path(source).stem if source.endswith(_LORA_EXTS) else source.split("/")[-1]
+    return re.sub(r"[^0-9a-zA-Z_]+", "_", stem).strip("_") or "lora"
+
+
+@app.get("/api/loras", response_model=LoraListResponse)
+async def loras_list(request: Request):
+    pm: PipelineManager = request.app.state.pipeline
+    return LoraListResponse(
+        supported=pm.supports_lora,
+        variant=pm.variant,
+        available=_scan_lora_files(),
+        loaded=[LoraInfo(**a) for a in pm.active_loras()],
+        loras_dir=str(LORAS_DIR),
+    )
+
+
+@app.post("/api/loras/apply", response_model=LoraListResponse)
+async def loras_apply(request: Request, body: LoraApplyRequest):
+    pm: PipelineManager = request.app.state.pipeline
+    if not pm.supports_lora:
+        raise HTTPException(
+            409,
+            f"The {pm.variant or 'current'} model can't load LoRA adapters. "
+            "Switch to NF4·D or BF16 and reload.",
+        )
+
+    if body.filename:
+        path = (LORAS_DIR / body.filename).resolve()
+        if not str(path).startswith(str(LORAS_DIR.resolve())) or not path.is_file():
+            raise HTTPException(404, f"LoRA file not found: {body.filename}")
+        source = str(path)
+    elif body.hf_repo:
+        source = body.hf_repo.strip()
+    else:
+        raise HTTPException(422, "Provide a filename or an hf_repo.")
+
+    adapter = _adapter_name_from(body.filename or source)
+    loop = asyncio.get_running_loop()
+    try:
+        # Serialize with generation on the single-worker inference executor.
+        await loop.run_in_executor(
+            _inference_executor, lambda: pm.load_lora(source, adapter, body.weight)
+        )
+    except Exception as exc:
+        raise HTTPException(400, f"Could not load LoRA: {exc}") from exc
+
+    return await loras_list(request)
+
+
+@app.post("/api/loras/weight", response_model=LoraListResponse)
+async def loras_weight(request: Request, body: LoraWeightRequest):
+    pm: PipelineManager = request.app.state.pipeline
+    loop = asyncio.get_running_loop()
+    try:
+        await loop.run_in_executor(
+            _inference_executor, lambda: pm.set_lora_weight(body.name, body.weight)
+        )
+    except Exception as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return await loras_list(request)
+
+
+@app.post("/api/loras/remove", response_model=LoraListResponse)
+async def loras_remove(request: Request, body: LoraRemoveRequest):
+    pm: PipelineManager = request.app.state.pipeline
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(
+        _inference_executor, lambda: pm.remove_lora(body.name)
+    )
+    return await loras_list(request)
+
+
 # ── Gallery API ───────────────────────────────────────────────────────────────
 
 _UUID_RE = re.compile(
@@ -343,6 +465,9 @@ async def get_settings():
         has_ideogram_api_key=bool(app_settings.ideogram_api_key),
         has_openrouter_api_key=bool(app_settings.openrouter_api_key),
         has_hf_token=bool(app_settings.hf_token),
+        safety_moderation_enabled=app_settings.safety_moderation_enabled,
+        has_hive_text_key=bool(app_settings.hive_text_key),
+        has_hive_visual_key=bool(app_settings.hive_visual_key),
     )
 
 
@@ -386,6 +511,17 @@ async def update_settings(request: Request, body: SettingsUpdateRequest):
         app_settings.hf_token = raw_hf
         os.environ["HF_TOKEN"] = raw_hf
         os.environ["HUGGING_FACE_HUB_TOKEN"] = raw_hf
+    if body.safety_moderation_enabled is not None:
+        _set("SAFETY_MODERATION_ENABLED", "true" if body.safety_moderation_enabled else "false")
+        app_settings.safety_moderation_enabled = body.safety_moderation_enabled
+    if body.hive_text_key is not None:
+        raw = body.hive_text_key.get_secret_value()
+        _set("HIVE_TEXT_KEY", raw)
+        app_settings.hive_text_key = raw or None
+    if body.hive_visual_key is not None:
+        raw = body.hive_visual_key.get_secret_value()
+        _set("HIVE_VISUAL_KEY", raw)
+        app_settings.hive_visual_key = raw or None
 
     env_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
@@ -522,6 +658,17 @@ async def generation_ws(websocket: WebSocket, job_id: str):
             )
             return
 
+    # Optional Hive prompt screening (opt-in; no-op unless enabled + keyed).
+    flagged = await loop.run_in_executor(
+        None, lambda: _moderate_prompt_sync(gen_req.prompt_json)
+    )
+    if flagged:
+        await websocket.send_json({
+            "type": "error",
+            "message": f"Blocked by content moderation (Hive): {', '.join(sorted(set(flagged)))}.",
+        })
+        return
+
     logger.info(
         "Generation %s: %dx%d %s on %s (seed=%s)",
         job_id, gen_req.width, gen_req.height, gen_req.sampler_preset,
@@ -564,6 +711,16 @@ async def generation_ws(websocket: WebSocket, job_id: str):
                 )
 
             image, actual_seed = pm.generate(gen_req.prompt_json, settings, on_step)
+
+            # Optional Hive image screening (opt-in). On a hit, discard the
+            # image rather than saving it.
+            img_flags = _moderate_image_sync(image)
+            if img_flags:
+                raise RuntimeError(
+                    f"Image blocked by content moderation (Hive): "
+                    f"{', '.join(sorted(set(img_flags)))}."
+                )
+
             filename = f"{job_id}.png"
             image.save(str(OUTPUTS_DIR / filename))
             duration_ms = int((time.monotonic() - t_start) * 1000)

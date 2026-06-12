@@ -101,6 +101,9 @@ export interface SettingsResponse {
   has_ideogram_api_key: boolean
   has_openrouter_api_key: boolean
   has_hf_token: boolean
+  safety_moderation_enabled: boolean
+  has_hive_text_key: boolean
+  has_hive_visual_key: boolean
 }
 
 export interface SettingsUpdateRequest {
@@ -109,6 +112,31 @@ export interface SettingsUpdateRequest {
   ideogram_api_key?: string
   openrouter_api_key?: string
   hf_token?: string
+  safety_moderation_enabled?: boolean
+  hive_text_key?: string
+  hive_visual_key?: string
+}
+
+// ── LoRA adapters ────────────────────────────────────────────────────────────
+
+export interface LoraInfo {
+  name: string
+  weight: number
+  source: string
+}
+
+export interface LoraListResponse {
+  supported: boolean
+  variant: ModelVariant | null
+  available: string[]
+  loaded: LoraInfo[]
+  loras_dir: string
+}
+
+export interface LoraApplyRequest {
+  filename?: string
+  hf_repo?: string
+  weight?: number
 }
 
 // ── Upscaling ────────────────────────────────────────────────────────────────

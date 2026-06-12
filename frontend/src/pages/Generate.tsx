@@ -17,6 +17,7 @@ import { StylePanel } from "@/components/style/StylePanel"
 import { ElementList } from "@/components/elements/ElementList"
 import { BBoxCanvas } from "@/components/canvas/BBoxCanvas"
 import { ModelVariantToggle } from "@/components/controls/ModelVariantToggle"
+import { LoraSection } from "@/components/controls/LoraPanel"
 import { SamplerPresetPicker } from "@/components/controls/SamplerPresetPicker"
 import { ResolutionPicker } from "@/components/controls/ResolutionPicker"
 import { SeedControl } from "@/components/controls/SeedControl"
@@ -306,6 +307,7 @@ export function Generate() {
             <ResolutionPicker />
             <Separator className="bg-zinc-800" />
             <ModelVariantToggle />
+            <LoraSection />
             <Separator className="bg-zinc-800" />
             <SeedControl />
           </div>

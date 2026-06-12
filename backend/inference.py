@@ -192,6 +192,11 @@ class GenerationSettings:
 
 
 class InferencePipeline(ABC):
+    # Whether this pipeline can load LoRA adapters. Only the diffusers-based
+    # pipelines (bf16, nf4d) carry PeftAdapterMixin on their transformer; the
+    # custom ideogram4 package paths (fp8, nf4) have no adapter hooks at all.
+    supports_lora: bool = False
+
     @abstractmethod
     def load(self) -> None:
         """Load weights into VRAM. Blocking. ~20-40s on first call."""
@@ -211,6 +216,21 @@ class InferencePipeline(ABC):
     @abstractmethod
     def unload(self) -> None:
         """Release GPU memory."""
+
+    # ── LoRA adapters (overridden by LoRA-capable pipelines) ───────────────
+
+    def load_lora(self, source: str, adapter_name: str, weight: float) -> None:
+        raise RuntimeError("This model variant does not support LoRA adapters.")
+
+    def remove_lora(self, adapter_name: str) -> None:
+        raise RuntimeError("This model variant does not support LoRA adapters.")
+
+    def set_lora_weight(self, adapter_name: str, weight: float) -> None:
+        raise RuntimeError("This model variant does not support LoRA adapters.")
+
+    def active_loras(self) -> list[dict]:
+        """[{name, weight, source}] for currently applied adapters."""
+        return []
 
     @staticmethod
     def _resolve_seed(seed: int | None) -> int:
@@ -346,7 +366,14 @@ class BF16Pipeline(InferencePipeline):
 
     guidance_schedule is in FORWARD order (index 0 = first step) as required
     by diffusers Ideogram4Pipeline — opposite of the ideogram4 package presets.
+
+    Supports LoRA: the diffusers transformer carries PeftAdapterMixin, so
+    community adapters (e.g. from Civitai) load via load_lora_adapter. We
+    keep adapters UNFUSED — fuse_lora is unsupported on 4-bit-quantized
+    bases (nf4d) and unnecessary for inference.
     """
+
+    supports_lora = True
 
     REPO = "CalamitousFelicitousness/Ideogram-4-bf16-Diffusers"
 
@@ -375,6 +402,8 @@ class BF16Pipeline(InferencePipeline):
 
     def __init__(self) -> None:
         self._pipe = None
+        # adapter_name -> {"weight": float, "source": str}
+        self._loras: dict[str, dict] = {}
 
     def load(self) -> None:
         import torch
@@ -438,7 +467,55 @@ class BF16Pipeline(InferencePipeline):
             import torch
             del self._pipe
             self._pipe = None
+            self._loras.clear()
             torch.cuda.empty_cache()
+
+    # ── LoRA adapters ──────────────────────────────────────────────────────
+
+    def load_lora(self, source: str, adapter_name: str, weight: float) -> None:
+        """Load a LoRA adapter (.safetensors path or HF repo id) and apply it.
+
+        Multiple adapters can be stacked; set_adapters re-applies the full
+        weighted set each time so weights stay consistent.
+        """
+        if self._pipe is None:
+            raise RuntimeError("Pipeline not loaded.")
+        if adapter_name in self._loras:
+            raise ValueError(f"A LoRA named {adapter_name!r} is already loaded.")
+        # prefix="transformer" is the default; the file may or may not carry it.
+        self._pipe.transformer.load_lora_adapter(source, adapter_name=adapter_name)
+        self._loras[adapter_name] = {"weight": float(weight), "source": source}
+        self._apply_adapters()
+        logger.info("LoRA loaded: %s (weight=%.2f) from %s", adapter_name, weight, source)
+
+    def remove_lora(self, adapter_name: str) -> None:
+        if self._pipe is None or adapter_name not in self._loras:
+            return
+        self._loras.pop(adapter_name, None)
+        self._pipe.transformer.delete_adapters([adapter_name])
+        self._apply_adapters()
+        logger.info("LoRA removed: %s", adapter_name)
+
+    def set_lora_weight(self, adapter_name: str, weight: float) -> None:
+        if adapter_name not in self._loras:
+            raise ValueError(f"No LoRA named {adapter_name!r} is loaded.")
+        self._loras[adapter_name]["weight"] = float(weight)
+        self._apply_adapters()
+
+    def _apply_adapters(self) -> None:
+        names = list(self._loras.keys())
+        if names:
+            weights = [self._loras[n]["weight"] for n in names]
+            self._pipe.transformer.set_adapters(names, weights)
+        else:
+            # No adapters left — fully detach so inference is clean base weights.
+            self._pipe.transformer.disable_lora()
+
+    def active_loras(self) -> list[dict]:
+        return [
+            {"name": n, "weight": d["weight"], "source": d["source"]}
+            for n, d in self._loras.items()
+        ]
 
 
 # ── nf4 diffusers pipeline ────────────────────────────────────────────────────
@@ -705,3 +782,36 @@ class PipelineManager:
         except Exception:
             pass  # torch not available or CUDA not accessible — return None gracefully
         return None
+
+    # ── LoRA passthrough ──────────────────────────────────────────────────
+    # Callers MUST run these on the single-worker inference executor so they
+    # serialize with generate() — mutating the transformer mid-generation
+    # would corrupt a run.
+
+    @property
+    def supports_lora(self) -> bool:
+        return bool(self._pipeline is not None and self._pipeline.supports_lora)
+
+    def _require_lora_pipeline(self) -> InferencePipeline:
+        if self._pipeline is None or self.status != "ready":
+            raise RuntimeError("Load a model before using LoRA adapters.")
+        if not self._pipeline.supports_lora:
+            raise RuntimeError(
+                f"The {self._variant} variant cannot load LoRA adapters. "
+                "Switch to NF4·D or BF16 (diffusers) and reload."
+            )
+        return self._pipeline
+
+    def load_lora(self, source: str, adapter_name: str, weight: float) -> None:
+        self._require_lora_pipeline().load_lora(source, adapter_name, weight)
+
+    def remove_lora(self, adapter_name: str) -> None:
+        self._require_lora_pipeline().remove_lora(adapter_name)
+
+    def set_lora_weight(self, adapter_name: str, weight: float) -> None:
+        self._require_lora_pipeline().set_lora_weight(adapter_name, weight)
+
+    def active_loras(self) -> list[dict]:
+        if self._pipeline is None or not self._pipeline.supports_lora:
+            return []
+        return self._pipeline.active_loras()

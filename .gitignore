@@ -18,6 +18,11 @@ build/
 *.db
 *.sqlite3
 
+# LoRA adapter files (keep the folder + its README, ignore the weights)
+loras/*.safetensors
+loras/*.pt
+loras/*.bin
+
 # Generated outputs (potentially large images)
 outputs/
 

@@ -9,6 +9,8 @@ OUTPUTS_DIR = BASE_DIR / "outputs"
 DIST_DIR = BASE_DIR / "frontend" / "dist"
 DB_PATH = BASE_DIR / "app.db"
 MODELS_DIR = BASE_DIR / "models"
+# User drops downloaded LoRA adapters (.safetensors) here; the app scans it.
+LORAS_DIR = BASE_DIR / "loras"
 
 # Keep multi-gigabyte model downloads on the same drive as the app instead of
 # the default C:\Users\<user>\.cache. Filling the Windows system drive can
@@ -39,6 +41,14 @@ class AppSettings(BaseSettings):
     # paid OpenRouter models have no platform rate limits.
     openrouter_model: str = "google/gemini-2.5-flash-lite"
 
+    # Optional content moderation via Hive (https://thehive.ai). This is the
+    # ONLY filter in the stack — there is no local/weight toggle. When OFF
+    # (default), prompts and images are never screened. When ON *and* a key
+    # is set, each generation is screened and blocked on a positive hit.
+    safety_moderation_enabled: bool = False
+    hive_text_key: str | None = None
+    hive_visual_key: str | None = None
+
     @field_validator("model_variant", "magic_prompt_backend", "openrouter_model", mode="before")
     @classmethod
     def _blank_falls_back_to_default(cls, v, info):
@@ -54,7 +64,10 @@ class AppSettings(BaseSettings):
             return "nf4"
         return v
 
-    @field_validator("hf_token", "ideogram_api_key", "openrouter_api_key", mode="before")
+    @field_validator(
+        "hf_token", "ideogram_api_key", "openrouter_api_key",
+        "hive_text_key", "hive_visual_key", mode="before",
+    )
     @classmethod
     def _blank_secret_is_none(cls, v):
         if isinstance(v, str) and not v.strip():
