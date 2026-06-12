@@ -34,9 +34,9 @@ interface SettingsStore {
 export const useSettingsStore = create<SettingsStore>()(
   persist(
     (set) => ({
-      // nf4 is the official variant for single 24 GB consumer GPUs.
-      // fp8 targets A100/H100-class hardware and can crash smaller machines.
-      modelVariant: "nf4",
+      // nf4d is recommended for single 24 GB consumer GPUs (same fit as nf4 but
+      // adds live progress, LoRA, and inpaint). fp8 targets A100/H100 hardware.
+      modelVariant: "nf4d",
       samplerPreset: "V4_DEFAULT_20",
       width: 1024,
       height: 1024,

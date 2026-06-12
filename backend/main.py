@@ -222,6 +222,28 @@ async def lifespan(app: FastAPI):
 
     threading.Thread(target=_open, daemon=True).start()
 
+    # Optional background preload (run.bat sets PRELOAD_MODEL=true): download
+    # the model on first run, be ready-to-go afterwards. Runs off the event
+    # loop so the UI opens immediately and shows progress in the Status panel.
+    if app_settings.preload_model:
+        variant = app_settings.preload_variant
+
+        def _preload():
+            time.sleep(2)   # let the server finish coming up first
+            try:
+                blockers = _preflight_blockers(variant, app.state.pipeline)
+                if blockers:
+                    logger.warning("Preload skipped — %s can't run here: %s",
+                                   variant, "; ".join(blockers))
+                    return
+                logger.info("Preloading %s in the background…", variant)
+                app.state.pipeline.load(variant)
+                logger.info("Preload of %s complete.", variant)
+            except Exception:
+                logger.exception("Background preload failed (the app still works on demand)")
+
+        threading.Thread(target=_preload, daemon=True).start()
+
     yield
 
     # SHUTDOWN

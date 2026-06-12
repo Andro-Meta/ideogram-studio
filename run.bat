@@ -62,8 +62,15 @@ echo Freeing GPU memory held by other apps (Ollama models, if any)...
 venv\Scripts\python.exe -c "import sys; sys.path.insert(0, 'backend'); import system_check as sc; s = sc.stop_ollama_models(); print('  Freed: ' + (', '.join(s) if s else 'nothing was using the GPU'))" 2>nul
 echo.
 echo Starting server... your browser will open automatically.
+echo The NF4-D model will load in the background (first run downloads it -
+echo  ~16 GB - so the very first launch takes a while; after that it's ready).
+echo Watch the Status panel in the app for progress. You can use the app
+echo  while it loads.
 echo Press Ctrl+C in this window to stop the studio.
 echo.
+:: Preload the model in the background at startup (see lifespan in main.py).
+set PRELOAD_MODEL=true
+set PRELOAD_VARIANT=nf4d
 call venv\Scripts\activate.bat
 cd backend
 uvicorn main:app --host 127.0.0.1 --port 8000 --workers 1 --log-level info

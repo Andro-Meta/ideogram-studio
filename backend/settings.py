@@ -27,10 +27,17 @@ class AppSettings(BaseSettings):
         extra="ignore",
     )
 
-    # Model — nf4 is the variant Ideogram recommends for single consumer GPUs
-    # (RTX 3090/4090, 24 GB). fp8 targets A100/H100-class hardware.
-    model_variant: str = "nf4"          # "fp8" | "nf4" | "bf16"
+    # Model — nf4d is recommended for single consumer GPUs (RTX 3090/4090,
+    # 24 GB): same fit as nf4 but adds live progress, LoRA, and inpaint.
+    # fp8 targets A100/H100-class hardware.
+    model_variant: str = "nf4d"         # "fp8" | "nf4" | "nf4d" | "bf16"
     hf_token: str | None = None
+
+    # Preload: when on (run.bat sets PRELOAD_MODEL=true), the server starts
+    # loading the model in the background at startup — downloading on first run,
+    # ready-to-go afterwards. The UI still opens immediately and shows progress.
+    preload_model: bool = False
+    preload_variant: str = "nf4d"
 
     # Magic Prompt
     magic_prompt_backend: str = "ideogram-4-v1"
