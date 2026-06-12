@@ -44,10 +44,10 @@ export function PromptBar() {
           type="button"
           onClick={() => fileRef.current?.click()}
           disabled={busy}
-          title="Upload any image to turn it into a prompt"
-          className="flex items-center gap-1 text-[10px] text-zinc-500 hover:text-violet-300 disabled:opacity-40 transition-colors"
+          title="Upload any image (even ones you didn't make here) to reverse-engineer a prompt — free"
+          className="flex items-center gap-1.5 rounded-md border border-violet-500/40 bg-violet-500/10 px-2 py-1 text-[11px] font-medium text-violet-200 hover:bg-violet-500/20 hover:border-violet-400/60 disabled:opacity-40 transition-colors"
         >
-          {describe.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <ImageUp className="h-3 w-3" />}
+          {describe.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ImageUp className="h-3.5 w-3.5" />}
           {describe.isPending ? "Reading image…" : "Image → Prompt"}
         </button>
         <input
