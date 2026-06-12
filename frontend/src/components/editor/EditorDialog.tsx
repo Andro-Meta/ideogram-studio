@@ -67,13 +67,15 @@ export function EditorDialog({ open, onClose, jobId, imageUrl }: Props) {
   const [feather, setFeather] = useState(4)
   const [zoom, setZoom] = useState(1)
   const [fillPrompt, setFillPrompt] = useState("")
+  const [fillStrength, setFillStrength] = useState(0.75)
 
   const handleInpaint = async () => {
     if (!engine.selection || !fillPrompt.trim() || inpaint.isPending) return
     try {
       const blob = await engine.flatten()
       inpaint.mutate(
-        { imageBlob: blob, maskCanvas: engine.selection, prompt: fillPrompt.trim(), sourceJobId: jobId },
+        { imageBlob: blob, maskCanvas: engine.selection, prompt: fillPrompt.trim(),
+          strength: fillStrength, sourceJobId: jobId },
         {
           onSuccess: (res) => {
             toast.success("Region filled")
@@ -281,6 +283,13 @@ export function EditorDialog({ open, onClose, jobId, imageUrl }: Props) {
                     disabled={inpaint.isPending}
                     className="bg-zinc-800 border-zinc-700 text-zinc-100 text-sm resize-none"
                   />
+                  <LabeledSlider
+                    label="Change amount"
+                    value={fillStrength}
+                    min={0.2} max={1} step={0.05}
+                    fmt={(v) => v >= 0.95 ? "full regen" : `${Math.round(v * 100)}%`}
+                    onChange={setFillStrength}
+                  />
                   <Button
                     className="w-full bg-violet-600 hover:bg-violet-500 text-white gap-2 disabled:opacity-40"
                     disabled={!engine.hasSelection || !fillPrompt.trim() || inpaint.isPending}
@@ -293,7 +302,7 @@ export function EditorDialog({ open, onClose, jobId, imageUrl }: Props) {
                   </Button>
                   <p className="text-[11px] text-zinc-600 leading-relaxed">
                     {engine.hasSelection
-                      ? "Regenerates only the selected pixels; the rest is kept exactly. Your prompt is auto-structured to minimise the model's refusal card — though very graphic prompts can still trip it (that behaviour is baked into the weights; a decensor LoRA is the only full fix)."
+                      ? "Only the selection changes; the rest is kept exactly. Change amount: low keeps your original structure and lighting (subtle edit), high regenerates freely — drop it if the fill ignores what's already there. Prompts are auto-structured to reduce refusals, but very graphic ones can still trip the weight-baked card (a decensor LoRA is the only full fix)."
                       : "Select an area first (rectangle, lasso, brush…), then describe what goes there."}
                   </p>
                 </>

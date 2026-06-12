@@ -6,6 +6,7 @@ export interface InpaintArgs {
   imageBlob: Blob              // flattened canvas
   maskCanvas: HTMLCanvasElement // selection mask (white-on-transparent)
   prompt: string
+  strength?: number           // 0.1–1: how much the selection may change
   sourceJobId?: string
   sampler_preset?: string
 }
@@ -29,6 +30,7 @@ async function callInpaint(args: InpaintArgs): Promise<EditResponse> {
       image_b64,
       mask_b64,
       prompt: args.prompt,
+      strength: args.strength ?? 0.75,
       sampler_preset: args.sampler_preset ?? "V4_DEFAULT_20",
       source_job_id: args.sourceJobId,
     }),

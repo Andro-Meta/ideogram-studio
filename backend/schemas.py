@@ -249,6 +249,14 @@ class InpaintRequest(BaseModel):
     sampler_preset: Literal["V4_TURBO_12", "V4_DEFAULT_20", "V4_QUALITY_48"] = "V4_DEFAULT_20"
     seed: int | None = None
     source_job_id: str | None = None   # for gallery lineage (optional)
+    # How much the selection may change (img2img strength). Low = gentle edit
+    # that keeps the original structure; 1 = full regeneration.
+    strength: float = 0.75
+
+    @field_validator("strength")
+    @classmethod
+    def _clamp_strength(cls, v: float) -> float:
+        return max(0.1, min(1.0, v))
 
     @field_validator("image_b64", "mask_b64")
     @classmethod

@@ -241,6 +241,7 @@ class InferencePipeline(ABC):
         mask: "Image.Image",
         prompt_json: str,
         settings: GenerationSettings,
+        strength: float = 0.75,
         step_callback: Callable[[int, int], None] | None = None,
     ) -> tuple["Image.Image", int]:
         raise RuntimeError(
@@ -541,6 +542,7 @@ class BF16Pipeline(InferencePipeline):
         mask: Image.Image,
         prompt_json: str,
         settings: GenerationSettings,
+        strength: float = 0.75,
         step_callback: Callable[[int, int], None] | None = None,
     ) -> tuple[Image.Image, int]:
         if self._pipe is None:
@@ -554,7 +556,7 @@ class BF16Pipeline(InferencePipeline):
             num_steps=preset["num_inference_steps"],
             guidance_schedule=preset["guidance_schedule"],
             mu=preset["mu"], std=preset["std"],
-            seed=actual_seed, step_callback=step_callback,
+            seed=actual_seed, strength=strength, step_callback=step_callback,
         )
         return out, actual_seed
 
@@ -837,10 +839,10 @@ class PipelineManager:
     def supports_inpaint(self) -> bool:
         return bool(self._pipeline is not None and self._pipeline.supports_inpaint)
 
-    def inpaint(self, image, mask, prompt_json, settings, step_callback=None):
+    def inpaint(self, image, mask, prompt_json, settings, strength=0.75, step_callback=None):
         if self._pipeline is None or self.status != "ready":
             raise RuntimeError("No pipeline loaded. Load a model first.")
-        return self._pipeline.inpaint(image, mask, prompt_json, settings, step_callback)
+        return self._pipeline.inpaint(image, mask, prompt_json, settings, strength, step_callback)
 
     def _require_lora_pipeline(self) -> InferencePipeline:
         if self._pipeline is None or self.status != "ready":

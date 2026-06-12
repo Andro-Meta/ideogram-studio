@@ -81,10 +81,19 @@ def inpaint_region(
     mu: float,
     std: float,
     seed: int,
+    strength: float = 0.75,
     feather_px: int = 6,
     step_callback: Callable[[int, int], None] | None = None,
 ) -> Image.Image:
     """Regenerate the masked region of `image` from `prompt`, keeping the rest.
+
+    `strength` (0–1) is how much the selection may change, img2img-style: the
+    masked tokens are held on the ORIGINAL image's noise trajectory for the
+    first `(1 - strength)` of the steps, then released to denoise toward the
+    prompt for the remaining `strength` of the steps. So the fill builds off
+    your pixels (structure, pose, lighting) instead of inventing from scratch.
+    strength=1 fully regenerates; low strength is a gentle, structure-keeping
+    edit. The unmasked region is always pinned to the original.
 
     Runs on the diffusers pipeline (`pipe` is BF16Pipeline._pipe-style object).
     Returns a new PIL image at the original resolution.
@@ -106,14 +115,24 @@ def inpaint_region(
     generator = torch.Generator(device=device).manual_seed(seed)
     noise = torch.randn(z0.shape, generator=generator, device=device, dtype=z0.dtype)
 
-    # RePaint blend: after each scheduler step the latents sit at sigma[i+1];
-    # overwrite the unmasked tokens with the source forward-noised to that sigma.
+    # Below this step the masked region is also held on the original's
+    # trajectory (build-off phase); at/after it, the mask is free to change.
+    strength = max(0.1, min(1.0, strength))
+    release_step = int(round((1.0 - strength) * num_steps))
+
+    # RePaint blend with strength: the UNMASKED tokens are always pinned to the
+    # source forward-noised to this step's sigma. The MASKED tokens are pinned
+    # too until `release_step` (so the fill starts from the original, not noise),
+    # then denoise freely toward the prompt.
     def _on_step(p, i: int, t, kwargs: dict) -> dict:
         latents = kwargs["latents"]
         sigmas = p.scheduler.sigmas
         s = sigmas[i + 1] if i + 1 < len(sigmas) else sigmas[-1]
-        known = s * noise + (1.0 - s) * z0           # flow-match forward noising
-        blended = mask_tok * latents + (1.0 - mask_tok) * known.to(latents.dtype)
+        known = (s * noise + (1.0 - s) * z0).to(latents.dtype)   # flow-match forward
+        if i < release_step:
+            blended = known                                       # build-off: lock all
+        else:
+            blended = mask_tok * latents + (1.0 - mask_tok) * known
         if step_callback:
             step_callback(i, num_steps)
         return {"latents": blended}

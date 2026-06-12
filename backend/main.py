@@ -1060,7 +1060,7 @@ async def inpaint_endpoint(request: Request, body: InpaintRequest):
             logger.warning("Inpaint prompt structuring failed (using raw text): %s", exc)
 
     def _run():
-        return pm.inpaint(image, mask, fill_prompt, settings)
+        return pm.inpaint(image, mask, fill_prompt, settings, body.strength)
 
     try:
         out_img, _seed = await loop.run_in_executor(_inference_executor, _run)
