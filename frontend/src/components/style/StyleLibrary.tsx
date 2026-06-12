@@ -21,22 +21,31 @@ import type { StyleFuseSide } from "@/types/api"
 export function StyleLibrary() {
   const { style_description, setStyleField, setStyleMode } = usePromptStore()
   const [open, setOpen] = useState<Record<string, boolean>>({ photography: true })
-  const [mashFormId, setMashFormId] = useState("")
-  const [mashMoodId, setMashMoodId] = useState("")
+  // One object (not two states) so taps update atomically — two taps in the
+  // same React batch can't both land on Form. setMash always uses a functional
+  // updater, which React applies in sequence even within a single batch.
+  const [mash, setMash] = useState<{ form: string; mood: string }>({ form: "", mood: "" })
   // Pick mode: tapping presets fills the Form/Mood slots instead of applying.
   const [pickMode, setPickMode] = useState(false)
 
   // Which mash-up slot a preset currently occupies (for chip highlighting).
   const pickRole = (id: string): "form" | "mood" | null =>
-    mashFormId === id ? "form" : mashMoodId === id ? "mood" : null
+    mash.form === id ? "form" : mash.mood === id ? "mood" : null
 
-  // Tap a preset while picking: 1st → Form, 2nd → Mood; tapping a picked one
-  // clears it; once both are full a new tap replaces the Mood.
+  // Tap a preset while picking: 1st → Form, 2nd → Mood. Tapping a picked one
+  // clears it. With both full, a new tap swaps the Mood (Form stays put, so you
+  // can lock a technique and try different moods) — and we surface that so it's
+  // never a silent change.
   const togglePick = (p: StylePreset) => {
-    if (mashFormId === p.id) return setMashFormId("")
-    if (mashMoodId === p.id) return setMashMoodId("")
-    if (!mashFormId) return setMashFormId(p.id)
-    setMashMoodId(p.id)
+    if (mash.form && mash.mood && mash.form !== p.id && mash.mood !== p.id) {
+      toast.info(`Mood → ${p.label} (tap it again to undo)`)
+    }
+    setMash((prev) => {
+      if (prev.form === p.id) return { ...prev, form: "" }
+      if (prev.mood === p.id) return { ...prev, mood: "" }
+      if (!prev.form) return { ...prev, form: p.id }
+      return { ...prev, mood: p.id }   // fills empty Mood, or swaps a full one
+    })
   }
 
   const apply = (preset: StylePreset) => {
@@ -85,8 +94,8 @@ export function StyleLibrary() {
   }
 
   const handleMashup = () => {
-    const form = STYLE_PRESETS.find((p) => p.id === mashFormId)
-    const mood = STYLE_PRESETS.find((p) => p.id === mashMoodId)
+    const form = STYLE_PRESETS.find((p) => p.id === mash.form)
+    const mood = STYLE_PRESETS.find((p) => p.id === mash.mood)
     if (!form || !mood) return
     applyMashup(form, mood)
   }
@@ -97,8 +106,7 @@ export function StyleLibrary() {
     while (mood.id === form.id) {
       mood = STYLE_PRESETS[Math.floor(Math.random() * STYLE_PRESETS.length)]
     }
-    setMashFormId(form.id)
-    setMashMoodId(mood.id)
+    setMash({ form: form.id, mood: mood.id })
     applyMashup(form, mood)
   }
 
@@ -116,8 +124,8 @@ export function StyleLibrary() {
   })
 
   const handleAiFuse = () => {
-    const form = STYLE_PRESETS.find((p) => p.id === mashFormId)
-    const mood = STYLE_PRESETS.find((p) => p.id === mashMoodId)
+    const form = STYLE_PRESETS.find((p) => p.id === mash.form)
+    const mood = STYLE_PRESETS.find((p) => p.id === mash.mood)
     if (!form || !mood || fuse.isPending) return
     toast.info(`AI Fuse: blending ${form.label} × ${mood.label}… (~20s)`)
     fuse.mutate(
@@ -141,8 +149,8 @@ export function StyleLibrary() {
     )
   }
 
-  const formPreset = STYLE_PRESETS.find((p) => p.id === mashFormId)
-  const moodPreset = STYLE_PRESETS.find((p) => p.id === mashMoodId)
+  const formPreset = STYLE_PRESETS.find((p) => p.id === mash.form)
+  const moodPreset = STYLE_PRESETS.find((p) => p.id === mash.mood)
 
   // A read-only slot pill: shows the picked Form/Mood, clearable with ×.
   const slot = (
@@ -217,23 +225,23 @@ export function StyleLibrary() {
 
         {/* Form × Mood slots — filled by tapping presets in pick mode */}
         <div className="flex items-center gap-1.5">
-          {slot("Form", formPreset, () => setMashFormId(""),
+          {slot("Form", formPreset, () => setMash((m) => ({ ...m, form: "" })),
             "border-violet-500/60 text-violet-200 bg-violet-500/10")}
           <span className="text-[10px] text-zinc-600 shrink-0">×</span>
-          {slot("Mood", moodPreset, () => setMashMoodId(""),
+          {slot("Mood", moodPreset, () => setMash((m) => ({ ...m, mood: "" })),
             "border-fuchsia-500/60 text-fuchsia-200 bg-fuchsia-500/10")}
         </div>
 
         <div className="flex items-center gap-1.5">
           {pickMode && (
             <span className="text-[10px] text-zinc-500 flex-1">
-              {!mashFormId ? "Tap a preset → Form" : !mashMoodId ? "Tap another → Mood" : "Ready — Mix or Fuse"}
+              {!mash.form ? "Tap a preset → Form" : !mash.mood ? "Tap another → Mood" : "Ready — Mix or Fuse"}
             </span>
           )}
           <button
             type="button"
             onClick={handleMashup}
-            disabled={!mashFormId || !mashMoodId}
+            disabled={!mash.form || !mash.mood}
             className="shrink-0 text-[10px] px-2.5 h-6 rounded border border-violet-700/60 text-violet-300 hover:bg-violet-500/10 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
           >
             Mix
@@ -241,7 +249,7 @@ export function StyleLibrary() {
           <button
             type="button"
             onClick={handleAiFuse}
-            disabled={!mashFormId || !mashMoodId || fuse.isPending}
+            disabled={!mash.form || !mash.mood || fuse.isPending}
             title="AI Fuse — an LLM invents one hybrid style (slower, smarter than Mix)"
             className="shrink-0 flex items-center gap-1 text-[10px] px-2.5 h-6 rounded border border-fuchsia-700/60 text-fuchsia-300 hover:bg-fuchsia-500/10 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
           >
