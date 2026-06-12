@@ -438,8 +438,10 @@ def get_system_report() -> dict[str, Any]:
             )
         )
 
-    # Recommendation: nf4 unless the machine is clearly datacenter-class.
-    recommended = "nf4"
+    # Recommendation: nf4d on consumer GPUs — same 16 GB VRAM fit as nf4 but
+    # needs less RAM, and (being the diffusers path) adds live step progress
+    # and LoRA support. fp8 only on clearly datacenter-class machines.
+    recommended = "nf4d"
     if (
         vram_total is not None and vram_total >= VARIANT_REQS["fp8"]["vram_gb"]
         and ram_total is not None and ram_total >= VARIANT_REQS["fp8"]["ram_gb"]
