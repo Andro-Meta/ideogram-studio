@@ -3,16 +3,20 @@ import { Sparkles } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { useSettingsStore } from "@/stores/settingsStore"
+import { usePromptStore } from "@/stores/promptStore"
 import { useMagicPrompt } from "@/hooks/useMagicPrompt"
 
 export function PromptBar() {
   const [text, setText] = useState("")
   const { width, height } = useSettingsStore()
+  const style = usePromptStore((s) => s.style_description)
   const mutation = useMagicPrompt()
 
   const handleMagic = () => {
     if (!text.trim()) return
-    mutation.mutate({ text: text.trim(), width, height })
+    // Send the current Style fields so Magic Prompt respects the chosen
+    // medium/look instead of inventing one (e.g. photography, not comic).
+    mutation.mutate({ text: text.trim(), width, height, style })
   }
 
   return (
@@ -45,7 +49,8 @@ export function PromptBar() {
         </div>
       </div>
       <p className="text-[10px] text-zinc-600">
-        ⌘+Enter / Ctrl+Enter to run · Magic Prompt requires an API key in Settings
+        ⌘/Ctrl+Enter to run · follows your <span className="text-zinc-500">Style</span> settings
+        below (set medium/look first) · needs an API key in Settings
       </p>
     </div>
   )

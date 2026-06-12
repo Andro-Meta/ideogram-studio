@@ -72,6 +72,9 @@ class MagicPromptRequest(BaseModel):
     text: str
     width: int = 1024
     height: int = 1024
+    # The user's current Style fields. Fed into the expansion so Magic Prompt
+    # respects the chosen medium/look instead of inventing its own.
+    style: StyleDescriptionModel | None = None
 
 
 class MagicPromptResponse(BaseModel):

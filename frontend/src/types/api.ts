@@ -4,6 +4,15 @@ export interface MagicPromptRequest {
   text: string
   width: number
   height: number
+  style?: {
+    mode: "photo" | "illustration"
+    aesthetics: string
+    lighting: string
+    medium: string
+    photo?: string
+    art_style?: string
+    color_palette: string[]
+  }
 }
 
 export interface MagicPromptResponse {

@@ -116,6 +116,35 @@ def _moderate_image_sync(image) -> list[str]:
 # prompt into a full compositional decomposition via the magic-prompt backend,
 # preserving the user's explicit style. Opt-in, and fails open.
 
+def compose_styled_prompt(text: str, style: dict | None) -> str:
+    """Fold the user's Style fields into the magic-prompt input so the LLM
+    commits to the chosen medium/look (e.g. film photography) instead of
+    inventing one. Leads with medium so 'photograph vs illustration' is set."""
+    text = (text or "").strip()
+    if not style:
+        return text
+    bits: list[str] = []
+    medium = (style.get("medium") or "").strip()
+    if medium:
+        bits.append(medium)
+    if style.get("mode", "photo") == "photo":
+        photo = (style.get("photo") or "").strip()
+        if photo:
+            bits.append(photo)
+    else:
+        art = (style.get("art_style") or "").strip()
+        if art:
+            bits.append(art)
+    for key in ("aesthetics", "lighting"):
+        val = (style.get(key) or "").strip()
+        if val:
+            bits.append(val)
+    if not bits:
+        return text
+    directive = ", ".join(bits)
+    return f"{text}. Render as: {directive}." if text else directive
+
+
 async def _maybe_autostructure(prompt_json: str, width: int, height: int, mp) -> tuple[str, str | None]:
     if not app_settings.auto_structure_prompt or mp is None:
         return prompt_json, None
@@ -134,7 +163,10 @@ async def _maybe_autostructure(prompt_json: str, width: int, height: int, mp) ->
         return prompt_json, None
 
     try:
-        enriched = json.loads(await mp.expand(hld, width, height))
+        # Feed the user's style into the expansion so the enriched scene
+        # matches their chosen medium/look rather than inventing one.
+        styled = compose_styled_prompt(hld, data.get("style_description"))
+        enriched = json.loads(await mp.expand(styled, width, height))
     except Exception as exc:
         logger.warning("Auto-structure failed (using original prompt): %s", exc)
         return prompt_json, None
@@ -331,7 +363,10 @@ async def magic_prompt_endpoint(request: Request, body: MagicPromptRequest):
         raise HTTPException(503, "Magic Prompt service not configured. Add an API key in Settings.")
 
     try:
-        caption_json = await mp.expand(body.text, body.width, body.height)
+        styled_text = compose_styled_prompt(
+            body.text, body.style.model_dump() if body.style else None
+        )
+        caption_json = await mp.expand(styled_text, body.width, body.height)
         # Re-validate the returned JSON through the verifier
         state = parse_caption_json(caption_json)
         rebuilt_json, warnings = build_caption(state)
