@@ -1023,8 +1023,22 @@ async def inpaint_endpoint(request: Request, body: InpaintRequest):
         raise_on_caption_issues=False,
     )
 
+    # Structure the prompt into a JSON caption, exactly like the text-to-image
+    # path. Ideogram 4 paints its gray "safety filter" card far more often on a
+    # bare plain-text prompt than on a structured caption — so a raw inpaint
+    # prompt is the most refusal-prone input in the whole app. This brings AI
+    # Fill to parity. (Can't eliminate refusals — they're baked into the
+    # weights — but it minimises them, the same lever we use for generation.)
+    fill_prompt = body.prompt
+    mp: MagicPromptService | None = request.app.state.magic_prompt
+    if mp is not None:
+        try:
+            fill_prompt = await mp.expand(body.prompt, image.width, image.height)
+        except Exception as exc:
+            logger.warning("Inpaint prompt structuring failed (using raw text): %s", exc)
+
     def _run():
-        return pm.inpaint(image, mask, body.prompt, settings)
+        return pm.inpaint(image, mask, fill_prompt, settings)
 
     try:
         out_img, _seed = await loop.run_in_executor(_inference_executor, _run)

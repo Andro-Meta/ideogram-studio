@@ -293,7 +293,7 @@ export function EditorDialog({ open, onClose, jobId, imageUrl }: Props) {
                   </Button>
                   <p className="text-[11px] text-zinc-600 leading-relaxed">
                     {engine.hasSelection
-                      ? "Regenerates only the selected pixels from your prompt; the rest of the image is kept exactly."
+                      ? "Regenerates only the selected pixels; the rest is kept exactly. Your prompt is auto-structured to minimise the model's refusal card — though very graphic prompts can still trip it (that behaviour is baked into the weights; a decensor LoRA is the only full fix)."
                       : "Select an area first (rectangle, lasso, brush…), then describe what goes there."}
                   </p>
                 </>
