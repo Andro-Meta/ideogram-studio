@@ -34,8 +34,12 @@ class AppSettings(BaseSettings):
     magic_prompt_backend: str = "ideogram-4-v1"
     ideogram_api_key: str | None = None
     openrouter_api_key: str | None = None
+    # Model used for OpenRouter-backed features (openrouter-v1 magic prompt,
+    # AI style fuse). Gemini Flash Lite: very fast, ~$0.0001 per call, and
+    # paid OpenRouter models have no platform rate limits.
+    openrouter_model: str = "google/gemini-2.5-flash-lite"
 
-    @field_validator("model_variant", "magic_prompt_backend", mode="before")
+    @field_validator("model_variant", "magic_prompt_backend", "openrouter_model", mode="before")
     @classmethod
     def _blank_falls_back_to_default(cls, v, info):
         """.env lines like 'MODEL_VARIANT=' yield empty strings — treat as unset."""

@@ -70,6 +70,14 @@ OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
 _inference_executor = ThreadPoolExecutor(max_workers=1)
 
 
+def _magic_prompt_key(backend_name: str) -> str | None:
+    """The API key that matches the chosen backend — the hosted Ideogram
+    backend needs the Ideogram key, everything else goes through OpenRouter."""
+    if backend_name == "ideogram-4-v1":
+        return app_settings.ideogram_api_key
+    return app_settings.openrouter_api_key
+
+
 # ── Lifespan ──────────────────────────────────────────────────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -85,9 +93,10 @@ async def lifespan(app: FastAPI):
 
     # Build magic-prompt service (may fail gracefully if no API key set)
     try:
-        mp_key = app_settings.ideogram_api_key or app_settings.openrouter_api_key
         app.state.magic_prompt = MagicPromptService(
-            app_settings.magic_prompt_backend, mp_key
+            app_settings.magic_prompt_backend,
+            _magic_prompt_key(app_settings.magic_prompt_backend),
+            openrouter_model=app_settings.openrouter_model,
         )
     except Exception as exc:
         print(f"[WARN] Magic Prompt service init failed: {exc}")
@@ -257,6 +266,7 @@ async def style_fuse_endpoint(body: StyleFuseRequest):
             style_fuse.fuse_styles,
             body.form.model_dump(), body.mood.model_dump(),
             app_settings.openrouter_api_key,
+            app_settings.openrouter_model,
         )
     except Exception as exc:
         raise HTTPException(502, f"AI Fuse failed: {exc}") from exc
@@ -382,13 +392,14 @@ async def update_settings(request: Request, body: SettingsUpdateRequest):
     # Rebuild magic-prompt service if backend or key changed
     if body.magic_prompt_backend or body.ideogram_api_key or body.openrouter_api_key:
         try:
-            mp_key = app_settings.ideogram_api_key or app_settings.openrouter_api_key
+            mp_key = _magic_prompt_key(app_settings.magic_prompt_backend)
             mp: MagicPromptService | None = request.app.state.magic_prompt
             if mp:
                 mp.rebuild(app_settings.magic_prompt_backend, mp_key)
             else:
                 request.app.state.magic_prompt = MagicPromptService(
-                    app_settings.magic_prompt_backend, mp_key
+                    app_settings.magic_prompt_backend, mp_key,
+                    openrouter_model=app_settings.openrouter_model,
                 )
         except Exception as exc:
             print(f"[WARN] Could not rebuild magic-prompt: {exc}")

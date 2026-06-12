@@ -101,14 +101,14 @@ def _parse_fused(raw: str) -> dict:
     return fused
 
 
-def _fuse_via_openrouter(form: dict, mood: dict, api_key: str) -> str:
+def _fuse_via_openrouter(form: dict, mood: dict, api_key: str, model: str) -> str:
     from ideogram4.magic_prompt import openrouter_chat
     messages = [
         {"role": "system", "content": FUSE_SYSTEM_PROMPT},
         {"role": "user", "content": build_fuse_user_prompt(form, mood)},
     ]
     return openrouter_chat(
-        "anthropic/claude-sonnet-4.6", messages, api_key,
+        model, messages, api_key,
         temperature=1.0, max_tokens=1024, timeout=60.0,
     )
 
@@ -131,7 +131,10 @@ def _fuse_via_claude_cli(form: dict, mood: dict) -> str:
     return proc.stdout
 
 
-def fuse_styles(form: dict, mood: dict, openrouter_key: str | None) -> dict:
+def fuse_styles(
+    form: dict, mood: dict, openrouter_key: str | None,
+    model: str = "google/gemini-2.5-flash-lite",
+) -> dict:
     """
     Synchronous fusion (call via asyncio.to_thread). Returns clean style
     fields {mode, aesthetics, lighting, medium, photo, art_style}.
@@ -139,7 +142,7 @@ def fuse_styles(form: dict, mood: dict, openrouter_key: str | None) -> dict:
     """
     backend = fuse_backend_available(openrouter_key)
     if backend == "openrouter":
-        raw = _fuse_via_openrouter(form, mood, openrouter_key)  # type: ignore[arg-type]
+        raw = _fuse_via_openrouter(form, mood, openrouter_key, model)  # type: ignore[arg-type]
     elif backend == "claude-cli":
         raw = _fuse_via_claude_cli(form, mood)
     else:

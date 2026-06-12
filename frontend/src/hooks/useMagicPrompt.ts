@@ -33,9 +33,14 @@ export function useMagicPrompt() {
         const comp  = parsed.compositional_deconstruction ?? {}
         const mode  = "photo" in style ? "photo" : "illustration"
 
+        // The hosted ideogram-4-v1 backend never returns style_description —
+        // keep whatever style the user already set instead of wiping it.
+        const hasStyle = Object.keys(style).length > 0
+        const currentStyle = usePromptStore.getState().style_description
+
         loadFromParsed({
           high_level_description: parsed.high_level_description ?? "",
-          style_description: {
+          style_description: hasStyle ? {
             mode,
             aesthetics:    style.aesthetics   ?? "",
             lighting:      style.lighting     ?? "",
@@ -43,7 +48,7 @@ export function useMagicPrompt() {
             photo:         style.photo        ?? "",
             art_style:     style.art_style    ?? "",
             color_palette: style.color_palette ?? [],
-          },
+          } : currentStyle,
           background: comp.background ?? "",
           elements: (comp.elements ?? []).map((el: Record<string, unknown>, i: number) => {
             const bbox = Array.isArray(el.bbox) && el.bbox.length === 4

@@ -261,19 +261,24 @@ export function Settings() {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent className="bg-zinc-800 border-zinc-700">
+                <SelectItem value="openrouter-v1" className="text-zinc-200">
+                  OpenRouter — Gemini Flash Lite (fast, cheap)
+                </SelectItem>
                 <SelectItem value="ideogram-4-v1" className="text-zinc-200">
-                  Ideogram API — ideogram-4-v1
+                  Ideogram API — ideogram-4-v1 (free)
                 </SelectItem>
-                <SelectItem value="claude-sonnet" className="text-zinc-200">
-                  Claude Sonnet (OpenRouter)
+                <SelectItem value="claude-sonnet-v1" className="text-zinc-200">
+                  Claude Sonnet (OpenRouter, premium)
                 </SelectItem>
-                <SelectItem value="claude-opus" className="text-zinc-200">
-                  Claude Opus (OpenRouter)
+                <SelectItem value="claude-opus-v1" className="text-zinc-200">
+                  Claude Opus (OpenRouter, premium)
                 </SelectItem>
               </SelectContent>
             </Select>
             <p className="text-[11px] text-zinc-500">
               Magic Prompt translates plain-English descriptions into structured Ideogram 4 captions.
+              Captions carry style inside the description prose, so your Style section is left
+              untouched. OpenRouter backends need the OpenRouter key above.
             </p>
           </div>
         </div>
