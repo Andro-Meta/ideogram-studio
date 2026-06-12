@@ -23,6 +23,21 @@ export function StyleLibrary() {
   const [open, setOpen] = useState<Record<string, boolean>>({ photography: true })
   const [mashFormId, setMashFormId] = useState("")
   const [mashMoodId, setMashMoodId] = useState("")
+  // Pick mode: tapping presets fills the Form/Mood slots instead of applying.
+  const [pickMode, setPickMode] = useState(false)
+
+  // Which mash-up slot a preset currently occupies (for chip highlighting).
+  const pickRole = (id: string): "form" | "mood" | null =>
+    mashFormId === id ? "form" : mashMoodId === id ? "mood" : null
+
+  // Tap a preset while picking: 1st → Form, 2nd → Mood; tapping a picked one
+  // clears it; once both are full a new tap replaces the Mood.
+  const togglePick = (p: StylePreset) => {
+    if (mashFormId === p.id) return setMashFormId("")
+    if (mashMoodId === p.id) return setMashMoodId("")
+    if (!mashFormId) return setMashFormId(p.id)
+    setMashMoodId(p.id)
+  }
 
   const apply = (preset: StylePreset) => {
     setStyleMode(preset.mode)
@@ -126,25 +141,30 @@ export function StyleLibrary() {
     )
   }
 
-  const presetSelect = (
-    value: string,
-    onChange: (v: string) => void,
-    placeholder: string,
+  const formPreset = STYLE_PRESETS.find((p) => p.id === mashFormId)
+  const moodPreset = STYLE_PRESETS.find((p) => p.id === mashMoodId)
+
+  // A read-only slot pill: shows the picked Form/Mood, clearable with ×.
+  const slot = (
+    role: "Form" | "Mood",
+    preset: StylePreset | undefined,
+    onClear: () => void,
+    accent: string,
   ) => (
-    <select
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      className="flex-1 min-w-0 h-6 rounded border border-zinc-700 bg-zinc-800 text-[10px] text-zinc-300 px-1 outline-none focus:border-violet-500"
+    <div
+      className={cn(
+        "flex-1 min-w-0 h-6 rounded border px-1.5 flex items-center gap-1 text-[10px]",
+        preset ? accent : "border-zinc-700 text-zinc-600 border-dashed",
+      )}
     >
-      <option value="">{placeholder}</option>
-      {STYLE_CATEGORIES.map(({ key, label }) => (
-        <optgroup key={key} label={label}>
-          {STYLE_PRESETS.filter((p) => p.category === key).map((p) => (
-            <option key={p.id} value={p.id}>{p.label}</option>
-          ))}
-        </optgroup>
-      ))}
-    </select>
+      <span className="opacity-50 shrink-0">{role}</span>
+      <span className="truncate flex-1">
+        {preset?.label ?? (pickMode ? "tap a preset" : "—")}
+      </span>
+      {preset && (
+        <button type="button" onClick={onClear} className="shrink-0 opacity-60 hover:opacity-100">×</button>
+      )}
+    </div>
   )
 
   return (
@@ -165,28 +185,56 @@ export function StyleLibrary() {
       {/* Mash-up lab: technique from one style, feel from another. Works
           because the caption fields are orthogonal — medium/art_style say
           HOW it's made, aesthetics/lighting say how it FEELS. */}
-      <div className="rounded-lg border border-violet-900/40 bg-violet-500/[0.04] px-2 py-1.5 space-y-1">
+      <div className={cn(
+        "rounded-lg border px-2 py-1.5 space-y-1.5 transition-colors",
+        pickMode ? "border-violet-500/60 bg-violet-500/[0.07]" : "border-violet-900/40 bg-violet-500/[0.04]",
+      )}>
         <div className="flex items-center gap-1.5">
           <FlaskConical className="h-3 w-3 text-violet-400/70" />
           <span className="text-[10px] text-zinc-400 uppercase tracking-widest">Mash-up</span>
           <button
             type="button"
-            onClick={randomMashup}
+            onClick={() => setPickMode((v) => !v)}
+            title="Tap two presets to pick Form + Mood"
+            className={cn(
+              "ml-auto text-[10px] px-1.5 h-5 rounded border transition-colors",
+              pickMode
+                ? "border-violet-500/70 text-violet-200 bg-violet-500/15"
+                : "border-zinc-700 text-zinc-400 hover:border-violet-600/60 hover:text-violet-300",
+            )}
+          >
+            {pickMode ? "Picking…" : "Tap to pick"}
+          </button>
+          <button
+            type="button"
+            onClick={() => { setPickMode(true); randomMashup() }}
             title="Random form × random mood"
-            className="ml-auto text-zinc-500 hover:text-violet-300 transition-colors"
+            className="text-zinc-500 hover:text-violet-300 transition-colors"
           >
             <Dices className="h-3.5 w-3.5" />
           </button>
         </div>
+
+        {/* Form × Mood slots — filled by tapping presets in pick mode */}
         <div className="flex items-center gap-1.5">
-          {presetSelect(mashFormId, setMashFormId, "Form (technique)…")}
+          {slot("Form", formPreset, () => setMashFormId(""),
+            "border-violet-500/60 text-violet-200 bg-violet-500/10")}
           <span className="text-[10px] text-zinc-600 shrink-0">×</span>
-          {presetSelect(mashMoodId, setMashMoodId, "Mood (feel)…")}
+          {slot("Mood", moodPreset, () => setMashMoodId(""),
+            "border-fuchsia-500/60 text-fuchsia-200 bg-fuchsia-500/10")}
+        </div>
+
+        <div className="flex items-center gap-1.5">
+          {pickMode && (
+            <span className="text-[10px] text-zinc-500 flex-1">
+              {!mashFormId ? "Tap a preset → Form" : !mashMoodId ? "Tap another → Mood" : "Ready — Mix or Fuse"}
+            </span>
+          )}
           <button
             type="button"
             onClick={handleMashup}
             disabled={!mashFormId || !mashMoodId}
-            className="shrink-0 text-[10px] px-2 h-6 rounded border border-violet-700/60 text-violet-300 hover:bg-violet-500/10 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            className="shrink-0 text-[10px] px-2.5 h-6 rounded border border-violet-700/60 text-violet-300 hover:bg-violet-500/10 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
           >
             Mix
           </button>
@@ -195,7 +243,7 @@ export function StyleLibrary() {
             onClick={handleAiFuse}
             disabled={!mashFormId || !mashMoodId || fuse.isPending}
             title="AI Fuse — an LLM invents one hybrid style (slower, smarter than Mix)"
-            className="shrink-0 flex items-center gap-1 text-[10px] px-2 h-6 rounded border border-fuchsia-700/60 text-fuchsia-300 hover:bg-fuchsia-500/10 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            className="shrink-0 flex items-center gap-1 text-[10px] px-2.5 h-6 rounded border border-fuchsia-700/60 text-fuchsia-300 hover:bg-fuchsia-500/10 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
           >
             {fuse.isPending
               ? <Loader2 className="h-3 w-3 animate-spin" />
@@ -231,22 +279,37 @@ export function StyleLibrary() {
             </button>
             {isOpen && (
               <div className="flex flex-wrap gap-1 px-2 pb-2">
-                {presets.map((p) => (
-                  <button
-                    key={p.id}
-                    type="button"
-                    onClick={() => apply(p)}
-                    title={p.fields.aesthetics}
-                    className={cn(
-                      "text-[10px] px-2 py-0.5 rounded border transition-all",
-                      activePreset?.id === p.id
-                        ? "border-violet-500/60 text-violet-300 bg-violet-500/10"
-                        : "border-zinc-700 text-zinc-500 hover:border-zinc-500 hover:text-zinc-300",
-                    )}
-                  >
-                    {p.label}
-                  </button>
-                ))}
+                {presets.map((p) => {
+                  const role = pickMode ? pickRole(p.id) : null
+                  return (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => (pickMode ? togglePick(p) : apply(p))}
+                      title={pickMode ? `Pick "${p.label}" for the mash-up` : p.fields.aesthetics}
+                      className={cn(
+                        "text-[10px] px-2 py-0.5 rounded border transition-all flex items-center gap-1",
+                        role === "form"
+                          ? "border-violet-500/70 text-violet-200 bg-violet-500/15"
+                          : role === "mood"
+                            ? "border-fuchsia-500/70 text-fuchsia-200 bg-fuchsia-500/15"
+                            : !pickMode && activePreset?.id === p.id
+                              ? "border-violet-500/60 text-violet-300 bg-violet-500/10"
+                              : "border-zinc-700 text-zinc-500 hover:border-zinc-500 hover:text-zinc-300",
+                      )}
+                    >
+                      {role && (
+                        <span className={cn(
+                          "inline-flex items-center justify-center h-3 w-3 rounded-full text-[8px] font-bold",
+                          role === "form" ? "bg-violet-500/40 text-violet-100" : "bg-fuchsia-500/40 text-fuchsia-100",
+                        )}>
+                          {role === "form" ? "1" : "2"}
+                        </span>
+                      )}
+                      {p.label}
+                    </button>
+                  )
+                })}
               </div>
             )}
           </div>
