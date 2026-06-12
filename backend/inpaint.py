@@ -61,10 +61,15 @@ def _encode_to_tokens(pipe, image_tensor):
 
 def _mask_to_tokens(mask_img: Image.Image, grid_h: int, grid_w: int):
     """L-mode mask (255 = regenerate) → (1, num_tokens, 1) float in [0,1].
-    Max-pools so a token that's even partly selected counts as selected."""
+
+    Downsamples to the token grid and feathers the boundary by ~1 token, so
+    tokens straddling the edge are PARTIALLY known. That soft transition lets
+    content continue across the selection edge instead of being hard-cut (the
+    "the saw vanished at the mask line" problem)."""
     import torch
 
     m = mask_img.convert("L").resize((grid_w, grid_h), Image.BILINEAR)
+    m = m.filter(ImageFilter.GaussianBlur(0.8))            # ~1-token feather
     arr = np.asarray(m, dtype=np.float32) / 255.0          # (gh, gw)
     t = torch.from_numpy(arr).view(1, grid_h * grid_w, 1)
     return t
@@ -115,24 +120,29 @@ def inpaint_region(
     generator = torch.Generator(device=device).manual_seed(seed)
     noise = torch.randn(z0.shape, generator=generator, device=device, dtype=z0.dtype)
 
-    # Below this step the masked region is also held on the original's
-    # trajectory (build-off phase); at/after it, the mask is free to change.
+    # The masked region is held on the original's trajectory at full anchor
+    # until `release_step`, then the anchor ramps to 0 over a few steps so the
+    # region is released *gradually* (a hard cutover leaves a visible seam at
+    # the switch). The UNMASKED region is always pinned to the original.
     strength = max(0.1, min(1.0, strength))
     release_step = int(round((1.0 - strength) * num_steps))
+    ramp = max(1, num_steps // 8)            # gradual-release window, ~2-3 steps
 
-    # RePaint blend with strength: the UNMASKED tokens are always pinned to the
-    # source forward-noised to this step's sigma. The MASKED tokens are pinned
-    # too until `release_step` (so the fill starts from the original, not noise),
-    # then denoise freely toward the prompt.
+    def _anchor(i: int) -> float:
+        if i < release_step:
+            return 1.0
+        if i < release_step + ramp:
+            return 1.0 - (i - release_step + 1) / (ramp + 1)
+        return 0.0
+
     def _on_step(p, i: int, t, kwargs: dict) -> dict:
         latents = kwargs["latents"]
         sigmas = p.scheduler.sigmas
         s = sigmas[i + 1] if i + 1 < len(sigmas) else sigmas[-1]
         known = (s * noise + (1.0 - s) * z0).to(latents.dtype)   # flow-match forward
-        if i < release_step:
-            blended = known                                       # build-off: lock all
-        else:
-            blended = mask_tok * latents + (1.0 - mask_tok) * known
+        a = _anchor(i)
+        masked = (1.0 - a) * latents + a * known                 # gradual release
+        blended = mask_tok * masked + (1.0 - mask_tok) * known   # always pin outside
         if step_callback:
             step_callback(i, num_steps)
         return {"latents": blended}
