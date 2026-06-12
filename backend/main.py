@@ -504,6 +504,7 @@ async def get_settings():
     return SettingsResponse(
         model_variant=app_settings.model_variant,
         magic_prompt_backend=app_settings.magic_prompt_backend,
+        openrouter_model=app_settings.openrouter_model,
         has_ideogram_api_key=bool(app_settings.ideogram_api_key),
         has_openrouter_api_key=bool(app_settings.openrouter_api_key),
         has_hf_token=bool(app_settings.hf_token),
@@ -540,6 +541,9 @@ async def update_settings(request: Request, body: SettingsUpdateRequest):
     if body.magic_prompt_backend:
         _set("MAGIC_PROMPT_BACKEND", body.magic_prompt_backend)
         app_settings.magic_prompt_backend = body.magic_prompt_backend
+    if body.openrouter_model:
+        _set("OPENROUTER_MODEL", body.openrouter_model)
+        app_settings.openrouter_model = body.openrouter_model
     if body.ideogram_api_key is not None:
         raw_ideogram = body.ideogram_api_key.get_secret_value()
         _set("IDEOGRAM_API_KEY", raw_ideogram)
@@ -571,18 +575,16 @@ async def update_settings(request: Request, body: SettingsUpdateRequest):
 
     env_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
-    # Rebuild magic-prompt service if backend or key changed
-    if body.magic_prompt_backend or body.ideogram_api_key or body.openrouter_api_key:
+    # Rebuild magic-prompt service if backend, key, or OpenRouter model changed.
+    # We reconstruct (not rebuild) so a new openrouter_model takes effect.
+    if (body.magic_prompt_backend or body.ideogram_api_key
+            or body.openrouter_api_key or body.openrouter_model):
         try:
             mp_key = _magic_prompt_key(app_settings.magic_prompt_backend)
-            mp: MagicPromptService | None = request.app.state.magic_prompt
-            if mp:
-                mp.rebuild(app_settings.magic_prompt_backend, mp_key)
-            else:
-                request.app.state.magic_prompt = MagicPromptService(
-                    app_settings.magic_prompt_backend, mp_key,
-                    openrouter_model=app_settings.openrouter_model,
-                )
+            request.app.state.magic_prompt = MagicPromptService(
+                app_settings.magic_prompt_backend, mp_key,
+                openrouter_model=app_settings.openrouter_model,
+            )
         except Exception as exc:
             print(f"[WARN] Could not rebuild magic-prompt: {exc}")
 

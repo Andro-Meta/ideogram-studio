@@ -37,9 +37,11 @@ class AppSettings(BaseSettings):
     ideogram_api_key: str | None = None
     openrouter_api_key: str | None = None
     # Model used for OpenRouter-backed features (openrouter-v1 magic prompt,
-    # AI style fuse). Gemini Flash Lite: very fast, ~$0.0001 per call, and
-    # paid OpenRouter models have no platform rate limits.
-    openrouter_model: str = "google/gemini-2.5-flash-lite"
+    # AI style fuse). Default is a FREE model ($0); when a ":free" model is
+    # chosen the app sends a fallback chain so a busy free provider auto-falls
+    # back instead of failing. Swap to a paid model (e.g.
+    # google/gemini-2.5-flash-lite) for maximum reliability/no daily caps.
+    openrouter_model: str = "google/gemma-4-31b-it:free"
 
     # Auto-structure: before each generation, expand a sparse prompt into a
     # full structured-JSON scene via the magic-prompt backend. Ideogram 4

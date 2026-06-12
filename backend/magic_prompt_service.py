@@ -17,6 +17,25 @@ _BACKEND_ALIASES = {
     "claude-opus": "claude-opus-v1",
 }
 
+# Reliable, free, good-at-JSON models to fall back across when a free provider
+# is busy (free endpoints return "Provider returned error" under load).
+FREE_FALLBACK_MODELS = [
+    "google/gemma-4-31b-it:free",
+    "meta-llama/llama-3.3-70b-instruct:free",
+    "qwen/qwen3-next-80b-a3b-instruct:free",
+    "openai/gpt-oss-120b:free",
+]
+
+
+def openrouter_models_param(model: str) -> list[str] | None:
+    """For a ":free" model, return [model, ...other frees] so OpenRouter
+    auto-falls-back when the primary free provider is overloaded. Paid models
+    don't need this (returns None)."""
+    if not model.endswith(":free"):
+        return None
+    # OpenRouter caps the fallback array at 3 entries.
+    return ([model] + [m for m in FREE_FALLBACK_MODELS if m != model])[:3]
+
 
 class OpenRouterMagicPromptV1:
     """
@@ -40,9 +59,11 @@ class OpenRouterMagicPromptV1:
             build_messages, openrouter_chat, strip_aspect_ratio_and_bboxes,
         )
         messages = build_messages("v1.txt", prompt, aspect_ratio)
+        fallbacks = openrouter_models_param(self.model)
         caption = openrouter_chat(
             self.model, messages, self.api_key,
             temperature=1.0, timeout=self.timeout,
+            extra_body={"models": fallbacks} if fallbacks else None,
         )
         return strip_aspect_ratio_and_bboxes(caption, strip_bboxes=self.strip_bboxes)
 

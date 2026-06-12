@@ -103,13 +103,16 @@ def _parse_fused(raw: str) -> dict:
 
 def _fuse_via_openrouter(form: dict, mood: dict, api_key: str, model: str) -> str:
     from ideogram4.magic_prompt import openrouter_chat
+    from magic_prompt_service import openrouter_models_param
     messages = [
         {"role": "system", "content": FUSE_SYSTEM_PROMPT},
         {"role": "user", "content": build_fuse_user_prompt(form, mood)},
     ]
+    fallbacks = openrouter_models_param(model)
     return openrouter_chat(
         model, messages, api_key,
         temperature=1.0, max_tokens=1024, timeout=60.0,
+        extra_body={"models": fallbacks} if fallbacks else None,
     )
 
 
