@@ -105,7 +105,8 @@ function ModelStatusPanel() {
 
 // ── Flow section card ─────────────────────────────────────────────────────────
 // Gives the prompt column its visual rhythm: numbered steps the eye can walk
-// (1 Describe → 2 Style → 3 Elements), each in its own card.
+// (1 Style → 2 Describe → 3 Elements), each in its own card. Style leads
+// because Magic Prompt (in Describe) reads it — set the look, then describe.
 
 function FlowSection({
   step, title, hint, children,
@@ -322,15 +323,15 @@ export function Generate() {
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         <Rail>
           <div className="max-w-[620px] mx-auto p-5 space-y-4">
-            <FlowSection step={1} title="Describe" hint="what is the image?">
+            <FlowSection step={1} title="Style" hint="how should it look?">
+              <StylePanel />
+            </FlowSection>
+
+            <FlowSection step={2} title="Describe" hint="what is the image?">
               <PromptBar />
               <Separator className="bg-zinc-800" />
               <HighLevelDescription />
               <BackgroundField />
-            </FlowSection>
-
-            <FlowSection step={2} title="Style" hint="how should it look?">
-              <StylePanel />
             </FlowSection>
 
             <FlowSection step={3} title="Elements" hint="optional — exact objects & text">

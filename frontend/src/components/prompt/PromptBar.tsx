@@ -50,7 +50,7 @@ export function PromptBar() {
       </div>
       <p className="text-[10px] text-zinc-600">
         ⌘/Ctrl+Enter to run · follows your <span className="text-zinc-500">Style</span> settings
-        below (set medium/look first) · needs an API key in Settings
+        above (set the look first) · needs an API key in Settings
       </p>
     </div>
   )
