@@ -9,9 +9,7 @@ import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import { cn } from "@/lib/utils"
 import { useGalleryItem, useDeleteGalleryItem, useToggleFavorite } from "@/hooks/useGallery"
-import { usePromptStore } from "@/stores/promptStore"
-import { useSettingsStore } from "@/stores/settingsStore"
-import { useNavigate } from "react-router-dom"
+import { useReusePrompt } from "@/hooks/useReusePrompt"
 import { toast } from "sonner"
 import { EditorDialog } from "@/components/editor/EditorDialog"
 
@@ -28,8 +26,7 @@ export function GalleryDetail({ itemId, onClose, position, count, onPrev, onNext
   const { data: item } = useGalleryItem(itemId)
   const deleteMutation = useDeleteGalleryItem()
   const toggleFavorite = useToggleFavorite()
-  const loadFromParsed = usePromptStore((s) => s.loadFromParsed)
-  const navigate = useNavigate()
+  const reuse = useReusePrompt()
   const [editorOpen, setEditorOpen] = useState(false)
 
   // Arrow keys flip between images while the viewer is open (like ideogram.ai)
@@ -61,66 +58,8 @@ export function GalleryDetail({ itemId, onClose, position, count, onPrev, onNext
     a.click()
   }
 
-  const applyGenerationSettings = (lockSeed: boolean) => {
-    const s = useSettingsStore.getState()
-    if (item.width && item.height) s.setResolution(item.width, item.height)
-    if (item.sampler_preset) s.setSamplerPreset(item.sampler_preset)
-    if (item.model_variant) s.setModelVariant(item.model_variant)
-    if (lockSeed && item.seed != null) {
-      s.setSeed(item.seed)
-      s.setFixedSeed(true)
-    } else {
-      s.setFixedSeed(false)
-    }
-  }
-
   const handleLoadPrompt = (lockSeed = false) => {
-    if (!item.prompt_json) {
-      toast.error("No prompt data saved for this image")
-      return
-    }
-    try {
-      const parsed = JSON.parse(item.prompt_json)
-      const style = parsed.style_description ?? {}
-      const comp  = parsed.compositional_deconstruction ?? {}
-      const mode  = "photo" in style ? "photo" : "illustration"
-      loadFromParsed({
-        high_level_description: parsed.high_level_description ?? "",
-        style_description: {
-          mode,
-          aesthetics:    style.aesthetics   ?? "",
-          lighting:      style.lighting     ?? "",
-          medium:        style.medium       ?? "",
-          photo:         style.photo        ?? "",
-          art_style:     style.art_style    ?? "",
-          color_palette: style.color_palette ?? [],
-        },
-        background: comp.background ?? "",
-        elements: (comp.elements ?? []).map((el: Record<string, unknown>) => {
-          const bbox = Array.isArray(el.bbox) && el.bbox.length === 4
-            ? { ymin: el.bbox[0] as number, xmin: el.bbox[1] as number, ymax: el.bbox[2] as number, xmax: el.bbox[3] as number }
-            : undefined
-          return {
-            id: crypto.randomUUID(),
-            type: el.type as "obj" | "text",
-            bbox,
-            text: (el.text as string) ?? "",
-            desc: (el.desc as string) ?? "",
-            color_palette: (el.color_palette as string[]) ?? [],
-          }
-        }),
-      })
-      applyGenerationSettings(lockSeed)
-      toast.success(
-        lockSeed
-          ? "Prompt + settings loaded, seed locked — Generate reproduces this image"
-          : "Prompt and settings loaded into editor"
-      )
-      onClose()
-      navigate("/generate")
-    } catch {
-      toast.error("Could not parse saved prompt")
-    }
+    if (reuse(item, lockSeed)) onClose()
   }
 
   const handleDelete = () => {

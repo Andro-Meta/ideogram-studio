@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { createPortal } from "react-dom"
-import { X, Download, Brush, ZoomIn, ZoomOut, Maximize2, ChevronLeft, ChevronRight } from "lucide-react"
+import { X, Download, Brush, Wand2, ZoomIn, ZoomOut, Maximize2, ChevronLeft, ChevronRight } from "lucide-react"
 import { Link } from "react-router-dom"
 
 interface LightboxProps {
@@ -11,6 +11,9 @@ interface LightboxProps {
   downloadName?: string
   /** When set, shows an "Edit" action linking to /editor?job=… */
   editJobId?: string | null
+  /** When set, shows a "Reuse prompt" action that loads this image's
+   *  prompt + settings back into the Generate page. */
+  onReuse?: () => void
   /** Extra caption line under the actions (seed, duration, …) */
   caption?: string
   /** Previous / next image — enables ← → keys and on-screen arrows. */
@@ -30,7 +33,7 @@ const FIT: View = { scale: 1, x: 0, y: 0 }
  * Rendered in a portal so layout containers can't clip it.
  */
 export function Lightbox({
-  open, onClose, imageUrl, downloadName = "image.png", editJobId, caption,
+  open, onClose, imageUrl, downloadName = "image.png", editJobId, onReuse, caption,
   onPrev, onNext, position, count,
 }: LightboxProps) {
   const [view, setView] = useState<View>(FIT)
@@ -171,6 +174,17 @@ export function Lightbox({
         >
           <Download className="h-4 w-4" />
         </a>
+        {onReuse && (
+          <button
+            type="button"
+            onClick={onReuse}
+            className="flex items-center gap-1.5 px-2.5 py-2 rounded-lg bg-violet-600/90 text-white hover:bg-violet-500 transition-colors text-xs font-medium"
+            title="Load this image's prompt + settings back into Generate"
+          >
+            <Wand2 className="h-4 w-4" />
+            Reuse prompt
+          </button>
+        )}
         {editJobId && (
           <Link
             to={`/editor?job=${editJobId}`}

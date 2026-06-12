@@ -1,5 +1,5 @@
 import { useRef, useState, useEffect } from "react"
-import { LayoutGrid } from "lucide-react"
+import { LayoutGrid, MapPin } from "lucide-react"
 import { BBoxRect } from "./BBoxRect"
 import { usePromptStore } from "@/stores/promptStore"
 import { useSettingsStore } from "@/stores/settingsStore"
@@ -82,13 +82,26 @@ export function BBoxCanvas() {
           )
         })}
 
-        {/* Empty state hint */}
+        {/* Empty state hint — tells you the actual next step, which differs
+            depending on whether you have any elements to pin yet. */}
         {elementsWithBBox.length === 0 && !isGenerating && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 pointer-events-none">
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 px-6 pointer-events-none">
             <LayoutGrid className="h-8 w-8 text-zinc-600" />
-            <p className="text-xs text-zinc-600 text-center px-4">
-              Pin elements to position them here
-            </p>
+            {elements.length === 0 ? (
+              <p className="text-xs text-zinc-500 text-center leading-relaxed">
+                Optional layout control.<br />
+                Add an <span className="text-zinc-300">object</span> or{" "}
+                <span className="text-zinc-300">text</span> element below, then
+                pin it here to say <span className="text-zinc-300">where</span> it
+                belongs in the frame.
+              </p>
+            ) : (
+              <p className="text-xs text-zinc-500 text-center leading-relaxed inline-flex flex-wrap items-center justify-center gap-1">
+                Click the
+                <MapPin className="h-3.5 w-3.5 text-violet-400 inline" />
+                pin on an element to drop it onto the frame, then drag to position.
+              </p>
+            )}
           </div>
         )}
 

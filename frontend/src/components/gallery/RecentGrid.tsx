@@ -2,6 +2,7 @@ import { useState } from "react"
 import { Link } from "react-router-dom"
 import { Images, Brush, Trash2 } from "lucide-react"
 import { useGallery, useDeleteGalleryItem } from "@/hooks/useGallery"
+import { useReusePrompt } from "@/hooks/useReusePrompt"
 import { Lightbox } from "@/components/lightbox/Lightbox"
 import type { GalleryItem } from "@/types/gallery"
 
@@ -17,6 +18,7 @@ function itemUrl(item: GalleryItem): string {
 export function RecentGrid() {
   const { data } = useGallery(1)
   const del = useDeleteGalleryItem()
+  const reuse = useReusePrompt()
   const [viewing, setViewing] = useState<GalleryItem | null>(null)
 
   const items = (data?.items ?? []).filter((i) => i.image_path)
@@ -95,6 +97,7 @@ export function RecentGrid() {
             imageUrl={itemUrl(viewing)}
             downloadName={`ideogram-${viewing.seed ?? viewing.id.slice(0, 8)}.png`}
             editJobId={viewing.id}
+            onReuse={viewing.prompt_json ? () => { reuse(viewing); setViewing(null) } : undefined}
             position={idx + 1}
             count={items.length}
             onPrev={items.length > 1 ? () => at(idx - 1) : undefined}
