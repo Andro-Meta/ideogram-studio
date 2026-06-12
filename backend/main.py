@@ -307,6 +307,23 @@ async def model_unload(request: Request):
 
 # ── Magic Prompt API ──────────────────────────────────────────────────────────
 
+def _openrouter_error_hint(exc: Exception) -> str:
+    """Turn a raw OpenRouter HTTP error into an actionable message."""
+    s = str(exc)
+    if "401" in s or "Unauthorized" in s:
+        return ("OpenRouter rejected your API key (401 Unauthorized). It's likely a "
+                "Provisioning/management key, which can't run inference. Create a regular "
+                "API key at openrouter.ai/keys (starts 'sk-or-v1-') and paste it into "
+                "Settings → OpenRouter API Key.")
+    if "402" in s:
+        return ("OpenRouter requires credits for this model (402). With 'Free models only' on "
+                "this shouldn't happen — check your model selection in Settings.")
+    if "429" in s:
+        return ("OpenRouter rate limit reached (429). Free models allow ~50 requests/day, or "
+                "1000/day after a one-time $10 credit purchase. Wait a bit and retry.")
+    return s
+
+
 @app.post("/api/magic-prompt", response_model=MagicPromptResponse)
 async def magic_prompt_endpoint(request: Request, body: MagicPromptRequest):
     mp: MagicPromptService | None = request.app.state.magic_prompt
@@ -320,7 +337,7 @@ async def magic_prompt_endpoint(request: Request, body: MagicPromptRequest):
         rebuilt_json, warnings = build_caption(state)
         return MagicPromptResponse(caption_json=rebuilt_json, warnings=warnings)
     except Exception as exc:
-        raise HTTPException(500, f"Magic Prompt failed: {exc}") from exc
+        raise HTTPException(500, f"Magic Prompt failed: {_openrouter_error_hint(exc)}") from exc
 
 
 @app.post("/api/style/fuse", response_model=StyleFuseResponse)
@@ -345,7 +362,7 @@ async def style_fuse_endpoint(body: StyleFuseRequest):
             app_settings.openrouter_free_only,
         )
     except Exception as exc:
-        raise HTTPException(502, f"AI Fuse failed: {exc}") from exc
+        raise HTTPException(502, f"AI Fuse failed: {_openrouter_error_hint(exc)}") from exc
 
     return StyleFuseResponse(**fused)
 
