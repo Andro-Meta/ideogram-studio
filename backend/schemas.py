@@ -79,6 +79,33 @@ class MagicPromptResponse(BaseModel):
     warnings: list[str] = []
 
 
+# ── AI Style Fuse ────────────────────────────────────────────────────────────
+
+class FuseStyleIn(BaseModel):
+    """One side of a fusion: a style preset's label + caption fields."""
+    label: str
+    mode: Literal["photo", "illustration"]
+    aesthetics: str = ""
+    lighting: str = ""
+    medium: str = ""
+    photo: str = ""
+    art_style: str = ""
+
+
+class StyleFuseRequest(BaseModel):
+    form: FuseStyleIn   # contributes technique/medium
+    mood: FuseStyleIn   # contributes atmosphere/feel
+
+
+class StyleFuseResponse(BaseModel):
+    mode: Literal["photo", "illustration"]
+    aesthetics: str
+    lighting: str
+    medium: str
+    photo: str = ""
+    art_style: str = ""
+
+
 # ── Gallery ──────────────────────────────────────────────────────────────────
 
 class GalleryItem(BaseModel):

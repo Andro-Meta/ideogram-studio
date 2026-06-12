@@ -11,6 +11,30 @@ export interface MagicPromptResponse {
   warnings: string[]
 }
 
+export interface StyleFuseSide {
+  label: string
+  mode: "photo" | "illustration"
+  aesthetics: string
+  lighting: string
+  medium: string
+  photo: string
+  art_style: string
+}
+
+export interface StyleFuseRequest {
+  form: StyleFuseSide
+  mood: StyleFuseSide
+}
+
+export interface StyleFuseResponse {
+  mode: "photo" | "illustration"
+  aesthetics: string
+  lighting: string
+  medium: string
+  photo: string
+  art_style: string
+}
+
 export interface GenerationRequest {
   prompt_json: string
   height: number

@@ -32,6 +32,7 @@ import gallery as gallery_service
 from caption import build_caption, parse_caption_json
 from inference import GenerationSettings, PipelineManager
 from magic_prompt_service import MagicPromptService
+import style_fuse
 from schemas import (
     EditSaveRequest,
     EditResponse,
@@ -47,6 +48,8 @@ from schemas import (
     ModelStatusResponse,
     SettingsResponse,
     SettingsUpdateRequest,
+    StyleFuseRequest,
+    StyleFuseResponse,
     SystemInfoResponse,
     UpscaleModelInfo,
     UpscaleRequest,
@@ -234,6 +237,31 @@ async def magic_prompt_endpoint(request: Request, body: MagicPromptRequest):
         return MagicPromptResponse(caption_json=rebuilt_json, warnings=warnings)
     except Exception as exc:
         raise HTTPException(500, f"Magic Prompt failed: {exc}") from exc
+
+
+@app.post("/api/style/fuse", response_model=StyleFuseResponse)
+async def style_fuse_endpoint(body: StyleFuseRequest):
+    """
+    AI Fuse: ask a chat LLM to invent one hybrid style from two presets.
+    Runs on OpenRouter when a key is set, otherwise the local Claude CLI —
+    the hosted Ideogram magic-prompt API cannot do this (it never returns
+    style_description), so this path is independent of Magic Prompt.
+    """
+    if style_fuse.fuse_backend_available(app_settings.openrouter_api_key) is None:
+        raise HTTPException(
+            503,
+            "AI Fuse needs an OpenRouter API key (Settings) or the Claude Code CLI installed.",
+        )
+    try:
+        fused = await asyncio.to_thread(
+            style_fuse.fuse_styles,
+            body.form.model_dump(), body.mood.model_dump(),
+            app_settings.openrouter_api_key,
+        )
+    except Exception as exc:
+        raise HTTPException(502, f"AI Fuse failed: {exc}") from exc
+
+    return StyleFuseResponse(**fused)
 
 
 # ── Gallery API ───────────────────────────────────────────────────────────────

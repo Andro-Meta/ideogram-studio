@@ -1,5 +1,7 @@
 import { useState } from "react"
-import { ChevronDown, ChevronRight, Dices, FlaskConical, Shuffle } from "lucide-react"
+import {
+  ChevronDown, ChevronRight, Dices, FlaskConical, Loader2, Shuffle, Sparkles,
+} from "lucide-react"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 import {
@@ -7,6 +9,8 @@ import {
 } from "@/lib/stylePresets"
 import { PALETTE_MODES } from "@/lib/colorPalettes"
 import { usePromptStore } from "@/stores/promptStore"
+import { useFuseStyles } from "@/hooks/useFuseStyles"
+import type { StyleFuseSide } from "@/types/api"
 
 /**
  * The full style catalog, grouped into Photography / Rendered / Illustrated /
@@ -83,6 +87,45 @@ export function StyleLibrary() {
     applyMashup(form, mood)
   }
 
+  // ── AI Fuse: the LLM invents one hybrid style (slower, smarter than Mix) ──
+  const fuse = useFuseStyles()
+
+  const toFuseSide = (p: StylePreset): StyleFuseSide => ({
+    label: p.label,
+    mode: p.mode,
+    aesthetics: p.fields.aesthetics ?? "",
+    lighting: p.fields.lighting ?? "",
+    medium: p.fields.medium ?? "",
+    photo: p.fields.photo ?? "",
+    art_style: p.fields.art_style ?? "",
+  })
+
+  const handleAiFuse = () => {
+    const form = STYLE_PRESETS.find((p) => p.id === mashFormId)
+    const mood = STYLE_PRESETS.find((p) => p.id === mashMoodId)
+    if (!form || !mood || fuse.isPending) return
+    toast.info(`AI Fuse: blending ${form.label} × ${mood.label}… (~20s)`)
+    fuse.mutate(
+      { form: toFuseSide(form), mood: toFuseSide(mood) },
+      {
+        onSuccess: (fused) => {
+          setStyleMode(fused.mode)
+          setStyleField("aesthetics", fused.aesthetics)
+          setStyleField("lighting", fused.lighting)
+          setStyleField("medium", fused.medium)
+          if (fused.mode === "photo") {
+            setStyleField("photo", fused.photo)
+            setStyleField("art_style", "")
+          } else {
+            setStyleField("art_style", fused.art_style)
+            setStyleField("photo", "")
+          }
+          toast.success(`AI Fuse: ${form.label} × ${mood.label}`)
+        },
+      },
+    )
+  }
+
   const presetSelect = (
     value: string,
     onChange: (v: string) => void,
@@ -146,6 +189,18 @@ export function StyleLibrary() {
             className="shrink-0 text-[10px] px-2 h-6 rounded border border-violet-700/60 text-violet-300 hover:bg-violet-500/10 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
           >
             Mix
+          </button>
+          <button
+            type="button"
+            onClick={handleAiFuse}
+            disabled={!mashFormId || !mashMoodId || fuse.isPending}
+            title="AI Fuse — an LLM invents one hybrid style (slower, smarter than Mix)"
+            className="shrink-0 flex items-center gap-1 text-[10px] px-2 h-6 rounded border border-fuchsia-700/60 text-fuchsia-300 hover:bg-fuchsia-500/10 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          >
+            {fuse.isPending
+              ? <Loader2 className="h-3 w-3 animate-spin" />
+              : <Sparkles className="h-3 w-3" />}
+            Fuse
           </button>
         </div>
       </div>
