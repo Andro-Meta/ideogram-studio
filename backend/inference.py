@@ -196,6 +196,9 @@ class InferencePipeline(ABC):
     # pipelines (bf16, nf4d) carry PeftAdapterMixin on their transformer; the
     # custom ideogram4 package paths (fp8, nf4) have no adapter hooks at all.
     supports_lora: bool = False
+    # Whether this pipeline can do masked inpainting (region fill). Same split:
+    # only the diffusers pipelines expose the latent callback + VAE we need.
+    supports_inpaint: bool = False
 
     @abstractmethod
     def load(self) -> None:
@@ -231,6 +234,18 @@ class InferencePipeline(ABC):
     def active_loras(self) -> list[dict]:
         """[{name, weight, source}] for currently applied adapters."""
         return []
+
+    def inpaint(
+        self,
+        image: "Image.Image",
+        mask: "Image.Image",
+        prompt_json: str,
+        settings: GenerationSettings,
+        step_callback: Callable[[int, int], None] | None = None,
+    ) -> tuple["Image.Image", int]:
+        raise RuntimeError(
+            "This model variant can't do AI region fill. Switch to NF4·D or BF16 and reload."
+        )
 
     @staticmethod
     def _resolve_seed(seed: int | None) -> int:
@@ -374,6 +389,7 @@ class BF16Pipeline(InferencePipeline):
     """
 
     supports_lora = True
+    supports_inpaint = True
 
     REPO = "CalamitousFelicitousness/Ideogram-4-bf16-Diffusers"
 
@@ -516,6 +532,31 @@ class BF16Pipeline(InferencePipeline):
             {"name": n, "weight": d["weight"], "source": d["source"]}
             for n, d in self._loras.items()
         ]
+
+    # ── Inpainting (masked region fill) ────────────────────────────────────
+
+    def inpaint(
+        self,
+        image: Image.Image,
+        mask: Image.Image,
+        prompt_json: str,
+        settings: GenerationSettings,
+        step_callback: Callable[[int, int], None] | None = None,
+    ) -> tuple[Image.Image, int]:
+        if self._pipe is None:
+            raise RuntimeError("Pipeline not loaded.")
+        import inpaint as _inpaint
+
+        preset = self.PRESETS[settings.sampler_preset]
+        actual_seed = self._resolve_seed(settings.seed)
+        out = _inpaint.inpaint_region(
+            self._pipe, image, mask, prompt_json,
+            num_steps=preset["num_inference_steps"],
+            guidance_schedule=preset["guidance_schedule"],
+            mu=preset["mu"], std=preset["std"],
+            seed=actual_seed, step_callback=step_callback,
+        )
+        return out, actual_seed
 
 
 # ── nf4 diffusers pipeline ────────────────────────────────────────────────────
@@ -791,6 +832,15 @@ class PipelineManager:
     @property
     def supports_lora(self) -> bool:
         return bool(self._pipeline is not None and self._pipeline.supports_lora)
+
+    @property
+    def supports_inpaint(self) -> bool:
+        return bool(self._pipeline is not None and self._pipeline.supports_inpaint)
+
+    def inpaint(self, image, mask, prompt_json, settings, step_callback=None):
+        if self._pipeline is None or self.status != "ready":
+            raise RuntimeError("No pipeline loaded. Load a model first.")
+        return self._pipeline.inpaint(image, mask, prompt_json, settings, step_callback)
 
     def _require_lora_pipeline(self) -> InferencePipeline:
         if self._pipeline is None or self.status != "ready":

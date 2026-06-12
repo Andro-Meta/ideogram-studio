@@ -2,13 +2,17 @@ import { useCallback, useEffect, useState } from "react"
 import {
   Hand, Square, Circle, Lasso, Brush, Wand2, Undo2, Redo2,
   Plus, Trash2, Eye, EyeOff, ChevronUp, ChevronDown, X, Save,
-  Loader2, SquareDashed, FlipHorizontal2, Layers,
+  Loader2, SquareDashed, FlipHorizontal2, Layers, Sparkles,
 } from "lucide-react"
+import { toast } from "sonner"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Slider } from "@/components/ui/slider"
+import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
 import { useSaveEdit } from "@/hooks/useSaveEdit"
+import { useInpaint } from "@/hooks/useInpaint"
+import { useModelStatus } from "@/hooks/useModelStatus"
 import { useEditorEngine } from "./useEditorEngine"
 import { EditorStage } from "./EditorStage"
 import type { Adjustments, ToolId } from "./editorTypes"
@@ -46,8 +50,14 @@ const ADJUSTMENT_SLIDERS: {
  * tune the layer. The canvas preview IS the saved output (client flatten).
  */
 export function EditorDialog({ open, onClose, jobId, imageUrl }: Props) {
-  const engine = useEditorEngine(imageUrl, open)
+  // Editing the live URL lets an AI fill swap the canvas to its result.
+  const [liveUrl, setLiveUrl] = useState(imageUrl)
+  useEffect(() => setLiveUrl(imageUrl), [imageUrl])
+  const engine = useEditorEngine(liveUrl, open)
   const save = useSaveEdit()
+  const inpaint = useInpaint()
+  const { data: modelStatus } = useModelStatus()
+  const canInpaint = modelStatus?.status === "ready" && !!modelStatus?.supports_inpaint
 
   const [tool, setTool] = useState<ToolId>("marquee-rect")
   const [brushSize, setBrushSize] = useState(48)
@@ -56,6 +66,26 @@ export function EditorDialog({ open, onClose, jobId, imageUrl }: Props) {
   const [wandTolerance, setWandTolerance] = useState(32)
   const [feather, setFeather] = useState(4)
   const [zoom, setZoom] = useState(1)
+  const [fillPrompt, setFillPrompt] = useState("")
+
+  const handleInpaint = async () => {
+    if (!engine.selection || !fillPrompt.trim() || inpaint.isPending) return
+    try {
+      const blob = await engine.flatten()
+      inpaint.mutate(
+        { imageBlob: blob, maskCanvas: engine.selection, prompt: fillPrompt.trim(), sourceJobId: jobId },
+        {
+          onSuccess: (res) => {
+            toast.success("Region filled")
+            setLiveUrl(`${res.image_url}?t=${res.job_id}`)   // reload editor with the result
+          },
+        },
+      )
+    } catch (err) {
+      console.error(err)
+      toast.error("Could not prepare the image")
+    }
+  }
 
   // ── keyboard shortcuts ──────────────────────────────────────────────────
   const onKeyDown = useCallback((e: React.KeyboardEvent) => {
@@ -233,6 +263,46 @@ export function EditorDialog({ open, onClose, jobId, imageUrl }: Props) {
               )}
               <LabeledSlider label="Feather (on layer create)" value={feather} min={0} max={50} step={1}
                 fmt={(v) => `${v}px`} onChange={setFeather} />
+            </div>
+
+            {/* AI Region Fill (inpaint) */}
+            <div className="p-3 border-b border-zinc-800 space-y-2">
+              <p className="text-[10px] text-zinc-500 uppercase tracking-wider flex items-center gap-1.5">
+                <Sparkles className="h-3 w-3 text-violet-400" />
+                AI Region Fill
+              </p>
+              {canInpaint ? (
+                <>
+                  <Textarea
+                    value={fillPrompt}
+                    onChange={(e) => setFillPrompt(e.target.value)}
+                    placeholder="Describe what to put in the selected area…"
+                    rows={3}
+                    disabled={inpaint.isPending}
+                    className="bg-zinc-800 border-zinc-700 text-zinc-100 text-sm resize-none"
+                  />
+                  <Button
+                    className="w-full bg-violet-600 hover:bg-violet-500 text-white gap-2 disabled:opacity-40"
+                    disabled={!engine.hasSelection || !fillPrompt.trim() || inpaint.isPending}
+                    onClick={handleInpaint}
+                    title={!engine.hasSelection ? "Make a selection first" : "Regenerate the selected area"}
+                  >
+                    {inpaint.isPending
+                      ? <><Loader2 className="h-4 w-4 animate-spin" /> Filling… (~30-60s)</>
+                      : <><Sparkles className="h-4 w-4" /> Generate Fill</>}
+                  </Button>
+                  <p className="text-[11px] text-zinc-600 leading-relaxed">
+                    {engine.hasSelection
+                      ? "Regenerates only the selected pixels from your prompt; the rest of the image is kept exactly."
+                      : "Select an area first (rectangle, lasso, brush…), then describe what goes there."}
+                  </p>
+                </>
+              ) : (
+                <p className="text-[11px] text-zinc-600 leading-relaxed">
+                  AI fill needs a diffusers model in memory. Load <span className="text-zinc-400">NF4·D</span> or
+                  BF16 on the Generate tab, then come back.
+                </p>
+              )}
             </div>
 
             {/* Layers */}

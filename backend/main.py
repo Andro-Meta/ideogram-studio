@@ -36,6 +36,7 @@ import style_fuse
 from schemas import (
     EditSaveRequest,
     EditResponse,
+    InpaintRequest,
     ImportImageRequest,
     GalleryItem,
     GalleryListResponse,
@@ -307,6 +308,7 @@ async def model_status(request: Request):
         error=pm.error,
         progress_message=pm.progress_message,
         download_pct=pm.download_pct,
+        supports_inpaint=pm.supports_inpaint,
     )
 
 
@@ -977,6 +979,72 @@ async def import_image_endpoint(request: Request, body: ImportImageRequest):
     return EditResponse(
         job_id=new_id, image_url=f"/outputs/{out_name}", width=w, height=h
     )
+
+
+def _decode_b64_to_pil(image_b64: str, mode: str = "RGB"):
+    """base64 → PIL in the requested mode. For a mask, an alpha channel (if
+    present) is used as the selection, else the luminance."""
+    import base64, io
+    from PIL import Image
+    img = Image.open(io.BytesIO(base64.b64decode(image_b64, validate=True)))
+    img.load()
+    if img.width > 8192 or img.height > 8192:
+        raise ValueError(f"image too large: {img.width}x{img.height}")
+    if mode == "L" and img.mode in ("RGBA", "LA"):
+        return img.getchannel("A")
+    return img.convert(mode)
+
+
+@app.post("/api/edit/inpaint", response_model=EditResponse)
+async def inpaint_endpoint(request: Request, body: InpaintRequest):
+    """AI region fill — regenerate the masked area from a prompt, keep the rest."""
+    import uuid as _uuid
+
+    pm: PipelineManager = request.app.state.pipeline
+    if pm.status != "ready":
+        raise HTTPException(409, "Load a model first (the editor needs the model in memory).")
+    if not pm.supports_inpaint:
+        raise HTTPException(
+            409,
+            f"AI region fill needs a diffusers model. The {pm.variant or 'current'} variant "
+            "can't inpaint — switch to NF4·D or BF16 and reload.",
+        )
+
+    loop = asyncio.get_running_loop()
+    try:
+        image = await loop.run_in_executor(None, lambda: _decode_b64_to_pil(body.image_b64, "RGB"))
+        mask = await loop.run_in_executor(None, lambda: _decode_b64_to_pil(body.mask_b64, "L"))
+    except Exception as exc:
+        raise HTTPException(400, f"Invalid image data: {exc}") from exc
+
+    settings = GenerationSettings(
+        height=image.height, width=image.width,
+        sampler_preset=body.sampler_preset, seed=body.seed,
+        raise_on_caption_issues=False,
+    )
+
+    def _run():
+        return pm.inpaint(image, mask, body.prompt, settings)
+
+    try:
+        out_img, _seed = await loop.run_in_executor(_inference_executor, _run)
+    except Exception as exc:
+        logger.exception("Inpaint failed")
+        raise HTTPException(500, f"AI region fill failed: {exc}") from exc
+
+    db = request.app.state.db
+    new_id = str(_uuid.uuid4())
+    out_name = f"{new_id}.png"
+    out_img.convert("RGB").save(str(OUTPUTS_DIR / out_name), format="PNG")
+    w, h = out_img.size
+
+    source = await gallery_service.get_job(db, body.source_job_id) if body.source_job_id else None
+    if source and source.get("image_path"):
+        await gallery_service.insert_derived(db, source=source, new_id=new_id, image_path=out_name, width=w, height=h)
+    else:
+        await gallery_service.insert_imported(db, new_id=new_id, image_path=out_name, width=w, height=h, label="AI region fill")
+    logger.info("Inpaint -> %s (%dx%d)", new_id, w, h)
+    return EditResponse(job_id=new_id, image_url=f"/outputs/{out_name}", width=w, height=h)
 
 
 @app.post("/api/edit/save", response_model=EditResponse)

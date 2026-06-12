@@ -69,6 +69,7 @@ export interface ModelStatusResponse {
   error: string | null
   progress_message: string | null
   download_pct: number | null
+  supports_inpaint?: boolean
 }
 
 // ── System / hardware report ─────────────────────────────────────────────────

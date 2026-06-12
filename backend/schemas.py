@@ -175,6 +175,7 @@ class ModelStatusResponse(BaseModel):
     error: str | None = None
     progress_message: str | None = None
     download_pct: float | None = None
+    supports_inpaint: bool = False   # AI region fill (diffusers pipelines only)
 
 
 class ModelLoadRequest(BaseModel):
@@ -238,6 +239,30 @@ class EditSaveRequest(BaseModel):
         if len(v) > 96_000_000:
             raise ValueError("image too large")
         return v
+
+
+class InpaintRequest(BaseModel):
+    """AI region fill: regenerate the masked area of an image from a prompt."""
+    image_b64: str                     # current canvas, base64 PNG (no prefix)
+    mask_b64: str                      # base64 PNG; white/opaque = regenerate
+    prompt: str
+    sampler_preset: Literal["V4_TURBO_12", "V4_DEFAULT_20", "V4_QUALITY_48"] = "V4_DEFAULT_20"
+    seed: int | None = None
+    source_job_id: str | None = None   # for gallery lineage (optional)
+
+    @field_validator("image_b64", "mask_b64")
+    @classmethod
+    def image_must_be_reasonable(cls, v: str) -> str:
+        if len(v) > 96_000_000:
+            raise ValueError("image too large")
+        return v
+
+    @field_validator("prompt")
+    @classmethod
+    def prompt_not_empty(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("prompt is required")
+        return v.strip()
 
 
 class EditResponse(BaseModel):
