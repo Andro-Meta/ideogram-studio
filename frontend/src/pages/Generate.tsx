@@ -2,8 +2,12 @@ import { useEffect, useState } from "react"
 import { Link } from "react-router-dom"
 import {
   Zap, Square, RotateCcw, AlertTriangle, Loader2, Power,
-  ArrowUpCircle, Layers, Copy, Brush, LayoutGrid, X,
+  ArrowUpCircle, Layers, Copy, Brush, LayoutGrid, X, Info,
 } from "lucide-react"
+import {
+  Popover, PopoverTrigger, PopoverContent,
+  PopoverHeader, PopoverTitle, PopoverDescription,
+} from "@/components/ui/popover"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
@@ -469,34 +473,75 @@ export function Generate() {
 
           {/* Variations launch row — only when not running */}
           {!isRunning && !batch.isRunning && (
-            <div className="flex items-center gap-2 pt-0.5">
-              <span className="text-[10px] text-zinc-600 shrink-0">Variations:</span>
-              {([2, 4, 8] as const).map((n) => (
-                <button
-                  key={n}
-                  type="button"
-                  onClick={() => useSettingsStore.getState().setVariationCount(n)}
-                  className={cn(
-                    "text-[10px] w-6 h-5 rounded border transition-all",
-                    variationCount === n
-                      ? "border-violet-500/50 text-violet-400 bg-violet-500/10"
-                      : "border-zinc-700 text-zinc-600 hover:border-zinc-600 hover:text-zinc-400",
-                  )}
+            <div className="space-y-1 pt-0.5">
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] text-zinc-600 shrink-0">Variations:</span>
+
+                {/* In-tool explanation of what Variations does */}
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <button
+                      type="button"
+                      aria-label="What are variations?"
+                      className="text-zinc-600 hover:text-violet-300 transition-colors"
+                    >
+                      <Info className="h-3 w-3" />
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent align="start" className="w-72 bg-zinc-900 border-zinc-700 text-zinc-300">
+                    <PopoverHeader>
+                      <PopoverTitle className="text-zinc-100 text-sm flex items-center gap-1.5">
+                        <Layers className="h-3.5 w-3.5 text-violet-400" />
+                        Variations
+                      </PopoverTitle>
+                      <PopoverDescription className="text-zinc-400 text-xs leading-relaxed">
+                        Renders several takes on the <span className="text-zinc-200">same prompt and settings</span>,
+                        each with a <span className="text-zinc-200">different random seed</span> — so you get a
+                        spread of options to choose from instead of just one.
+                      </PopoverDescription>
+                    </PopoverHeader>
+                    <ul className="mt-2 space-y-1.5 text-xs text-zinc-400">
+                      <li>• Pick <span className="text-zinc-200">2 / 4 / 8</span> for how many to make, then press <span className="text-zinc-200">Run</span>.</li>
+                      <li>• They render <span className="text-zinc-200">one at a time</span> — 8 takes ≈ 8× a single image's time.</li>
+                      <li>• Click any result to make it the <span className="text-zinc-200">main image</span> (then upscale or edit it).</li>
+                      <li>• Different from <span className="text-zinc-200">Generate</span>, which makes a single image using your seed setting.</li>
+                    </ul>
+                  </PopoverContent>
+                </Popover>
+
+                {([2, 4, 8] as const).map((n) => (
+                  <button
+                    key={n}
+                    type="button"
+                    onClick={() => useSettingsStore.getState().setVariationCount(n)}
+                    title={`Make ${n} versions of this prompt, each with a different seed`}
+                    className={cn(
+                      "text-[10px] w-6 h-5 rounded border transition-all",
+                      variationCount === n
+                        ? "border-violet-500/50 text-violet-400 bg-violet-500/10"
+                        : "border-zinc-700 text-zinc-600 hover:border-zinc-600 hover:text-zinc-400",
+                    )}
+                  >
+                    {n}
+                  </button>
+                ))}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="ml-auto h-6 px-2 text-[10px] border-zinc-700 bg-zinc-800/60 hover:bg-zinc-700 text-zinc-400 gap-1.5 disabled:opacity-40"
+                  onClick={handleVariations}
+                  disabled={!canGenerate}
+                  title={canGenerate
+                    ? `Render ${variationCount} versions of this prompt, each with a different seed`
+                    : "Describe your image first"}
                 >
-                  {n}
-                </button>
-              ))}
-              <Button
-                variant="outline"
-                size="sm"
-                className="ml-auto h-6 px-2 text-[10px] border-zinc-700 bg-zinc-800/60 hover:bg-zinc-700 text-zinc-400 gap-1.5 disabled:opacity-40"
-                onClick={handleVariations}
-                disabled={!canGenerate}
-                title={canGenerate ? `Generate ${variationCount} variations` : "Describe your image first"}
-              >
-                <Layers className="h-3 w-3" />
-                Run
-              </Button>
+                  <Layers className="h-3 w-3" />
+                  Run
+                </Button>
+              </div>
+              <p className="text-[10px] text-zinc-600">
+                Same prompt, {variationCount} different seeds — pick your favorite.
+              </p>
             </div>
           )}
 
