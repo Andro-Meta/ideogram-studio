@@ -19,8 +19,8 @@ export function VariationsGrid({ results, current, total, isRunning, onSelect, o
       <div className="flex items-center justify-between px-0.5">
         <p className="text-[11px] text-zinc-400">
           {isRunning
-            ? `Generating variation ${current} / ${total}…`
-            : `${results.length} variation${results.length !== 1 ? "s" : ""} — click to use`}
+            ? `Generating image ${current} / ${total}…`
+            : `${results.length} image${results.length !== 1 ? "s" : ""} — click to use`}
         </p>
         <div className="flex gap-2">
           {isRunning && (
@@ -55,7 +55,7 @@ export function VariationsGrid({ results, current, total, isRunning, onSelect, o
           >
             <img
               src={r.imageUrl}
-              alt={`Variation seed ${r.seed}`}
+              alt={`Batch image seed ${r.seed}`}
               className="w-full h-auto block"
             />
             {/* Hover overlay */}

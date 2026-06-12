@@ -2,6 +2,12 @@ import { create } from "zustand"
 import { persist } from "zustand/middleware"
 import type { ModelVariant, SamplerPreset } from "@/types/caption"
 
+export const MIN_BATCH = 1
+export const MAX_BATCH = 12
+
+const clampBatch = (n: number) =>
+  Math.max(MIN_BATCH, Math.min(MAX_BATCH, Math.round(n) || MIN_BATCH))
+
 interface SettingsStore {
   // Generation defaults (persisted in localStorage)
   modelVariant: ModelVariant
@@ -10,7 +16,8 @@ interface SettingsStore {
   height: number
   fixedSeed: boolean
   seed: number
-  variationCount: 2 | 4 | 8
+  /** How many images one Batch run produces (each with a different seed). */
+  batchCount: number
   /** Layout canvas is opt-in — most generations never pin elements. */
   canvasOpen: boolean
 
@@ -21,7 +28,7 @@ interface SettingsStore {
   setFixedSeed: (v: boolean) => void
   setSeed: (v: number) => void
   randomizeSeed: () => void
-  setVariationCount: (v: 2 | 4 | 8) => void
+  setBatchCount: (v: number) => void
 }
 
 export const useSettingsStore = create<SettingsStore>()(
@@ -35,7 +42,7 @@ export const useSettingsStore = create<SettingsStore>()(
       height: 1024,
       fixedSeed: false,
       seed: 42,
-      variationCount: 4,
+      batchCount: 4,
       canvasOpen: false,
 
       setModelVariant: (v) => set({ modelVariant: v }),
@@ -46,17 +53,21 @@ export const useSettingsStore = create<SettingsStore>()(
       setSeed: (v) => set({ seed: v }),
       randomizeSeed: () =>
         set({ seed: Math.floor(Math.random() * 2 ** 32) }),
-      setVariationCount: (v) => set({ variationCount: v }),
+      setBatchCount: (v) => set({ batchCount: clampBatch(v) }),
     }),
     {
       name: "ideogram-studio-settings",
-      version: 1,
-      // v0 shipped with fp8 as the default — migrate stored settings to nf4
-      // so existing installs don't keep trying to load the datacenter variant.
+      version: 2,
       migrate: (persisted, version) => {
-        const state = persisted as Partial<SettingsStore>
+        const state = persisted as Partial<SettingsStore> & { variationCount?: number }
+        // v0 shipped with fp8 as the default — migrate to nf4.
         if (version < 1 && state.modelVariant === "fp8") {
           state.modelVariant = "nf4"
+        }
+        // v2 renamed variationCount → batchCount and widened the range.
+        if (version < 2) {
+          state.batchCount = clampBatch(state.variationCount ?? 4)
+          delete state.variationCount
         }
         return state as SettingsStore
       },

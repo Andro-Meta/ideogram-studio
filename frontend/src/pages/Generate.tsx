@@ -2,7 +2,7 @@ import { useEffect, useState } from "react"
 import { Link } from "react-router-dom"
 import {
   Zap, Square, RotateCcw, AlertTriangle, Loader2, Power,
-  ArrowUpCircle, Layers, Copy, Brush, LayoutGrid, X, Info,
+  ArrowUpCircle, Layers, Copy, Brush, LayoutGrid, X, Info, Minus, Plus,
 } from "lucide-react"
 import {
   Popover, PopoverTrigger, PopoverContent,
@@ -27,7 +27,7 @@ import { ResolutionPicker } from "@/components/controls/ResolutionPicker"
 import { SeedControl } from "@/components/controls/SeedControl"
 import { VariationsGrid } from "@/components/variations/VariationsGrid"
 import { usePromptStore } from "@/stores/promptStore"
-import { useSettingsStore } from "@/stores/settingsStore"
+import { useSettingsStore, MIN_BATCH, MAX_BATCH } from "@/stores/settingsStore"
 import { useGenerationStore } from "@/stores/generationStore"
 import { useGenerate } from "@/hooks/useGenerate"
 import { useModelStatus, useLoadModel } from "@/hooks/useModelStatus"
@@ -200,8 +200,8 @@ function UpscaleStrip({ jobId, onUpscaled }: UpscaleStripProps) {
 export function Generate() {
   const promptState = usePromptStore()
   const {
-    modelVariant, samplerPreset, width, height, fixedSeed, seed, variationCount,
-    canvasOpen, setCanvasOpen,
+    modelVariant, samplerPreset, width, height, fixedSeed, seed, batchCount,
+    setBatchCount, canvasOpen, setCanvasOpen,
   } = useSettingsStore()
   const { status, progress, resultImageUrl, resultSeed, resultDurationMs, errorMessage, jobId } =
     useGenerationStore()
@@ -265,8 +265,8 @@ export function Generate() {
     generate(buildReq())
   }
 
-  const handleVariations = () => {
-    batch.run(buildReq(), variationCount)
+  const handleBatch = () => {
+    batch.run(buildReq(), batchCount)
   }
 
   const handleSelectVariation = (r: VariationResult) => {
@@ -403,17 +403,32 @@ export function Generate() {
             </div>
           )}
 
-          {/* Batch progress */}
+          {/* Batch progress — surfaces model-loading status and per-image steps */}
           {batch.isRunning && (
             <div className="space-y-1.5">
               <div className="flex justify-between text-[10px] text-zinc-500">
                 <span className="flex items-center gap-1.5">
                   <Layers className="h-3 w-3" />
-                  Variation {batch.current} / {batch.total}
+                  Image {batch.current} / {batch.total}
+                </span>
+                <span>
+                  {batch.note
+                    ? batch.note
+                    : batch.stepTotal
+                      ? `${batch.step} / ${batch.stepTotal} steps`
+                      : "starting…"}
                 </span>
               </div>
               <Progress
-                value={Math.round(((batch.current - 1) / batch.total) * 100)}
+                value={
+                  // Blend finished images with the current image's step progress
+                  // so the bar always moves while a batch runs.
+                  batch.stepTotal
+                    ? Math.round(
+                        ((batch.current - 1 + batch.step / batch.stepTotal) / batch.total) * 100,
+                      )
+                    : Math.round(((batch.current - 1) / batch.total) * 100)
+                }
                 className="h-1.5 bg-zinc-700"
               />
             </div>
@@ -437,7 +452,7 @@ export function Generate() {
                 onClick={batch.cancel}
               >
                 <Square className="h-4 w-4" />
-                Stop Variations
+                Stop batch
               </Button>
             ) : (
               <>
@@ -471,18 +486,18 @@ export function Generate() {
             )}
           </div>
 
-          {/* Variations launch row — only when not running */}
+          {/* Batch launch row — only when not running */}
           {!isRunning && !batch.isRunning && (
             <div className="space-y-1 pt-0.5">
               <div className="flex items-center gap-2">
-                <span className="text-[10px] text-zinc-600 shrink-0">Variations:</span>
+                <span className="text-[10px] text-zinc-600 shrink-0">Batch:</span>
 
-                {/* In-tool explanation of what Variations does */}
+                {/* In-tool explanation of what Batch does */}
                 <Popover>
                   <PopoverTrigger asChild>
                     <button
                       type="button"
-                      aria-label="What are variations?"
+                      aria-label="What is batch generation?"
                       className="text-zinc-600 hover:text-violet-300 transition-colors"
                     >
                       <Info className="h-3 w-3" />
@@ -492,47 +507,62 @@ export function Generate() {
                     <PopoverHeader>
                       <PopoverTitle className="text-zinc-100 text-sm flex items-center gap-1.5">
                         <Layers className="h-3.5 w-3.5 text-violet-400" />
-                        Variations
+                        Batch
                       </PopoverTitle>
                       <PopoverDescription className="text-zinc-400 text-xs leading-relaxed">
-                        Renders several takes on the <span className="text-zinc-200">same prompt and settings</span>,
+                        Renders several images from the <span className="text-zinc-200">same prompt and settings</span>,
                         each with a <span className="text-zinc-200">different random seed</span> — so you get a
                         spread of options to choose from instead of just one.
                       </PopoverDescription>
                     </PopoverHeader>
                     <ul className="mt-2 space-y-1.5 text-xs text-zinc-400">
-                      <li>• Pick <span className="text-zinc-200">2 / 4 / 8</span> for how many to make, then press <span className="text-zinc-200">Run</span>.</li>
-                      <li>• They render <span className="text-zinc-200">one at a time</span> — 8 takes ≈ 8× a single image's time.</li>
+                      <li>• Set <span className="text-zinc-200">how many</span> (1–{MAX_BATCH}) with the stepper, then press <span className="text-zinc-200">Run</span>.</li>
+                      <li>• They render <span className="text-zinc-200">one at a time</span> — N images ≈ N× a single image's time.</li>
                       <li>• Click any result to make it the <span className="text-zinc-200">main image</span> (then upscale or edit it).</li>
                       <li>• Different from <span className="text-zinc-200">Generate</span>, which makes a single image using your seed setting.</li>
                     </ul>
                   </PopoverContent>
                 </Popover>
 
-                {([2, 4, 8] as const).map((n) => (
+                {/* Flexible count stepper — any value from 1 to MAX_BATCH */}
+                <div className="flex items-center rounded border border-zinc-700 overflow-hidden">
                   <button
-                    key={n}
                     type="button"
-                    onClick={() => useSettingsStore.getState().setVariationCount(n)}
-                    title={`Make ${n} versions of this prompt, each with a different seed`}
-                    className={cn(
-                      "text-[10px] w-6 h-5 rounded border transition-all",
-                      variationCount === n
-                        ? "border-violet-500/50 text-violet-400 bg-violet-500/10"
-                        : "border-zinc-700 text-zinc-600 hover:border-zinc-600 hover:text-zinc-400",
-                    )}
+                    onClick={() => setBatchCount(batchCount - 1)}
+                    disabled={batchCount <= MIN_BATCH}
+                    title="Fewer"
+                    className="w-5 h-5 flex items-center justify-center text-zinc-500 hover:text-violet-300 hover:bg-zinc-800 disabled:opacity-30 disabled:hover:text-zinc-500 transition-colors"
                   >
-                    {n}
+                    <Minus className="h-3 w-3" />
                   </button>
-                ))}
+                  <input
+                    type="number"
+                    min={MIN_BATCH}
+                    max={MAX_BATCH}
+                    value={batchCount}
+                    onChange={(e) => setBatchCount(Number(e.target.value))}
+                    className="w-8 h-5 bg-zinc-900 text-center text-[10px] text-violet-300 outline-none border-x border-zinc-700 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
+                    aria-label="Batch size"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setBatchCount(batchCount + 1)}
+                    disabled={batchCount >= MAX_BATCH}
+                    title="More"
+                    className="w-5 h-5 flex items-center justify-center text-zinc-500 hover:text-violet-300 hover:bg-zinc-800 disabled:opacity-30 disabled:hover:text-zinc-500 transition-colors"
+                  >
+                    <Plus className="h-3 w-3" />
+                  </button>
+                </div>
+
                 <Button
                   variant="outline"
                   size="sm"
                   className="ml-auto h-6 px-2 text-[10px] border-zinc-700 bg-zinc-800/60 hover:bg-zinc-700 text-zinc-400 gap-1.5 disabled:opacity-40"
-                  onClick={handleVariations}
+                  onClick={handleBatch}
                   disabled={!canGenerate}
                   title={canGenerate
-                    ? `Render ${variationCount} versions of this prompt, each with a different seed`
+                    ? `Render ${batchCount} image${batchCount !== 1 ? "s" : ""} from this prompt, each with a different seed`
                     : "Describe your image first"}
                 >
                   <Layers className="h-3 w-3" />
@@ -540,7 +570,7 @@ export function Generate() {
                 </Button>
               </div>
               <p className="text-[10px] text-zinc-600">
-                Same prompt, {variationCount} different seeds — pick your favorite.
+                Same prompt, {batchCount} different seed{batchCount !== 1 ? "s" : ""} — pick your favorite.
               </p>
             </div>
           )}
@@ -652,7 +682,7 @@ export function Generate() {
               <div className="flex items-center gap-3 px-1 flex-wrap">
                 <span className="text-xs text-zinc-500 font-mono">Seed: {selectedVariation.seed}</span>
                 <span className="text-xs text-zinc-500">{(selectedVariation.durationMs / 1000).toFixed(1)}s</span>
-                <span className="text-xs text-violet-400/70">variation selected</span>
+                <span className="text-xs text-violet-400/70">batch image selected</span>
                 <button
                   type="button"
                   onClick={() => setSelectedVariation(null)}
