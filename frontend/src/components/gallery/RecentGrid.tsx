@@ -1,7 +1,8 @@
 import { useState } from "react"
 import { Link } from "react-router-dom"
-import { Images, Brush } from "lucide-react"
-import { useGallery } from "@/hooks/useGallery"
+import { Images, Brush, Trash2, Check } from "lucide-react"
+import { cn } from "@/lib/utils"
+import { useGallery, useDeleteGalleryItem } from "@/hooks/useGallery"
 import { Lightbox } from "@/components/lightbox/Lightbox"
 import type { GalleryItem } from "@/types/gallery"
 
@@ -16,7 +17,9 @@ function itemUrl(item: GalleryItem): string {
  */
 export function RecentGrid() {
   const { data } = useGallery(1)
+  const del = useDeleteGalleryItem()
   const [viewing, setViewing] = useState<GalleryItem | null>(null)
+  const [confirmId, setConfirmId] = useState<string | null>(null)
 
   const items = (data?.items ?? []).filter((i) => i.image_path)
 
@@ -66,6 +69,24 @@ export function RecentGrid() {
             >
               <Brush className="h-3.5 w-3.5" />
             </Link>
+            {/* Delete — two-click confirm (permanent: removes the file) */}
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation()
+                if (confirmId === item.id) { del.mutate(item.id); setConfirmId(null) }
+                else { setConfirmId(item.id); setTimeout(() => setConfirmId((c) => c === item.id ? null : c), 3000) }
+              }}
+              title={confirmId === item.id ? "Click again to permanently delete" : "Delete"}
+              className={cn(
+                "absolute top-1.5 right-1.5 p-1.5 rounded-md transition-all text-white",
+                confirmId === item.id
+                  ? "opacity-100 bg-red-600 ring-2 ring-red-400/60"
+                  : "opacity-0 group-hover:opacity-100 bg-zinc-900/85 hover:bg-red-500/80",
+              )}
+            >
+              {confirmId === item.id ? <Check className="h-3.5 w-3.5" /> : <Trash2 className="h-3.5 w-3.5" />}
+            </button>
             {item.seed != null && (
               <span className="absolute bottom-1.5 left-1.5 text-[9px] font-mono text-zinc-300 bg-zinc-900/85 rounded px-1 py-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
                 #{item.seed}

@@ -31,6 +31,7 @@ export function GalleryDetail({ itemId, onClose, position, count, onPrev, onNext
   const loadFromParsed = usePromptStore((s) => s.loadFromParsed)
   const navigate = useNavigate()
   const [editorOpen, setEditorOpen] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
 
   // Arrow keys flip between images while the viewer is open (like ideogram.ai)
   useEffect(() => {
@@ -124,6 +125,11 @@ export function GalleryDetail({ itemId, onClose, position, count, onPrev, onNext
   }
 
   const handleDelete = () => {
+    if (!confirmDelete) {
+      setConfirmDelete(true)
+      setTimeout(() => setConfirmDelete(false), 3000)
+      return
+    }
     deleteMutation.mutate(item.id, {
       onSuccess: () => onClose(),
     })
@@ -308,11 +314,16 @@ export function GalleryDetail({ itemId, onClose, position, count, onPrev, onNext
               )}
               <Button
                 variant="outline"
-                className="w-full border-red-900 bg-transparent hover:bg-red-500/10 text-red-400 text-xs h-8 gap-1.5"
+                className={cn(
+                  "w-full text-xs h-8 gap-1.5",
+                  confirmDelete
+                    ? "border-red-500 bg-red-600/90 hover:bg-red-600 text-white"
+                    : "border-red-900 bg-transparent hover:bg-red-500/10 text-red-400",
+                )}
                 onClick={handleDelete}
               >
                 <Trash2 className="h-3.5 w-3.5" />
-                Delete
+                {confirmDelete ? "Click again — permanent" : "Delete"}
               </Button>
             </div>
           </div>
