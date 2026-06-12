@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { Trash2, Clock, Hash, ImageOff, Heart, Check } from "lucide-react"
+import { Trash2, Clock, Hash, ImageOff, Heart } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useToggleFavorite } from "@/hooks/useGallery"
 import type { GalleryItem } from "@/types/gallery"
@@ -13,7 +13,6 @@ interface Props {
 export function GalleryCard({ item, onOpen, onDelete }: Props) {
   const [hovered, setHovered] = useState(false)
   const [broken, setBroken] = useState(false)
-  const [confirmDelete, setConfirmDelete] = useState(false)
   const toggleFavorite = useToggleFavorite()
   const imageUrl = item.image_path ? `/outputs/${item.image_path}` : null
   const durationSec = item.duration_ms ? (item.duration_ms / 1000).toFixed(1) : null
@@ -39,7 +38,7 @@ export function GalleryCard({ item, onOpen, onDelete }: Props) {
       )}
       title={promptSnippet ?? undefined}
       onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => { setHovered(false); setConfirmDelete(false) }}
+      onMouseLeave={() => setHovered(false)}
       onClick={() => onOpen(item.id)}
     >
       {/* Thumbnail */}
@@ -77,22 +76,13 @@ export function GalleryCard({ item, onOpen, onDelete }: Props) {
         {preset && <span className="ml-auto">{preset}</span>}
       </div>
 
-      {/* Delete overlay button — two-click confirm (permanent: removes the file) */}
+      {/* Delete — one click, with a 5s Undo toast */}
       <button
-        className={cn(
-          "absolute top-1.5 right-1.5 transition-all text-white rounded p-1",
-          confirmDelete
-            ? "opacity-100 bg-red-600 ring-2 ring-red-400/60"
-            : "opacity-0 group-hover:opacity-100 bg-black/60 hover:bg-red-500/80",
-        )}
-        onClick={(e) => {
-          e.stopPropagation()
-          if (confirmDelete) { onDelete(item.id); setConfirmDelete(false) }
-          else { setConfirmDelete(true); setTimeout(() => setConfirmDelete(false), 3000) }
-        }}
-        title={confirmDelete ? "Click again to permanently delete" : "Delete"}
+        className="absolute top-1.5 right-1.5 opacity-0 group-hover:opacity-100 transition-opacity bg-black/60 hover:bg-red-500/80 text-white rounded p-1"
+        onClick={(e) => { e.stopPropagation(); onDelete(item.id) }}
+        title="Delete (Undo available for 5s)"
       >
-        {confirmDelete ? <Check className="h-3.5 w-3.5" /> : <Trash2 className="h-3.5 w-3.5" />}
+        <Trash2 className="h-3.5 w-3.5" />
       </button>
 
       {/* Favorite toggle */}

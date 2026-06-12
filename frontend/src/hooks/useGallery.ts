@@ -1,3 +1,4 @@
+import { useCallback, useRef } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 import type { GalleryItem, GalleryListResponse } from "@/types/gallery"
@@ -66,14 +67,44 @@ export function useGalleryItem(id: string | null) {
   })
 }
 
+const UNDO_MS = 5000
+
+/**
+ * One-click delete with a 5s Undo. The item vanishes immediately
+ * (optimistic), but the real DELETE (which removes the file from disk) is
+ * deferred until the undo window passes — so "Undo" truly restores it and an
+ * accident is recoverable, while a deliberate delete needs only one click.
+ */
 export function useDeleteGalleryItem() {
   const qc = useQueryClient()
-  return useMutation({
-    mutationFn: deleteGalleryItem,
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["gallery"] })
-      toast.success("Deleted")
-    },
-    onError: () => toast.error("Delete failed"),
-  })
+  const pending = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
+
+  const undo = useCallback((id: string) => {
+    const t = pending.current.get(id)
+    if (t) { clearTimeout(t); pending.current.delete(id) }
+    qc.invalidateQueries({ queryKey: ["gallery"] })   // still in the DB → reappears
+  }, [qc])
+
+  const remove = useCallback((id: string) => {
+    // Optimistically drop it from every cached gallery page.
+    qc.setQueriesData<GalleryListResponse>({ queryKey: ["gallery"] }, (old) =>
+      old ? { ...old, items: old.items.filter((i) => i.id !== id), total: Math.max(0, old.total - 1) } : old,
+    )
+    const t = setTimeout(async () => {
+      pending.current.delete(id)
+      try {
+        await deleteGalleryItem(id)
+      } catch {
+        toast.error("Delete failed")
+        qc.invalidateQueries({ queryKey: ["gallery"] })
+      }
+    }, UNDO_MS)
+    pending.current.set(id, t)
+    toast("Image deleted", {
+      action: { label: "Undo", onClick: () => undo(id) },
+      duration: UNDO_MS,
+    })
+  }, [qc, undo])
+
+  return { remove, undo }
 }

@@ -69,7 +69,7 @@ export function GalleryGrid({
             key={item.id}
             item={item}
             onOpen={setSelectedId}
-            onDelete={(id) => deleteMutation.mutate(id)}
+            onDelete={(id) => deleteMutation.remove(id)}
           />
         ))}
       </div>
