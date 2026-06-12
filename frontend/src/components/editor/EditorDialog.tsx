@@ -67,18 +67,30 @@ export function EditorDialog({ open, onClose, jobId, imageUrl }: Props) {
   const [feather, setFeather] = useState(4)
   const [zoom, setZoom] = useState(1)
   const [fillPrompt, setFillPrompt] = useState("")
-  const [fillStrength, setFillStrength] = useState(0.75)
+  const [fillStrength, setFillStrength] = useState(0.6)
 
   const handleInpaint = async () => {
-    if (!engine.selection || !fillPrompt.trim() || inpaint.isPending) return
+    if (!fillPrompt.trim() || inpaint.isPending || !engine.base) return
+    // With a selection → Magic Fill that region. Without → Remix the whole
+    // image (a full-white mask makes the entire image editable).
+    let maskCanvas = engine.selection
+    if (!maskCanvas) {
+      maskCanvas = document.createElement("canvas")
+      maskCanvas.width = engine.base.width
+      maskCanvas.height = engine.base.height
+      const c = maskCanvas.getContext("2d")!
+      c.fillStyle = "#ffffff"
+      c.fillRect(0, 0, maskCanvas.width, maskCanvas.height)
+    }
+    const whole = !engine.selection
     try {
       const blob = await engine.flatten()
       inpaint.mutate(
-        { imageBlob: blob, maskCanvas: engine.selection, prompt: fillPrompt.trim(),
+        { imageBlob: blob, maskCanvas, prompt: fillPrompt.trim(),
           strength: fillStrength, sourceJobId: jobId },
         {
           onSuccess: (res) => {
-            toast.success("Region filled")
+            toast.success(whole ? "Image remixed" : "Region filled")
             setLiveUrl(`${res.image_url}?t=${res.job_id}`)   // reload editor with the result
           },
         },
@@ -267,18 +279,23 @@ export function EditorDialog({ open, onClose, jobId, imageUrl }: Props) {
                 fmt={(v) => `${v}px`} onChange={setFeather} />
             </div>
 
-            {/* AI Region Fill (inpaint) */}
+            {/* AI Edit: Magic Fill (with a selection) or Remix (whole image) */}
             <div className="p-3 border-b border-zinc-800 space-y-2">
               <p className="text-[10px] text-zinc-500 uppercase tracking-wider flex items-center gap-1.5">
                 <Sparkles className="h-3 w-3 text-violet-400" />
-                AI Region Fill
+                AI Edit
+                <span className="ml-auto normal-case tracking-normal text-zinc-600">
+                  {engine.hasSelection ? "Magic Fill · selection" : "Remix · whole image"}
+                </span>
               </p>
               {canInpaint ? (
                 <>
                   <Textarea
                     value={fillPrompt}
                     onChange={(e) => setFillPrompt(e.target.value)}
-                    placeholder="Describe what to put in the selected area…"
+                    placeholder={engine.hasSelection
+                      ? "Describe what to put in the selected area…"
+                      : "Describe how to change the whole image…"}
                     rows={3}
                     disabled={inpaint.isPending}
                     className="bg-zinc-800 border-zinc-700 text-zinc-100 text-sm resize-none"
@@ -292,23 +309,26 @@ export function EditorDialog({ open, onClose, jobId, imageUrl }: Props) {
                   />
                   <Button
                     className="w-full bg-violet-600 hover:bg-violet-500 text-white gap-2 disabled:opacity-40"
-                    disabled={!engine.hasSelection || !fillPrompt.trim() || inpaint.isPending}
+                    disabled={!fillPrompt.trim() || inpaint.isPending || !engine.base}
                     onClick={handleInpaint}
-                    title={!engine.hasSelection ? "Make a selection first" : "Regenerate the selected area"}
+                    title={engine.hasSelection ? "Regenerate the selected area" : "Remix the whole image from your prompt"}
                   >
                     {inpaint.isPending
-                      ? <><Loader2 className="h-4 w-4 animate-spin" /> Filling… (~30-60s)</>
-                      : <><Sparkles className="h-4 w-4" /> Generate Fill</>}
+                      ? <><Loader2 className="h-4 w-4 animate-spin" /> Working… (~30-60s)</>
+                      : <><Sparkles className="h-4 w-4" /> {engine.hasSelection ? "Generate Fill" : "Remix Whole Image"}</>}
                   </Button>
                   <p className="text-[11px] text-zinc-600 leading-relaxed">
                     {engine.hasSelection
-                      ? "Only the selection changes; the rest is kept exactly. Change amount: low keeps your original structure and lighting (subtle edit), high regenerates freely — drop it if the fill ignores what's already there. Prompts are auto-structured to reduce refusals, but very graphic ones can still trip the weight-baked card (a decensor LoRA is the only full fix)."
-                      : "Select an area first (rectangle, lasso, brush…), then describe what goes there."}
+                      ? "Magic Fill: only the selection changes; the rest is kept exactly."
+                      : "Remix: no selection, so the whole image is reimagined from your prompt — select an area first if you only want to change part of it."}
+                    {" "}Change amount: low keeps the original composition/lighting (subtle edit),
+                    high reinvents freely. Prompts are auto-structured to reduce refusals, but very
+                    graphic ones can still trip the weight-baked card (a decensor LoRA is the only full fix).
                   </p>
                 </>
               ) : (
                 <p className="text-[11px] text-zinc-600 leading-relaxed">
-                  AI fill needs a diffusers model in memory. Load <span className="text-zinc-400">NF4·D</span> or
+                  AI editing needs a diffusers model in memory. Load <span className="text-zinc-400">NF4·D</span> or
                   BF16 on the Generate tab, then come back.
                 </p>
               )}
