@@ -48,6 +48,8 @@ from schemas import (
     MagicPromptResponse,
     ModelLoadRequest,
     ModelStatusResponse,
+    DescribeImageRequest,
+    DescribeImageResponse,
     LoraApplyRequest,
     LoraInfo,
     LoraListResponse,
@@ -398,6 +400,26 @@ async def magic_prompt_endpoint(request: Request, body: MagicPromptRequest):
         return MagicPromptResponse(caption_json=rebuilt_json, warnings=warnings)
     except Exception as exc:
         raise HTTPException(500, f"Magic Prompt failed: {_openrouter_error_hint(exc)}") from exc
+
+
+@app.post("/api/describe-image", response_model=DescribeImageResponse)
+async def describe_image_endpoint(body: DescribeImageRequest):
+    """Image → prompt: caption an uploaded image into a text-to-image prompt
+    via a free OpenRouter vision model. Needs an OpenRouter inference key."""
+    from magic_prompt_service import describe_image
+    if not app_settings.openrouter_api_key:
+        raise HTTPException(
+            503,
+            "Image → prompt needs an OpenRouter API key (free vision models are used). "
+            "Add a regular inference key in Settings.",
+        )
+    try:
+        prompt = await asyncio.to_thread(describe_image, body.image_b64, app_settings.openrouter_api_key)
+    except Exception as exc:
+        raise HTTPException(502, f"Image → prompt failed: {_openrouter_error_hint(exc)}") from exc
+    if not prompt:
+        raise HTTPException(502, "The vision model returned nothing — try again.")
+    return DescribeImageResponse(prompt=prompt)
 
 
 @app.post("/api/style/fuse", response_model=StyleFuseResponse)

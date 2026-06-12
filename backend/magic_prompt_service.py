@@ -31,6 +31,42 @@ FREE_FALLBACK_MODELS = [
 # Backends that call PAID models regardless of openrouter_model.
 PAID_BACKENDS = {"claude-sonnet-v1", "claude-opus-v1"}
 
+# Free, image-capable models for image → prompt (describe). Capped at 3 for
+# the OpenRouter fallback array; gemma is most descriptive, nemotron-vl most
+# reliable under load.
+FREE_VISION_MODELS = [
+    "google/gemma-4-31b-it:free",
+    "google/gemma-4-26b-a4b-it:free",
+    "nvidia/nemotron-nano-12b-v2-vl:free",
+]
+
+_DESCRIBE_INSTRUCTION = (
+    "Look at this image and write a single, vivid text-to-image prompt that "
+    "would recreate it. One paragraph, no preamble or quotes. Cover the main "
+    "subject(s), the setting/background, the medium and art style (e.g. "
+    "photograph, oil painting, 3D render), the lighting, the colour palette, "
+    "and the overall mood. Be concrete and specific; do not mention that it is "
+    "an image or describe it in the third person."
+)
+
+
+def describe_image(image_b64: str, api_key: str | None) -> str:
+    """Image (base64 PNG/JPEG, no data: prefix) → a text-to-image prompt, via a
+    free OpenRouter vision model with auto-fallback. Raises on HTTP error."""
+    from ideogram4.magic_prompt import openrouter_chat
+    messages = [{
+        "role": "user",
+        "content": [
+            {"type": "text", "text": _DESCRIBE_INSTRUCTION},
+            {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{image_b64}"}},
+        ],
+    }]
+    return openrouter_chat(
+        FREE_VISION_MODELS[0], messages, api_key,
+        temperature=0.7, max_tokens=420, timeout=90.0,
+        extra_body={"models": FREE_VISION_MODELS},
+    ).strip()
+
 
 def coerce_free_model(model: str, free_only: bool) -> str:
     """Under free-only, never let a paid model id through — fall back to the

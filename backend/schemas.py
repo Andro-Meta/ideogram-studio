@@ -82,6 +82,23 @@ class MagicPromptResponse(BaseModel):
     warnings: list[str] = []
 
 
+# ── Describe (image → prompt) ────────────────────────────────────────────────
+
+class DescribeImageRequest(BaseModel):
+    image_b64: str                     # base64 image, no data: prefix
+
+    @field_validator("image_b64")
+    @classmethod
+    def image_must_be_reasonable(cls, v: str) -> str:
+        if len(v) > 96_000_000:
+            raise ValueError("image too large")
+        return v
+
+
+class DescribeImageResponse(BaseModel):
+    prompt: str
+
+
 # ── AI Style Fuse ────────────────────────────────────────────────────────────
 
 class FuseStyleIn(BaseModel):
