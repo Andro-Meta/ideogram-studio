@@ -101,6 +101,7 @@ export interface SettingsResponse {
   has_ideogram_api_key: boolean
   has_openrouter_api_key: boolean
   has_hf_token: boolean
+  auto_structure_prompt: boolean
   safety_moderation_enabled: boolean
   has_hive_text_key: boolean
   has_hive_visual_key: boolean
@@ -112,6 +113,7 @@ export interface SettingsUpdateRequest {
   ideogram_api_key?: string
   openrouter_api_key?: string
   hf_token?: string
+  auto_structure_prompt?: boolean
   safety_moderation_enabled?: boolean
   hive_text_key?: string
   hive_visual_key?: string

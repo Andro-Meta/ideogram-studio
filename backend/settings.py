@@ -41,6 +41,13 @@ class AppSettings(BaseSettings):
     # paid OpenRouter models have no platform rate limits.
     openrouter_model: str = "google/gemini-2.5-flash-lite"
 
+    # Auto-structure: before each generation, expand a sparse prompt into a
+    # full structured-JSON scene via the magic-prompt backend. Ideogram 4
+    # produces its gray "safety filter" refusal far less often on richly
+    # structured JSON than on sparse prompts (a documented community finding),
+    # so this both improves quality and cuts false refusals. Opt-in.
+    auto_structure_prompt: bool = False
+
     # Optional content moderation via Hive (https://thehive.ai). This is the
     # ONLY filter in the stack — there is no local/weight toggle. When OFF
     # (default), prompts and images are never screened. When ON *and* a key

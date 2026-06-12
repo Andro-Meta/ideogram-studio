@@ -125,11 +125,13 @@ export function Settings() {
   const [ideogramKey, setIdeogramKey] = useState("")
   const [openrouterKey, setOpenrouterKey] = useState("")
   const [mpBackend, setMpBackend] = useState<string>("")
+  const [autoStructure, setAutoStructure] = useState<boolean | null>(null)
   const [safetyOn, setSafetyOn] = useState<boolean | null>(null)
   const [hiveText, setHiveText] = useState("")
   const [hiveVisual, setHiveVisual] = useState("")
 
   const effectiveMpBackend = mpBackend || serverSettings?.magic_prompt_backend || "ideogram-4-v1"
+  const effectiveAutoStructure = autoStructure ?? serverSettings?.auto_structure_prompt ?? false
   const effectiveSafety = safetyOn ?? serverSettings?.safety_moderation_enabled ?? false
 
   const handleSave = () => {
@@ -138,6 +140,7 @@ export function Settings() {
     if (ideogramKey)   payload.ideogram_api_key    = ideogramKey
     if (openrouterKey) payload.openrouter_api_key  = openrouterKey
     if (mpBackend)     payload.magic_prompt_backend = mpBackend
+    if (autoStructure !== null) payload.auto_structure_prompt = autoStructure
     if (safetyOn !== null) payload.safety_moderation_enabled = safetyOn
     if (hiveText)      payload.hive_text_key   = hiveText
     if (hiveVisual)    payload.hive_visual_key = hiveVisual
@@ -288,6 +291,22 @@ export function Settings() {
               Captions carry style inside the description prose, so your Style section is left
               untouched. OpenRouter backends need the OpenRouter key above.
             </p>
+
+            <div className="border-t border-zinc-800 pt-3 flex items-start justify-between gap-4">
+              <div className="space-y-0.5">
+                <Label className="text-sm text-zinc-200">Auto-structure prompts</Label>
+                <p className="text-[11px] text-zinc-500">
+                  Before each generation, expand a sparse prompt into a full structured-JSON
+                  scene. Ideogram 4 throws its gray "safety filter" card far less often on
+                  richly structured JSON than on bare prompts — this is the most reliable way to
+                  cut those false refusals. Uses the backend above; your Style settings are kept.
+                </p>
+              </div>
+              <Switch
+                checked={effectiveAutoStructure}
+                onCheckedChange={(v) => setAutoStructure(v)}
+              />
+            </div>
           </div>
         </div>
 

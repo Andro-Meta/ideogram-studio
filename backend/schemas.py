@@ -279,6 +279,7 @@ class SettingsResponse(BaseModel):
     has_ideogram_api_key: bool
     has_openrouter_api_key: bool
     has_hf_token: bool
+    auto_structure_prompt: bool = False
     safety_moderation_enabled: bool = False
     has_hive_text_key: bool = False
     has_hive_visual_key: bool = False
@@ -290,6 +291,7 @@ class SettingsUpdateRequest(BaseModel):
     ideogram_api_key: SecretStr | None = None
     openrouter_api_key: SecretStr | None = None
     hf_token: SecretStr | None = None
+    auto_structure_prompt: bool | None = None
     safety_moderation_enabled: bool | None = None
     hive_text_key: SecretStr | None = None
     hive_visual_key: SecretStr | None = None

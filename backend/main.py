@@ -110,6 +110,48 @@ def _moderate_image_sync(image) -> list[str]:
         return []
 
 
+# ── Auto-structure (option 2: structured-JSON prompting) ──────────────────────
+# Ideogram 4 paints its gray "safety filter" refusal far less often on a richly
+# structured JSON scene than on a sparse prompt. When enabled, expand a sparse
+# prompt into a full compositional decomposition via the magic-prompt backend,
+# preserving the user's explicit style. Opt-in, and fails open.
+
+async def _maybe_autostructure(prompt_json: str, width: int, height: int, mp) -> tuple[str, str | None]:
+    if not app_settings.auto_structure_prompt or mp is None:
+        return prompt_json, None
+    try:
+        data = json.loads(prompt_json)
+    except Exception:
+        return prompt_json, None
+
+    comp = data.get("compositional_deconstruction") or {}
+    elements = comp.get("elements") or []
+    bg = (comp.get("background") or "").strip()
+    hld = (data.get("high_level_description") or "").strip()
+    # Only enrich genuinely sparse prompts — respect a user who built elements.
+    is_sparse = not elements and (not bg or bg == "A neutral background.")
+    if not is_sparse or not hld:
+        return prompt_json, None
+
+    try:
+        enriched = json.loads(await mp.expand(hld, width, height))
+    except Exception as exc:
+        logger.warning("Auto-structure failed (using original prompt): %s", exc)
+        return prompt_json, None
+
+    enriched_comp = enriched.get("compositional_deconstruction")
+    if not enriched_comp or not enriched_comp.get("elements"):
+        return prompt_json, None  # nothing gained — keep the original
+
+    # Graft the rich scene; keep the user's explicit style_description untouched.
+    data["compositional_deconstruction"] = enriched_comp
+    if enriched.get("high_level_description"):
+        data["high_level_description"] = enriched["high_level_description"]
+    new_json = json.dumps(data, separators=(",", ":"), ensure_ascii=False)
+    n = len(enriched_comp.get("elements", []))
+    return new_json, f"Auto-structured prompt into {n} scene elements to reduce refusals…"
+
+
 # ── Lifespan ──────────────────────────────────────────────────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -465,6 +507,7 @@ async def get_settings():
         has_ideogram_api_key=bool(app_settings.ideogram_api_key),
         has_openrouter_api_key=bool(app_settings.openrouter_api_key),
         has_hf_token=bool(app_settings.hf_token),
+        auto_structure_prompt=app_settings.auto_structure_prompt,
         safety_moderation_enabled=app_settings.safety_moderation_enabled,
         has_hive_text_key=bool(app_settings.hive_text_key),
         has_hive_visual_key=bool(app_settings.hive_visual_key),
@@ -511,6 +554,9 @@ async def update_settings(request: Request, body: SettingsUpdateRequest):
         app_settings.hf_token = raw_hf
         os.environ["HF_TOKEN"] = raw_hf
         os.environ["HUGGING_FACE_HUB_TOKEN"] = raw_hf
+    if body.auto_structure_prompt is not None:
+        _set("AUTO_STRUCTURE_PROMPT", "true" if body.auto_structure_prompt else "false")
+        app_settings.auto_structure_prompt = body.auto_structure_prompt
     if body.safety_moderation_enabled is not None:
         _set("SAFETY_MODERATION_ENABLED", "true" if body.safety_moderation_enabled else "false")
         app_settings.safety_moderation_enabled = body.safety_moderation_enabled
@@ -657,6 +703,16 @@ async def generation_ws(websocket: WebSocket, job_id: str):
                 {"type": "error", "message": pm.error or "Model is not ready."}
             )
             return
+
+    # Auto-structure (opt-in): enrich a sparse prompt into structured JSON,
+    # which Ideogram 4 refuses far less often. Done before moderation so the
+    # final prompt is what gets screened and generated.
+    structured_json, structure_note = await _maybe_autostructure(
+        gen_req.prompt_json, gen_req.width, gen_req.height, websocket.app.state.magic_prompt
+    )
+    if structure_note:
+        gen_req.prompt_json = structured_json
+        await websocket.send_json({"type": "status", "message": structure_note})
 
     # Optional Hive prompt screening (opt-in; no-op unless enabled + keyed).
     flagged = await loop.run_in_executor(
