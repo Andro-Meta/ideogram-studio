@@ -171,6 +171,7 @@ async def lifespan(app: FastAPI):
             app_settings.magic_prompt_backend,
             _magic_prompt_key(app_settings.magic_prompt_backend),
             openrouter_model=app_settings.openrouter_model,
+            free_only=app_settings.openrouter_free_only,
         )
     except Exception as exc:
         print(f"[WARN] Magic Prompt service init failed: {exc}")
@@ -341,6 +342,7 @@ async def style_fuse_endpoint(body: StyleFuseRequest):
             body.form.model_dump(), body.mood.model_dump(),
             app_settings.openrouter_api_key,
             app_settings.openrouter_model,
+            app_settings.openrouter_free_only,
         )
     except Exception as exc:
         raise HTTPException(502, f"AI Fuse failed: {exc}") from exc
@@ -505,6 +507,7 @@ async def get_settings():
         model_variant=app_settings.model_variant,
         magic_prompt_backend=app_settings.magic_prompt_backend,
         openrouter_model=app_settings.openrouter_model,
+        openrouter_free_only=app_settings.openrouter_free_only,
         has_ideogram_api_key=bool(app_settings.ideogram_api_key),
         has_openrouter_api_key=bool(app_settings.openrouter_api_key),
         has_hf_token=bool(app_settings.hf_token),
@@ -544,6 +547,9 @@ async def update_settings(request: Request, body: SettingsUpdateRequest):
     if body.openrouter_model:
         _set("OPENROUTER_MODEL", body.openrouter_model)
         app_settings.openrouter_model = body.openrouter_model
+    if body.openrouter_free_only is not None:
+        _set("OPENROUTER_FREE_ONLY", "true" if body.openrouter_free_only else "false")
+        app_settings.openrouter_free_only = body.openrouter_free_only
     if body.ideogram_api_key is not None:
         raw_ideogram = body.ideogram_api_key.get_secret_value()
         _set("IDEOGRAM_API_KEY", raw_ideogram)
@@ -575,15 +581,17 @@ async def update_settings(request: Request, body: SettingsUpdateRequest):
 
     env_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
-    # Rebuild magic-prompt service if backend, key, or OpenRouter model changed.
+    # Rebuild magic-prompt service if backend, key, model, or free-only changed.
     # We reconstruct (not rebuild) so a new openrouter_model takes effect.
     if (body.magic_prompt_backend or body.ideogram_api_key
-            or body.openrouter_api_key or body.openrouter_model):
+            or body.openrouter_api_key or body.openrouter_model
+            or body.openrouter_free_only is not None):
         try:
             mp_key = _magic_prompt_key(app_settings.magic_prompt_backend)
             request.app.state.magic_prompt = MagicPromptService(
                 app_settings.magic_prompt_backend, mp_key,
                 openrouter_model=app_settings.openrouter_model,
+                free_only=app_settings.openrouter_free_only,
             )
         except Exception as exc:
             print(f"[WARN] Could not rebuild magic-prompt: {exc}")

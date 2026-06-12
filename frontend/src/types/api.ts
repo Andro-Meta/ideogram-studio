@@ -99,6 +99,7 @@ export interface SettingsResponse {
   model_variant: ModelVariant
   magic_prompt_backend: string
   openrouter_model: string
+  openrouter_free_only: boolean
   has_ideogram_api_key: boolean
   has_openrouter_api_key: boolean
   has_hf_token: boolean
@@ -112,6 +113,7 @@ export interface SettingsUpdateRequest {
   model_variant?: ModelVariant
   magic_prompt_backend?: string
   openrouter_model?: string
+  openrouter_free_only?: boolean
   ideogram_api_key?: string
   openrouter_api_key?: string
   hf_token?: string

@@ -42,6 +42,11 @@ class AppSettings(BaseSettings):
     # back instead of failing. Swap to a paid model (e.g.
     # google/gemini-2.5-flash-lite) for maximum reliability/no daily caps.
     openrouter_model: str = "google/gemma-4-31b-it:free"
+    # Hard safeguard: when on (default), the app refuses to send any PAID model
+    # to OpenRouter — paid model ids are coerced to the free default and the
+    # paid Claude backends are routed to free OpenRouter. So purchased credits
+    # are never spent. Turn off only if you deliberately want to use paid models.
+    openrouter_free_only: bool = True
 
     # Auto-structure: before each generation, expand a sparse prompt into a
     # full structured-JSON scene via the magic-prompt backend. Ideogram 4

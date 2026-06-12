@@ -17,6 +17,8 @@ _BACKEND_ALIASES = {
     "claude-opus": "claude-opus-v1",
 }
 
+FREE_DEFAULT_MODEL = "google/gemma-4-31b-it:free"
+
 # Reliable, free, good-at-JSON models to fall back across when a free provider
 # is busy (free endpoints return "Provider returned error" under load).
 FREE_FALLBACK_MODELS = [
@@ -25,6 +27,17 @@ FREE_FALLBACK_MODELS = [
     "qwen/qwen3-next-80b-a3b-instruct:free",
     "openai/gpt-oss-120b:free",
 ]
+
+# Backends that call PAID models regardless of openrouter_model.
+PAID_BACKENDS = {"claude-sonnet-v1", "claude-opus-v1"}
+
+
+def coerce_free_model(model: str, free_only: bool) -> str:
+    """Under free-only, never let a paid model id through — fall back to the
+    free default. A no-op when free_only is off or the model is already free."""
+    if free_only and not (model or "").endswith(":free"):
+        return FREE_DEFAULT_MODEL
+    return model
 
 
 def openrouter_models_param(model: str) -> list[str] | None:
@@ -48,9 +61,11 @@ class OpenRouterMagicPromptV1:
     """
 
     def __init__(self, api_key: str | None, model: str, *,
-                 timeout: float = 120.0, strip_bboxes: bool = False):
+                 timeout: float = 120.0, strip_bboxes: bool = False,
+                 free_only: bool = True):
         self.api_key = api_key
-        self.model = model
+        # Coerce to free at construction so a paid id can never reach OpenRouter.
+        self.model = coerce_free_model(model, free_only)
         self.timeout = timeout
         self.strip_bboxes = strip_bboxes
 
@@ -68,9 +83,16 @@ class OpenRouterMagicPromptV1:
         return strip_aspect_ratio_and_bboxes(caption, strip_bboxes=self.strip_bboxes)
 
 
-def _make_backend(backend_name: str, api_key: str | None, openrouter_model: str):
+def _make_backend(backend_name: str, api_key: str | None, openrouter_model: str,
+                  free_only: bool = True):
     """Import and instantiate the correct magic-prompt backend."""
     backend_name = _BACKEND_ALIASES.get(backend_name, backend_name)
+
+    # Free-only safeguard: a paid Claude backend would spend credits, so route
+    # it to the free OpenRouter backend instead. Nothing paid gets constructed.
+    if free_only and backend_name in PAID_BACKENDS:
+        return OpenRouterMagicPromptV1(api_key, FREE_DEFAULT_MODEL,
+                                       strip_bboxes=False, free_only=True)
 
     # Ideogram4MagicPromptV1 is NOT exported from ideogram4.__init__
     # — must import from the submodule directly.
@@ -79,7 +101,8 @@ def _make_backend(backend_name: str, api_key: str | None, openrouter_model: str)
         return Ideogram4MagicPromptV1(api_key=api_key, strip_bboxes=False)
 
     if backend_name == "openrouter-v1":
-        return OpenRouterMagicPromptV1(api_key, openrouter_model, strip_bboxes=False)
+        return OpenRouterMagicPromptV1(api_key, openrouter_model,
+                                       strip_bboxes=False, free_only=free_only)
 
     from ideogram4 import MAGIC_PROMPTS
     cls = MAGIC_PROMPTS.get(backend_name)
@@ -90,9 +113,11 @@ def _make_backend(backend_name: str, api_key: str | None, openrouter_model: str)
 
 class MagicPromptService:
     def __init__(self, backend_name: str, api_key: str | None = None,
-                 openrouter_model: str = "google/gemini-2.5-flash-lite"):
+                 openrouter_model: str = FREE_DEFAULT_MODEL,
+                 free_only: bool = True):
         self._openrouter_model = openrouter_model
-        self._backend = _make_backend(backend_name, api_key, openrouter_model)
+        self._free_only = free_only
+        self._backend = _make_backend(backend_name, api_key, openrouter_model, free_only)
 
     async def expand(self, text: str, width: int, height: int) -> str:
         """
@@ -111,4 +136,5 @@ class MagicPromptService:
 
     def rebuild(self, backend_name: str, api_key: str | None) -> None:
         """Hot-swap the backend without restarting (e.g. after settings change)."""
-        self._backend = _make_backend(backend_name, api_key, self._openrouter_model)
+        self._backend = _make_backend(
+            backend_name, api_key, self._openrouter_model, self._free_only)

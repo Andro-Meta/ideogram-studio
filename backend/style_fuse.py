@@ -136,13 +136,18 @@ def _fuse_via_claude_cli(form: dict, mood: dict) -> str:
 
 def fuse_styles(
     form: dict, mood: dict, openrouter_key: str | None,
-    model: str = "google/gemini-2.5-flash-lite",
+    model: str = "google/gemma-4-31b-it:free",
+    free_only: bool = True,
 ) -> dict:
     """
     Synchronous fusion (call via asyncio.to_thread). Returns clean style
     fields {mode, aesthetics, lighting, medium, photo, art_style}.
     Raises RuntimeError/ValueError on failure.
     """
+    # Free-only safeguard: never send a paid model id to OpenRouter.
+    from magic_prompt_service import coerce_free_model
+    model = coerce_free_model(model, free_only)
+
     backend = fuse_backend_available(openrouter_key)
     if backend == "openrouter":
         raw = _fuse_via_openrouter(form, mood, openrouter_key, model)  # type: ignore[arg-type]

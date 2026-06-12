@@ -277,6 +277,7 @@ class SettingsResponse(BaseModel):
     model_variant: str
     magic_prompt_backend: str
     openrouter_model: str = "google/gemma-4-31b-it:free"
+    openrouter_free_only: bool = True
     has_ideogram_api_key: bool
     has_openrouter_api_key: bool
     has_hf_token: bool
@@ -290,6 +291,7 @@ class SettingsUpdateRequest(BaseModel):
     model_variant: str | None = None
     magic_prompt_backend: str | None = None
     openrouter_model: str | None = None
+    openrouter_free_only: bool | None = None
     ideogram_api_key: SecretStr | None = None
     openrouter_api_key: SecretStr | None = None
     hf_token: SecretStr | None = None

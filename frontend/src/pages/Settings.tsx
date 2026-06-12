@@ -126,6 +126,7 @@ export function Settings() {
   const [openrouterKey, setOpenrouterKey] = useState("")
   const [mpBackend, setMpBackend] = useState<string>("")
   const [orModel, setOrModel] = useState<string>("")
+  const [freeOnly, setFreeOnly] = useState<boolean | null>(null)
   const [autoStructure, setAutoStructure] = useState<boolean | null>(null)
   const [safetyOn, setSafetyOn] = useState<boolean | null>(null)
   const [hiveText, setHiveText] = useState("")
@@ -133,6 +134,7 @@ export function Settings() {
 
   const effectiveMpBackend = mpBackend || serverSettings?.magic_prompt_backend || "ideogram-4-v1"
   const effectiveOrModel = orModel || serverSettings?.openrouter_model || "google/gemma-4-31b-it:free"
+  const effectiveFreeOnly = freeOnly ?? serverSettings?.openrouter_free_only ?? true
   const effectiveAutoStructure = autoStructure ?? serverSettings?.auto_structure_prompt ?? false
   const effectiveSafety = safetyOn ?? serverSettings?.safety_moderation_enabled ?? false
 
@@ -143,6 +145,7 @@ export function Settings() {
     if (openrouterKey) payload.openrouter_api_key  = openrouterKey
     if (mpBackend)     payload.magic_prompt_backend = mpBackend
     if (orModel)       payload.openrouter_model = orModel
+    if (freeOnly !== null) payload.openrouter_free_only = freeOnly
     if (autoStructure !== null) payload.auto_structure_prompt = autoStructure
     if (safetyOn !== null) payload.safety_moderation_enabled = safetyOn
     if (hiveText)      payload.hive_text_key   = hiveText
@@ -287,11 +290,11 @@ export function Settings() {
                 <SelectItem value="ideogram-4-v1" className="text-zinc-200">
                   Ideogram API — ideogram-4-v1 (free)
                 </SelectItem>
-                <SelectItem value="claude-sonnet-v1" className="text-zinc-200">
-                  Claude Sonnet (OpenRouter, paid)
+                <SelectItem value="claude-sonnet-v1" className="text-zinc-200" disabled={effectiveFreeOnly}>
+                  Claude Sonnet (OpenRouter, paid){effectiveFreeOnly ? " — blocked by Free-only" : ""}
                 </SelectItem>
-                <SelectItem value="claude-opus-v1" className="text-zinc-200">
-                  Claude Opus (OpenRouter, paid)
+                <SelectItem value="claude-opus-v1" className="text-zinc-200" disabled={effectiveFreeOnly}>
+                  Claude Opus (OpenRouter, paid){effectiveFreeOnly ? " — blocked by Free-only" : ""}
                 </SelectItem>
               </SelectContent>
             </Select>
@@ -300,6 +303,23 @@ export function Settings() {
               Captions carry style inside the description prose, so your Style section is left
               untouched. OpenRouter backends need the OpenRouter key above.
             </p>
+
+            {/* Spend guard: never bill OpenRouter credits */}
+            <div className="border-t border-zinc-800 pt-3 flex items-start justify-between gap-4">
+              <div className="space-y-0.5">
+                <Label className="text-sm text-zinc-200">Free models only</Label>
+                <p className="text-[11px] text-zinc-500">
+                  Hard guard — the app will <span className="text-emerald-400">never</span> call a
+                  paid OpenRouter model. Paid model ids fall back to a free one, and the paid
+                  Claude backends are routed to free. Your purchased credits stay untouched (they
+                  still unlock the higher free-tier limit). Turn off only to deliberately spend.
+                </p>
+              </div>
+              <Switch
+                checked={effectiveFreeOnly}
+                onCheckedChange={(v) => setFreeOnly(v)}
+              />
+            </div>
 
             {/* OpenRouter model picker — only relevant for the openrouter-v1 backend */}
             {effectiveMpBackend === "openrouter-v1" && (
@@ -311,21 +331,29 @@ export function Settings() {
                     { id: "meta-llama/llama-3.3-70b-instruct:free", label: "Llama 3.3 70B (free)" },
                     { id: "qwen/qwen3-next-80b-a3b-instruct:free", label: "Qwen3 80B (free)" },
                     { id: "google/gemini-2.5-flash-lite", label: "Gemini Flash Lite (paid)" },
-                  ].map((m) => (
-                    <button
-                      key={m.id}
-                      type="button"
-                      onClick={() => setOrModel(m.id)}
-                      className={cn(
-                        "text-[10px] px-2 py-1 rounded border transition-colors",
-                        effectiveOrModel === m.id
-                          ? "border-violet-500/60 text-violet-300 bg-violet-500/10"
-                          : "border-zinc-700 text-zinc-400 hover:border-zinc-500",
-                      )}
-                    >
-                      {m.label}
-                    </button>
-                  ))}
+                  ].map((m) => {
+                    const isPaid = !m.id.endsWith(":free")
+                    const locked = isPaid && effectiveFreeOnly
+                    return (
+                      <button
+                        key={m.id}
+                        type="button"
+                        disabled={locked}
+                        onClick={() => !locked && setOrModel(m.id)}
+                        title={locked ? "Blocked by Free-only" : m.id}
+                        className={cn(
+                          "text-[10px] px-2 py-1 rounded border transition-colors",
+                          locked
+                            ? "border-zinc-800 text-zinc-600 line-through cursor-not-allowed"
+                            : effectiveOrModel === m.id
+                              ? "border-violet-500/60 text-violet-300 bg-violet-500/10"
+                              : "border-zinc-700 text-zinc-400 hover:border-zinc-500",
+                        )}
+                      >
+                        {m.label}
+                      </button>
+                    )
+                  })}
                 </div>
                 <Input
                   value={effectiveOrModel}
