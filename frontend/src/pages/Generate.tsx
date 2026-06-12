@@ -16,7 +16,6 @@ import { Separator } from "@/components/ui/separator"
 import { Rail } from "@/components/ui/rail"
 import { cn } from "@/lib/utils"
 import { PromptBar } from "@/components/prompt/PromptBar"
-import { ImageToPromptCard } from "@/components/prompt/ImageToPromptCard"
 import { HighLevelDescription } from "@/components/prompt/HighLevelDescription"
 import { StylePanel } from "@/components/style/StylePanel"
 import { ElementList } from "@/components/elements/ElementList"
@@ -324,10 +323,6 @@ export function Generate() {
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         <Rail>
           <div className="max-w-[620px] mx-auto p-5 space-y-4">
-            {/* Headline entry point — turn any image into a full prompt.
-                Lives above Style so it's the first thing you see. */}
-            <ImageToPromptCard />
-
             <FlowSection step={1} title="Style" hint="how should it look?">
               <StylePanel />
             </FlowSection>
