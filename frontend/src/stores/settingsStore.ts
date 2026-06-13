@@ -20,8 +20,11 @@ interface SettingsStore {
   batchCount: number
   /** Layout canvas is opt-in — most generations never pin elements. */
   canvasOpen: boolean
+  /** Soft guidance: gentler CFG curve (less burn/splotch). Off by default. */
+  softGuidance: boolean
 
   setModelVariant: (v: ModelVariant) => void
+  setSoftGuidance: (v: boolean) => void
   setCanvasOpen: (v: boolean) => void
   setSamplerPreset: (v: SamplerPreset) => void
   setResolution: (w: number, h: number) => void
@@ -44,8 +47,10 @@ export const useSettingsStore = create<SettingsStore>()(
       seed: 42,
       batchCount: 4,
       canvasOpen: false,
+      softGuidance: false,
 
       setModelVariant: (v) => set({ modelVariant: v }),
+      setSoftGuidance: (v) => set({ softGuidance: v }),
       setCanvasOpen: (v) => set({ canvasOpen: v }),
       setSamplerPreset: (v) => set({ samplerPreset: v }),
       setResolution: (w, h) => set({ width: w, height: h }),

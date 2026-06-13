@@ -947,6 +947,7 @@ async def generation_ws(websocket: WebSocket, job_id: str):
         sampler_preset=gen_req.sampler_preset,
         seed=gen_req.seed,
         raise_on_caption_issues=False,   # warnings only, don't block generation
+        soft_guidance=gen_req.soft_guidance,
     )
 
     # Create DB record using the WebSocket job_id so complete_job can find it

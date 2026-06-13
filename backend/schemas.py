@@ -57,6 +57,8 @@ class GenerationRequest(BaseModel):
     sampler_preset: Literal["V4_TURBO_12", "V4_DEFAULT_20", "V4_QUALITY_48"] = "V4_DEFAULT_20"
     seed: int | None = None
     model_variant: Literal["fp8", "nf4", "nf4d", "bf16"] = "nf4"
+    # Gentler CFG curve (less burn/splotch) — community-recommended. Opt-in.
+    soft_guidance: bool = False
 
     @field_validator("height", "width")
     @classmethod

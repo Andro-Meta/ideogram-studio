@@ -51,6 +51,7 @@ export interface GenerationRequest {
   sampler_preset: SamplerPreset
   seed: number | null
   model_variant: ModelVariant
+  soft_guidance?: boolean
 }
 
 export type WsMessageType = "started" | "status" | "progress" | "done" | "error"

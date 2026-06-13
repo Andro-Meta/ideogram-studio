@@ -189,6 +189,22 @@ class GenerationSettings:
     sampler_preset: str        # "V4_TURBO_12" | "V4_DEFAULT_20" | "V4_QUALITY_48"
     seed: int | None = None
     raise_on_caption_issues: bool = True
+    # Soft guidance: a lower-CFG curve that drops hard for the last ~35% of steps.
+    # The Banodoco #ideogram community found the official CFG (7.0) too high —
+    # it splotches/burns photos; this profile is gentler. Opt-in per generation.
+    soft_guidance: bool = False
+
+
+def _soft_guidance_schedule(
+    num_steps: int, *, forward: bool, high: float = 4.0, low: float = 2.0, low_frac: float = 0.35,
+) -> list[float]:
+    """Build a gentler CFG schedule: `high` for the first ~65% of steps, `low`
+    for the final ~35%. `forward` True = diffusers order (index 0 = first step);
+    False = ideogram4-package order (index 0 = last step)."""
+    n_low = max(1, round(num_steps * low_frac))
+    n_high = max(1, num_steps - n_low)
+    fwd = [high] * n_high + [low] * n_low          # first high, last low
+    return fwd if forward else fwd[::-1]
 
 
 class InferencePipeline(ABC):
@@ -268,6 +284,7 @@ class FP8Pipeline(InferencePipeline):
 
     REPO = "ideogram-ai/ideogram-4-fp8"
     DTYPE_HINT = "fp8"
+    GUIDANCE_FORWARD = False   # ideogram4 package order: index 0 = LAST step
 
     # PRESETS in reverse loop order (index 0 = LAST step) — matches ideogram4 package
     PRESETS: dict = {
@@ -322,13 +339,17 @@ class FP8Pipeline(InferencePipeline):
 
         preset = self.PRESETS[settings.sampler_preset]
         actual_seed = self._resolve_seed(settings.seed)
+        schedule = (
+            _soft_guidance_schedule(preset["num_steps"], forward=self.GUIDANCE_FORWARD)
+            if settings.soft_guidance else preset["guidance_schedule"]
+        )
 
         images: list[Image.Image] = self._pipe(
             prompts=prompt_json,
             height=settings.height,
             width=settings.width,
             num_steps=preset["num_steps"],
-            guidance_schedule=preset["guidance_schedule"],
+            guidance_schedule=schedule,
             mu=preset["mu"],
             std=preset["std"],
             seed=actual_seed,
@@ -393,6 +414,7 @@ class BF16Pipeline(InferencePipeline):
     supports_inpaint = True
 
     REPO = "CalamitousFelicitousness/Ideogram-4-bf16-Diffusers"
+    GUIDANCE_FORWARD = True    # diffusers order: index 0 = FIRST step
 
     # Forward-order presets for diffusers (verified against diffusers default:
     #   guidance_schedule=(7.0,)*45 + (3.0,)*3  — 45 high-guidance first, 3 polish last)
@@ -455,6 +477,10 @@ class BF16Pipeline(InferencePipeline):
         preset = self.PRESETS[settings.sampler_preset]
         actual_seed = self._resolve_seed(settings.seed)
         generator = torch.Generator("cuda").manual_seed(actual_seed)
+        schedule = (
+            _soft_guidance_schedule(preset["num_inference_steps"], forward=self.GUIDANCE_FORWARD)
+            if settings.soft_guidance else preset["guidance_schedule"]
+        )
 
         def _on_step(pipe, step_i: int, timestep: int, kwargs: dict) -> dict:
             if step_callback:
@@ -467,7 +493,7 @@ class BF16Pipeline(InferencePipeline):
             width=settings.width,
             num_inference_steps=preset["num_inference_steps"],
             guidance_scale=None,                            # mutually exclusive with guidance_schedule
-            guidance_schedule=preset["guidance_schedule"],
+            guidance_schedule=schedule,
             mu=preset["mu"],
             std=preset["std"],
             prompt_upsampling=False,                        # we handle this via MagicPromptService

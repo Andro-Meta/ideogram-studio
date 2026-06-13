@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { Progress } from "@/components/ui/progress"
 import { Separator } from "@/components/ui/separator"
+import { Switch } from "@/components/ui/switch"
 import { Rail } from "@/components/ui/rail"
 import { cn } from "@/lib/utils"
 import { PromptBar } from "@/components/prompt/PromptBar"
@@ -206,7 +207,7 @@ export function Generate() {
   const promptState = usePromptStore()
   const {
     modelVariant, samplerPreset, width, height, fixedSeed, seed, batchCount,
-    setBatchCount, canvasOpen, setCanvasOpen,
+    setBatchCount, canvasOpen, setCanvasOpen, softGuidance, setSoftGuidance,
   } = useSettingsStore()
   const { status, progress, resultImageUrl, resultSeed, resultDurationMs, errorMessage, jobId } =
     useGenerationStore()
@@ -263,6 +264,7 @@ export function Generate() {
     sampler_preset: samplerPreset,
     seed: fixedSeed ? seed : null,
     model_variant: modelVariant,
+    soft_guidance: softGuidance,
   })
 
   const handleGenerate = () => {
@@ -345,6 +347,19 @@ export function Generate() {
             <ModelStatusPanel />
             <Separator className="bg-zinc-800" />
             <SamplerPresetPicker />
+
+            {/* Soft guidance — gentler CFG curve (less burn/splotch). From the
+                Banodoco community: the official CFG (7) is too high for photos. */}
+            <label className="flex items-start gap-2.5 cursor-pointer">
+              <Switch checked={softGuidance} onCheckedChange={setSoftGuidance} className="mt-0.5 scale-90" />
+              <div className="min-w-0">
+                <p className="text-xs font-medium text-zinc-300">Soft guidance</p>
+                <p className="text-[10px] text-zinc-500 leading-snug">
+                  Lower CFG with a late drop — less burnt/splotchy, softer photos. Try it if results look over-contrasted.
+                </p>
+              </div>
+            </label>
+
             <Separator className="bg-zinc-800" />
             <ResolutionPicker />
             <Separator className="bg-zinc-800" />
