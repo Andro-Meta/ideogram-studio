@@ -494,9 +494,10 @@ async def loras_apply(request: Request, body: LoraApplyRequest):
         )
 
     if body.filename:
-        path = (LORAS_DIR / body.filename).resolve()
-        # Containment check (defence in depth — the schema already rejects path
-        # separators): the resolved path must live inside LORAS_DIR.
+        # basename() strips any path components (the schema also rejects
+        # separators); the containment check is a final defence in depth.
+        safe_name = os.path.basename(body.filename)
+        path = (LORAS_DIR / safe_name).resolve()
         if not path.is_relative_to(LORAS_DIR.resolve()) or not path.is_file():
             raise HTTPException(404, f"LoRA file not found: {body.filename}")
         source = str(path)
@@ -985,9 +986,11 @@ async def upscale_image_endpoint(request: Request, body: UpscaleRequest):
     except Exception as exc:
         raise HTTPException(500, f"Upscale failed: {exc}") from exc
 
-    # Save alongside the source image with a descriptive suffix
+    # Save alongside the source image with a descriptive suffix. job_id and
+    # model_name are schema-validated; basename() strips any path components as
+    # a final, explicit traversal barrier.
     suffix = body.model_name.lower().replace("-", "_")
-    out_name = f"{body.job_id}_up_{suffix}.png"
+    out_name = os.path.basename(f"{body.job_id}_up_{suffix}.png")
     (OUTPUTS_DIR / out_name).write_bytes(png_bytes)
 
     return UpscaleResponse(
