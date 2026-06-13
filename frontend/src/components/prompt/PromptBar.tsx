@@ -1,13 +1,24 @@
 import { useRef, useState } from "react"
-import { Sparkles, ImageUp, Loader2, PencilLine } from "lucide-react"
+import { Sparkles, ImageUp, Loader2, PencilLine, X } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
+import { Slider } from "@/components/ui/slider"
 import { cn } from "@/lib/utils"
 import { useSettingsStore } from "@/stores/settingsStore"
 import { usePromptStore } from "@/stores/promptStore"
+import { useSourceImageStore } from "@/stores/sourceImageStore"
 import { useMagicPrompt } from "@/hooks/useMagicPrompt"
 import { useDescribeImage } from "@/hooks/useDescribeImage"
+
+function fileToB64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader()
+    r.onload = () => resolve(String(r.result).split(",")[1] ?? "")
+    r.onerror = () => reject(new Error("Could not read the image"))
+    r.readAsDataURL(file)
+  })
+}
 
 type Mode = "write" | "image"
 
@@ -19,6 +30,7 @@ export function PromptBar() {
   const magic = useMagicPrompt()
   const describe = useDescribeImage()
   const fileRef = useRef<HTMLInputElement>(null)
+  const { imageB64, blendPct, setImage, setBlend, clear } = useSourceImageStore()
 
   const busy = magic.isPending || describe.isPending
 
@@ -31,6 +43,8 @@ export function PromptBar() {
 
   const handleImage = (file?: File | null) => {
     if (!file) return
+    // Keep the image so it can optionally be blended into the result (Remix).
+    fileToB64(file).then(setImage).catch(() => {})
     // Image → rich description → structured prompt. Chaining magic-prompt is
     // what makes this a whole prompt (Style/Description/Elements all fill),
     // not just a blob of text in one box.
@@ -64,7 +78,7 @@ export function PromptBar() {
       <div className="grid grid-cols-2 gap-1 rounded-lg bg-zinc-800/60 p-1">
         <button
           type="button"
-          onClick={() => setMode("write")}
+          onClick={() => { setMode("write"); clear() }}
           className={cn(
             "flex items-center justify-center gap-1.5 rounded-md py-1.5 text-xs font-medium transition-colors",
             mode === "write"
@@ -152,6 +166,47 @@ export function PromptBar() {
             className="hidden"
             onChange={(e) => handleImage(e.target.files?.[0])}
           />
+
+          {/* Blend the original image into the result (img2img via Remix). */}
+          {imageB64 && (
+            <div className="rounded-lg border border-zinc-700 bg-zinc-800/40 p-2.5 space-y-2.5">
+              <div className="flex items-center gap-2.5">
+                <img
+                  src={`data:image/*;base64,${imageB64}`}
+                  alt="source"
+                  className="h-11 w-11 rounded object-cover border border-zinc-700 shrink-0"
+                />
+                <div className="flex-1 min-w-0">
+                  <p className="text-[11px] font-medium text-zinc-300">Blend original into result</p>
+                  <p className="text-[10px] text-zinc-500 leading-snug">
+                    {blendPct === 0
+                      ? "Off — generate fresh from the prompt only"
+                      : `Keep ~${blendPct}% of the original (Remix / img2img)`}
+                  </p>
+                </div>
+                <span className="text-xs font-mono text-zinc-400 tabular-nums w-9 text-right">{blendPct}%</span>
+                <button
+                  type="button"
+                  onClick={clear}
+                  title="Remove image"
+                  className="text-zinc-600 hover:text-red-400 transition-colors shrink-0"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+              <Slider
+                value={[blendPct]}
+                min={0}
+                max={100}
+                step={5}
+                onValueChange={(v) => setBlend(v[0])}
+              />
+              <p className="text-[10px] text-zinc-600">
+                Needs the NF4·D or BF16 model (img2img). 0% = pure text-to-image.
+              </p>
+            </div>
+          )}
+
           <p className="text-[10px] text-zinc-600 text-center">
             Free · runs through a vision model · needs an API key in Settings
           </p>

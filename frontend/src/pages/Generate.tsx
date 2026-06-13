@@ -29,6 +29,9 @@ import { VariationsGrid } from "@/components/variations/VariationsGrid"
 import { usePromptStore } from "@/stores/promptStore"
 import { useSettingsStore, MIN_BATCH, MAX_BATCH } from "@/stores/settingsStore"
 import { useGenerationStore } from "@/stores/generationStore"
+import { useSourceImageStore } from "@/stores/sourceImageStore"
+import { useRemixFromImage } from "@/hooks/useRemixFromImage"
+import { useQueryClient } from "@tanstack/react-query"
 import { useGenerate } from "@/hooks/useGenerate"
 import { useModelStatus, useLoadModel } from "@/hooks/useModelStatus"
 import { useUpscale, useUpscaleModels } from "@/hooks/useUpscale"
@@ -209,6 +212,8 @@ export function Generate() {
     useGenerationStore()
   const { generate, cancel } = useGenerate()
   const batch = useBatchGenerate()
+  const remix = useRemixFromImage()
+  const queryClient = useQueryClient()
 
   // Upscale state — local to this render, resets on new generation
   const [upscaledUrl, setUpscaledUrl] = useState<string | null>(null)
@@ -264,6 +269,33 @@ export function Generate() {
     batch.cancel()
     batch.clear()
     setSelectedVariation(null)
+
+    // "Generate from image" with the blend slider above 0 routes through the
+    // local Remix (img2img) so the result keeps some of the original image.
+    const src = useSourceImageStore.getState()
+    if (src.imageB64 && src.blendPct > 0) {
+      const gen = useGenerationStore.getState()
+      gen.reset()
+      gen.setStatus("running", `Remixing — keeping ~${src.blendPct}% of your image…`)
+      remix.mutate(
+        {
+          imageB64: src.imageB64,
+          prompt: buildCaption(promptState),
+          blendPct: src.blendPct,
+          sampler_preset: samplerPreset,
+          seed: fixedSeed ? seed : null,
+        },
+        {
+          onSuccess: (res) => {
+            gen.setDone(res.image_url, fixedSeed ? seed : 0, 0)
+            queryClient.invalidateQueries({ queryKey: ["gallery"] })
+          },
+          onError: (e: Error) => gen.setError(e.message),
+        },
+      )
+      return
+    }
+
     generate(buildReq())
   }
 
