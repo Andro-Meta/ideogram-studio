@@ -55,7 +55,7 @@ It runs comfortably on a single 24 GB consumer GPU (RTX 3090 / 4090) via 4-bit w
 - **Extend / Reframe (outpaint)** — grow the canvas to a new aspect ratio and continue the scene.
 - **Split into layers** — because Ideogram is bounding-box-native, each element can be matted onto its own **transparent PNG layer** (**SAM** box-prompted from the element's box, rembg fallback) and placed back at its box, plus a background layer — exported as PNGs + a ZIP. Falls back to a foreground/background cutout when there are no boxes.
 - **Layered editor** — selections (rect / ellipse / lasso / brush / wand), adjustment layers, undo history.
-- **Upscale** — 4× with AuraSR-v2.
+- **Upscale** — 4× with AuraSR-v2 (and other ESRGAN models). Optional **2× NVIDIA PiD** prompt-aware upscaler that re-synthesizes detail from your caption — off by default, install with `setup_pid.bat` ([docs](docs/PID.md)); heavy on RAM, so it's RAM-guarded and never crashes the host.
 
 ### Library & access
 - **Gallery** — SQLite-backed history with favorites, search, reuse-prompt, one-click delete + 5 s undo, and a zoomable lightbox with ←/→ navigation.

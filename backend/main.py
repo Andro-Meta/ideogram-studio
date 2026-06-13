@@ -1031,10 +1031,40 @@ async def generation_ws(websocket: WebSocket, job_id: str):
 
 # ── Upscale API ───────────────────────────────────────────────────────────────
 
+def _flat_caption(item: dict) -> str:
+    """A plain-text caption from a gallery item's structured prompt, for PiD's
+    text conditioning. Falls back to the stored prompt text."""
+    import json as _json
+    if pj := item.get("prompt_json"):
+        try:
+            d = _json.loads(pj)
+            comp = d.get("compositional_deconstruction", {})
+            parts = [d.get("high_level_description", ""), comp.get("background", "")]
+            parts += [e.get("desc", "") for e in comp.get("elements", []) if isinstance(e, dict)]
+            cap = ", ".join(p.strip() for p in parts if p and p.strip())
+            if cap:
+                return cap[:600]
+        except Exception:
+            pass
+    return (item.get("prompt_text") or "high quality, sharp, detailed").strip()[:600]
+
+
 @app.get("/api/upscale/models", response_model=list[UpscaleModelInfo])
 async def upscale_models_list():
     from upscaler import available_models
-    return available_models()
+    models = available_models()
+    # Optional NVIDIA PiD upscaler — only offered when the repo + weights are
+    # installed (see docs/PID.md). It re-synthesizes detail from the prompt.
+    import pid_upscale
+    ok, _ = pid_upscale.availability()
+    if ok:
+        models.append({
+            "name": "PiD-Flux2",
+            "scale": 2,
+            "label": "2× PiD (NVIDIA, prompt-aware)",
+            "description": "Pixel-diffusion super-res — re-synthesizes detail from your prompt. Heavy: needs ~14 GB free RAM.",
+        })
+    return models
 
 
 @app.post("/api/upscale", response_model=UpscaleResponse)
@@ -1050,16 +1080,31 @@ async def upscale_image_endpoint(request: Request, body: UpscaleRequest):
     if not source_path.exists():
         raise HTTPException(404, "Image file not found on disk")
 
-    image_bytes = source_path.read_bytes()
     loop = asyncio.get_running_loop()
 
-    try:
-        png_bytes, orig_size, up_size = await loop.run_in_executor(
-            _inference_executor,
-            lambda: upscale(image_bytes, body.model_name),
-        )
-    except Exception as exc:
-        raise HTTPException(500, f"Upscale failed: {exc}") from exc
+    if body.model_name.lower().startswith("pid"):
+        # Optional prompt-aware PiD path. It runs a separate diffusion model, so
+        # free the generation model's VRAM first (it reloads lazily on the next
+        # generate). The RAM guard inside pid_upscale prevents host OOM.
+        import pid_upscale
+        caption = _flat_caption(item)
+        request.app.state.pipeline.unload()
+        try:
+            png_bytes, orig_size, up_size = await loop.run_in_executor(
+                _inference_executor,
+                lambda: pid_upscale.pid_upscale(str(source_path), caption),
+            )
+        except Exception as exc:
+            raise HTTPException(503, f"PiD upscale: {exc}") from exc
+    else:
+        image_bytes = source_path.read_bytes()
+        try:
+            png_bytes, orig_size, up_size = await loop.run_in_executor(
+                _inference_executor,
+                lambda: upscale(image_bytes, body.model_name),
+            )
+        except Exception as exc:
+            raise HTTPException(500, f"Upscale failed: {exc}") from exc
 
     # Save alongside the source image with a descriptive suffix. job_id and
     # model_name are schema-validated; basename() strips any path components as
