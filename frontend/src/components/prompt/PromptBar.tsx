@@ -37,7 +37,18 @@ export function PromptBar() {
     describe.mutate(file, {
       onSuccess: (prompt) => {
         setText(prompt)
-        magic.mutate({ text: prompt, width, height, style })
+        magic.mutate(
+          { text: prompt, width, height, style },
+          {
+            // Structuring is a second, flaky network step. If it fails we still
+            // have a good description — don't dead-end: drop the user into Write
+            // mode with the prompt filled in so they can edit or retry.
+            onError: () => {
+              setMode("write")
+              toast.message("Got a prompt from your image — couldn't auto-structure it. Edit it below or hit Magic Prompt to try again.")
+            },
+          },
+        )
       },
     })
     if (fileRef.current) fileRef.current.value = ""   // allow re-picking the same file

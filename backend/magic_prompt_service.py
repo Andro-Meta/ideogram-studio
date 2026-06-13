@@ -50,9 +50,15 @@ _DESCRIBE_INSTRUCTION = (
 )
 
 
-def describe_image(image_b64: str, api_key: str | None) -> str:
+def describe_image(image_b64: str, api_key: str | None, *, attempts: int = 3) -> str:
     """Image (base64 PNG/JPEG, no data: prefix) → a text-to-image prompt, via a
-    free OpenRouter vision model with auto-fallback. Raises on HTTP error."""
+    free OpenRouter vision model with auto-fallback.
+
+    Free endpoints are flaky: they time out or return "Provider returned error"
+    under load. Each call already lets OpenRouter fall back across all three free
+    vision models server-side; on top of that we retry the whole call a few times
+    so a single transient hiccup doesn't kill "Generate from image". Raises only
+    if every attempt fails."""
     from ideogram4.magic_prompt import openrouter_chat
     messages = [{
         "role": "user",
@@ -61,11 +67,23 @@ def describe_image(image_b64: str, api_key: str | None) -> str:
             {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{image_b64}"}},
         ],
     }]
-    return openrouter_chat(
-        FREE_VISION_MODELS[0], messages, api_key,
-        temperature=0.7, max_tokens=420, timeout=90.0,
-        extra_body={"models": FREE_VISION_MODELS},
-    ).strip()
+    errors: list[str] = []
+    for i in range(max(1, attempts)):
+        try:
+            out = openrouter_chat(
+                FREE_VISION_MODELS[0], messages, api_key,
+                temperature=0.7, max_tokens=420, timeout=45.0,
+                extra_body={"models": FREE_VISION_MODELS},
+            ).strip()
+            if out:
+                return out
+            errors.append(f"attempt {i + 1}: empty response")
+        except Exception as exc:  # noqa: BLE001 — surface a combined message below
+            errors.append(f"attempt {i + 1}: {type(exc).__name__}: {exc}")
+    raise RuntimeError(
+        "The free vision model kept failing (it's busy or timing out). "
+        "Try again in a moment. Details: " + " | ".join(errors[-attempts:])
+    )
 
 
 def coerce_free_model(model: str, free_only: bool) -> str:
@@ -155,20 +173,29 @@ class MagicPromptService:
         self._free_only = free_only
         self._backend = _make_backend(backend_name, api_key, openrouter_model, free_only)
 
-    async def expand(self, text: str, width: int, height: int) -> str:
+    async def expand(self, text: str, width: int, height: int, *, attempts: int = 2) -> str:
         """
         Convert plain text to a minified JSON caption string.
         Runs synchronous backend in a thread pool.
+
+        Both the hosted Ideogram API and the free OpenRouter models occasionally
+        return a transient 429/5xx or time out; retry a couple of times before
+        giving up so one hiccup doesn't fail the whole request.
         """
         from ideogram4.magic_prompt import aspect_ratio_from_size
         aspect_ratio = aspect_ratio_from_size(width, height)
 
         loop = asyncio.get_running_loop()
-        result: str = await loop.run_in_executor(
-            _executor,
-            lambda: self._backend.expand(text, aspect_ratio=aspect_ratio),
-        )
-        return result
+        last_exc: Exception | None = None
+        for _ in range(max(1, attempts)):
+            try:
+                return await loop.run_in_executor(
+                    _executor,
+                    lambda: self._backend.expand(text, aspect_ratio=aspect_ratio),
+                )
+            except Exception as exc:  # noqa: BLE001 — retried; re-raised below
+                last_exc = exc
+        raise last_exc if last_exc else RuntimeError("magic-prompt expand failed")
 
     def rebuild(self, backend_name: str, api_key: str | None) -> None:
         """Hot-swap the backend without restarting (e.g. after settings change)."""
