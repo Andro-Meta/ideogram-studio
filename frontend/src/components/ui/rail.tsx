@@ -38,8 +38,11 @@ export function Rail({ children, className }: { children: React.ReactNode; class
   }, [update])
 
   return (
-    <div className={cn("relative flex-1 min-h-0", className)}>
-      <div ref={ref} className="rail-scroll h-full">
+    // Desktop: a fixed-height column that scrolls internally (flex-1 + h-full).
+    // Mobile: collapses to its content height so the whole page scrolls as one
+    // — nested scroll areas are miserable on a phone.
+    <div className={cn("relative min-h-0 flex-none lg:flex-1", className)}>
+      <div ref={ref} className="rail-scroll lg:h-full">
         {children}
       </div>
 

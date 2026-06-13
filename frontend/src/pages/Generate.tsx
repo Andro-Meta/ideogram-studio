@@ -299,10 +299,12 @@ export function Generate() {
     // an oversized output column inside it. Within the workspace the input
     // panels get the generous widths (they're what the user works in); the
     // output column is the remainder (~800px at full size).
-    <div className="h-full flex justify-center overflow-hidden">
-      <div className="h-full w-full max-w-[1480px] flex overflow-hidden border-x border-zinc-900">
-      {/* ── 1. Settings — configure first (ordered by frequency of use) ── */}
-      <div className="w-[280px] shrink-0 border-r border-zinc-800 flex flex-col bg-zinc-900/30 min-h-0">
+    <div className="h-full flex justify-center overflow-y-auto lg:overflow-hidden">
+      <div className="min-h-full lg:h-full w-full max-w-[1480px] flex flex-col lg:flex-row overflow-visible lg:overflow-hidden border-x border-zinc-900">
+      {/* ── 1. Settings — configure first (ordered by frequency of use) ──
+           On phones it drops below the prompt (order-2): sensible defaults
+           mean you rarely touch it before a first generation. */}
+      <div className="order-2 lg:order-none w-full lg:w-[280px] shrink-0 border-t lg:border-t-0 lg:border-r border-zinc-800 flex flex-col bg-zinc-900/30 min-h-0">
         <Rail>
           <div className="p-4 space-y-4">
             <ModelStatusPanel />
@@ -319,8 +321,9 @@ export function Generate() {
         </Rail>
       </div>
 
-      {/* ── 2. Prompt — the primary work area, with the Generate bar ───── */}
-      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+      {/* ── 2. Prompt — the primary work area, with the Generate bar.
+           First thing on phones (order-1). ───── */}
+      <div className="order-1 lg:order-none w-full lg:flex-1 flex flex-col min-w-0 lg:overflow-hidden">
         <Rail>
           <div className="max-w-[620px] mx-auto p-5 space-y-4">
             <FlowSection step={1} title="Style" hint="how should it look?">
@@ -352,8 +355,10 @@ export function Generate() {
           </div>
         </Rail>
 
-        {/* Generate controls — pinned to bottom */}
-        <div className="shrink-0 px-4 py-2.5 border-t border-zinc-800 bg-zinc-900/50 space-y-2">
+        {/* Generate controls — pinned to the column bottom on desktop, and
+            stuck to the viewport bottom on phones so Generate is always a thumb
+            away while you work on the prompt. */}
+        <div className="shrink-0 sticky bottom-0 z-20 lg:static px-4 py-2.5 border-t border-zinc-800 bg-zinc-900/95 lg:bg-zinc-900/50 backdrop-blur lg:backdrop-blur-none space-y-2">
           {/* Token budget meter */}
           <div className="flex items-center gap-2">
             <div className="flex-1 h-1 rounded-full bg-zinc-700 overflow-hidden">
@@ -584,8 +589,9 @@ export function Generate() {
         </div>
       </div>
 
-      {/* ── 3. Output — compact preview pane, never the dominant column ── */}
-      <div className="w-[400px] shrink-0 border-l border-zinc-800 bg-zinc-900/20 flex flex-col min-h-0">
+      {/* ── 3. Output — compact preview pane, never the dominant column.
+           Drops to the bottom on phones (order-3). ── */}
+      <div className="order-3 lg:order-none w-full lg:w-[400px] shrink-0 border-t lg:border-t-0 lg:border-l border-zinc-800 bg-zinc-900/20 flex flex-col min-h-0">
         <Rail>
           <div className="p-3 flex flex-col gap-3">
             {/* Layout canvas — opt-in (most generations never pin elements) */}

@@ -55,29 +55,30 @@ function ModelStatusChip() {
 
 function NavBar() {
   return (
-    <header className="h-12 shrink-0 border-b border-zinc-800 bg-zinc-900/80 backdrop-blur flex items-center px-4 gap-1 z-10">
-      {/* Brand */}
-      <div className="flex items-center gap-2 mr-5">
+    <header className="h-12 shrink-0 border-b border-zinc-800 bg-zinc-900/80 backdrop-blur flex items-center px-2 sm:px-4 gap-0.5 sm:gap-1 z-10">
+      {/* Brand — icon always, wordmark only when there's room */}
+      <div className="flex items-center gap-2 mr-1 sm:mr-5">
         <img src="/favicon.svg" alt="" className="h-6 w-6 rounded" />
-        <span className="text-sm font-semibold text-zinc-100 tracking-tight">Ideogram Studio</span>
+        <span className="hidden sm:inline text-sm font-semibold text-zinc-100 tracking-tight">Ideogram Studio</span>
       </div>
 
-      {/* Nav links */}
+      {/* Nav links — labels collapse to icons on narrow screens (phones) */}
       {NAV_ITEMS.map(({ to, icon: Icon, label }) => (
         <NavLink
           key={to}
           to={to}
+          title={label}
           className={({ isActive }) =>
             cn(
-              "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
+              "flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
               isActive
                 ? "bg-zinc-700 text-zinc-100"
                 : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/60"
             )
           }
         >
-          <Icon className="h-4 w-4" />
-          {label}
+          <Icon className="h-4 w-4 shrink-0" />
+          <span className="hidden sm:inline">{label}</span>
         </NavLink>
       ))}
 

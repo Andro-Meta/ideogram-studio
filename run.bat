@@ -68,12 +68,31 @@ echo Watch the Status panel in the app for progress. You can use the app
 echo  while it loads.
 echo Press Ctrl+C in this window to stop the studio.
 echo.
+
+:: == Phone / LAN access ==========================================
+:: Bind to 0.0.0.0 so other devices on your Wi-Fi (phone, tablet) can
+:: reach the studio. Find this PC's LAN IP and show the URL to type.
+set LAN_IP=
+for /f "delims=" %%i in ('powershell -NoProfile -Command "Get-NetIPAddress -AddressFamily IPv4 ^| Where-Object { $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' -and $_.PrefixOrigin -ne 'WellKnown' } ^| Sort-Object -Property InterfaceMetric ^| Select-Object -First 1 -ExpandProperty IPAddress" 2^>nul') do set LAN_IP=%%i
+echo   On this PC:     http://localhost:8000
+if defined LAN_IP (
+    echo   On your phone:  http://!LAN_IP!:8000     ^(same Wi-Fi network^)
+) else (
+    echo   On your phone:  http://^<this-PC-IP^>:8000   ^(run 'ipconfig' to find the IPv4 address^)
+)
+echo   Note: anyone on your local network can reach the studio while it runs.
+echo.
+:: Best-effort: open Windows Firewall for port 8000. Needs admin; if this
+:: window isn't elevated it's skipped silently and Windows may prompt on the
+:: first phone connection instead (click "Allow on Private networks").
+netsh advfirewall firewall show rule name="Ideogram Studio 8000" >nul 2>&1 || netsh advfirewall firewall add rule name="Ideogram Studio 8000" dir=in action=allow protocol=TCP localport=8000 profile=private >nul 2>&1
+
 :: Preload the model in the background at startup (see lifespan in main.py).
 set PRELOAD_MODEL=true
 set PRELOAD_VARIANT=nf4d
 call venv\Scripts\activate.bat
 cd backend
-uvicorn main:app --host 127.0.0.1 --port 8000 --workers 1 --log-level info
+uvicorn main:app --host 0.0.0.0 --port 8000 --workers 1 --log-level info
 set EXITCODE=%errorlevel%
 cd ..
 if not "%EXITCODE%"=="0" (
