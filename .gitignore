@@ -55,3 +55,4 @@ npm-debug.log*
 *.pt
 logs/
 models/
+discord_research/

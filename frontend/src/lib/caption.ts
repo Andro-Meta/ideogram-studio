@@ -25,6 +25,27 @@ export function wordCount(text: string): number {
 export function validatePromptState(state: PromptState): string[] {
   const warnings: string[] = []
 
+  // The #1 cause of Ideogram 4 "blocked"/garbled outputs is a too-sparse prompt:
+  // the model collapses out-of-distribution on short input (it's not real
+  // moderation). Warn before that happens — adding detail is the community's
+  // top fix. Count meaningful words across every field.
+  const sd = state.style_description
+  const totalWords =
+    wordCount(state.high_level_description) +
+    wordCount(state.background) +
+    wordCount(sd.aesthetics ?? "") + wordCount(sd.lighting ?? "") +
+    wordCount(sd.medium ?? "") + wordCount(sd.photo ?? "") + wordCount(sd.art_style ?? "") +
+    state.elements.reduce(
+      (n, el) => n + wordCount(el.desc) + wordCount("text" in el ? (el.text ?? "") : ""),
+      0,
+    )
+  if (totalWords < 12) {
+    warnings.push(
+      "Prompt looks sparse — Ideogram 4 often refuses or garbles very short prompts. " +
+        "Add detail to the description, background, or an element (the top community fix for “blocked” images).",
+    )
+  }
+
   if (wordCount(state.high_level_description) > 50) {
     warnings.push("High-level description exceeds 50 words — quality may degrade.")
   }

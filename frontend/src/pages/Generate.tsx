@@ -633,6 +633,12 @@ export function Generate() {
             {showCanvas ? (
               <div className="space-y-1.5">
                 <BBoxCanvas />
+                {hasPinnedElements && (
+                  <p className="text-[10px] text-zinc-600 leading-snug px-1">
+                    Tip: a <span className="text-zinc-400">wide</span> box zooms in on the subject;
+                    a <span className="text-zinc-400">tall, narrow</span> box gives a full body.
+                  </p>
+                )}
                 {!hasPinnedElements && (
                   <button
                     type="button"
