@@ -2,6 +2,7 @@ import { useMutation } from "@tanstack/react-query"
 import { toast } from "sonner"
 import type { MagicPromptRequest, MagicPromptResponse } from "@/types/api"
 import { usePromptStore } from "@/stores/promptStore"
+import { uid } from "@/lib/uid"
 
 async function callMagicPrompt(req: MagicPromptRequest): Promise<MagicPromptResponse> {
   const res = await fetch("/api/magic-prompt", {
@@ -55,7 +56,7 @@ export function useMagicPrompt() {
               ? { ymin: el.bbox[0] as number, xmin: el.bbox[1] as number, ymax: el.bbox[2] as number, xmax: el.bbox[3] as number }
               : undefined
             return {
-              id:            crypto.randomUUID(),
+              id:            uid(),
               type:          el.type as "obj" | "text",
               bbox,
               text:          (el.text as string) ?? "",

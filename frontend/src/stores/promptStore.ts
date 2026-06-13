@@ -1,10 +1,11 @@
 import { create } from "zustand"
 import type { AnyElement, PromptState, StyleDescription, StyleMode } from "@/types/caption"
 import { defaultPromptState } from "@/types/caption"
+import { uid } from "@/lib/uid"
 
-// uuid is not in package.json — use crypto.randomUUID() instead
+// uid() works over plain HTTP on the LAN (crypto.randomUUID does not).
 function newId(): string {
-  return crypto.randomUUID()
+  return uid()
 }
 
 interface PromptStore extends PromptState {

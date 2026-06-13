@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 import { useGenerationStore } from "@/stores/generationStore"
 import { buildWsUrl } from "@/lib/ws"
+import { uid } from "@/lib/uid"
 import type { GenerationRequest, WsMessage } from "@/types/api"
 
 export function useGenerate() {
@@ -15,7 +16,7 @@ export function useGenerate() {
       wsRef.current.close()
     }
 
-    const jobId = crypto.randomUUID()
+    const jobId = uid()
     store.reset()
     store.setStatus("running")
     store.setJobId(jobId)

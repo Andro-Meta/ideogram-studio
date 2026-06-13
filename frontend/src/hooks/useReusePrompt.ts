@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom"
 import { toast } from "sonner"
 import { usePromptStore } from "@/stores/promptStore"
 import { useSettingsStore } from "@/stores/settingsStore"
+import { uid } from "@/lib/uid"
 import type { GalleryItem } from "@/types/gallery"
 
 /**
@@ -48,7 +49,7 @@ export function useReusePrompt() {
           ? { ymin: el.bbox[0] as number, xmin: el.bbox[1] as number, ymax: el.bbox[2] as number, xmax: el.bbox[3] as number }
           : undefined
         return {
-          id: crypto.randomUUID(),
+          id: uid(),
           type: el.type as "obj" | "text",
           bbox,
           text: (el.text as string) ?? "",

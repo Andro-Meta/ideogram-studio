@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from "react"
 import { toast } from "sonner"
 import { buildWsUrl } from "@/lib/ws"
+import { uid } from "@/lib/uid"
 import type { GenerationRequest } from "@/types/api"
 
 export interface VariationResult {
@@ -35,7 +36,7 @@ function generateOne(
   cbs: OneCallbacks,
 ): Promise<VariationResult> {
   return new Promise((resolve, reject) => {
-    const jobId = crypto.randomUUID()
+    const jobId = uid()
     const ws = new WebSocket(buildWsUrl(`/ws/${jobId}`))
     sockets.add(ws)
 

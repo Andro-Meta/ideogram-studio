@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { uid } from "@/lib/uid"
 import type { Adjustments, AdjustmentLayer, SelectionMode } from "./editorTypes"
 import { IDENTITY_ADJUSTMENTS } from "./editorTypes"
 import {
@@ -146,7 +147,7 @@ export function useEditorEngine(imageUrl: string, open: boolean) {
         ? featherMask(cloneCanvas(selection), feather)
         : null
       const layer: AdjustmentLayer = {
-        id: crypto.randomUUID(),
+        id: uid(),
         name: selection ? nextLayerName() : `${nextLayerName()} (whole image)`,
         visible: true,
         opacity: 1,
