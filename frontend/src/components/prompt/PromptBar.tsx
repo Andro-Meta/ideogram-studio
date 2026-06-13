@@ -213,7 +213,8 @@ export function PromptBar() {
                 onValueChange={(v) => setBlend(v[0])}
               />
               <p className="text-[10px] text-zinc-600">
-                Needs the NF4·D or BF16 model (img2img). 0% = pure text-to-image.
+                Needs the NF4·D or BF16 model (img2img). 0% = pure text-to-image ·
+                <span className="text-zinc-500"> ~35% ≈ accurate restyle</span>.
               </p>
             </div>
           )}

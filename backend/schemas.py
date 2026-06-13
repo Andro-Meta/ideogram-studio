@@ -126,6 +126,32 @@ class StyleFuseResponse(BaseModel):
     art_style: str = ""
 
 
+# ── Enhance element descriptions (keep layout) ───────────────────────────────
+
+class EnhanceElementIn(BaseModel):
+    type: Literal["obj", "text"] = "obj"
+    text: str | None = None
+    desc: str = ""
+
+
+class EnhanceElementsRequest(BaseModel):
+    high_level_description: str = ""
+    elements: list[EnhanceElementIn]
+
+    @field_validator("elements")
+    @classmethod
+    def not_empty(cls, v: list) -> list:
+        if not v:
+            raise ValueError("no elements to enhance")
+        if len(v) > 30:
+            raise ValueError("too many elements (max 30)")
+        return v
+
+
+class EnhanceElementsResponse(BaseModel):
+    descs: list[str]   # one enriched description per element, in order
+
+
 # ── Gallery ──────────────────────────────────────────────────────────────────
 
 class GalleryItem(BaseModel):

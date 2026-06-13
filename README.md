@@ -38,6 +38,7 @@ It runs comfortably on a single 24 GB consumer GPU (RTX 3090 / 4090) via 4-bit w
 - **Magic Prompt** — plain English → structured Ideogram-4 JSON caption. Backends: Ideogram's hosted API, **OpenRouter free models ($0)**, or a local LLM.
 - **Image → Prompt** — upload any image (even ones you didn't make here) and a free vision model writes a full, editable prompt from it.
 - **Visual prompt builder** — high-level description, Style block (aesthetics / lighting / medium / art-style), typed **text** and **object** elements, and per-element + global **hex color palettes**. No raw JSON required.
+- **Enhance descriptions (keep layout)** — lay out the composition with simple element descriptions + boxes, then let the LLM flesh out each one into vivid detail. Bounding boxes, types, and rendered text are preserved exactly (only descriptions are sent and returned).
 - **Style mash-up & AI Fuse** — combine two style presets into one hybrid look.
 - **Layout canvas** — pin elements and drag bounding boxes to control *where* things appear.
 

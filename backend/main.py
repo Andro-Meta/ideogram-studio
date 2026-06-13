@@ -33,6 +33,7 @@ from caption import build_caption, parse_caption_json
 from inference import GenerationSettings, PipelineManager
 from magic_prompt_service import MagicPromptService
 import style_fuse
+import enhance_elements as enhance_mod
 from schemas import (
     EditSaveRequest,
     EditResponse,
@@ -58,6 +59,8 @@ from schemas import (
     SettingsResponse,
     SettingsUpdateRequest,
     StyleFuseRequest,
+    EnhanceElementsRequest,
+    EnhanceElementsResponse,
     StyleFuseResponse,
     SystemInfoResponse,
     UpscaleModelInfo,
@@ -447,6 +450,34 @@ async def style_fuse_endpoint(body: StyleFuseRequest):
         raise HTTPException(502, f"AI Fuse failed: {_openrouter_error_hint(exc)}") from exc
 
     return StyleFuseResponse(**fused)
+
+
+@app.post("/api/enhance-elements", response_model=EnhanceElementsResponse)
+async def enhance_elements_endpoint(body: EnhanceElementsRequest):
+    """
+    Enrich each element's description while preserving the layout. Returns ONLY
+    the new descriptions, in order — the client splices them back into the
+    existing elements, so bounding boxes / types / text can't be altered. Runs
+    on OpenRouter (free model) or the local Claude CLI, like AI Fuse.
+    """
+    if enhance_mod.enhance_backend_available(app_settings.openrouter_api_key) is None:
+        raise HTTPException(
+            503,
+            "Enhance needs an OpenRouter API key (Settings) or the Claude Code CLI installed.",
+        )
+    try:
+        descs = await asyncio.to_thread(
+            enhance_mod.enhance_elements,
+            body.high_level_description,
+            [e.model_dump() for e in body.elements],
+            app_settings.openrouter_api_key,
+            app_settings.openrouter_model,
+            app_settings.openrouter_free_only,
+        )
+    except Exception as exc:
+        raise HTTPException(502, f"Enhance failed: {_openrouter_error_hint(exc)}") from exc
+
+    return EnhanceElementsResponse(descs=descs)
 
 
 # ── LoRA adapters ─────────────────────────────────────────────────────────────
