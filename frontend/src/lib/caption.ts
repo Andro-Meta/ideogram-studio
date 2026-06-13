@@ -116,6 +116,23 @@ export function snapTo16(value: number): number {
 }
 
 /**
+ * Given a source image's pixel dimensions, return a generation resolution that
+ * matches its *aspect ratio* (not its resolution) at a sane pixel budget, each
+ * side snapped to 16 and clamped to 256–2048. A ~1 MP budget keeps generation
+ * fast (a phone photo's full size would otherwise balloon to 2048² and run 4×
+ * slower) while reproducing any image's shape — including non-preset ratios.
+ */
+export function aspectMatchedResolution(
+  srcW: number,
+  srcH: number,
+  budget = 1024 * 1024,
+): { width: number; height: number } {
+  if (!srcW || !srcH) return { width: 1024, height: 1024 }
+  const scale = Math.sqrt(budget / (srcW * srcH))
+  return { width: snapTo16(srcW * scale), height: snapTo16(srcH * scale) }
+}
+
+/**
  * Build the Ideogram 4 caption JSON string from a PromptState.
  *
  * Rules (from caption.py + CaptionVerifier):

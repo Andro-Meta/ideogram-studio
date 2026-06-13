@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { Slider } from "@/components/ui/slider"
 import { cn } from "@/lib/utils"
+import { aspectMatchedResolution } from "@/lib/caption"
 import { useSettingsStore } from "@/stores/settingsStore"
 import { usePromptStore } from "@/stores/promptStore"
 import { useSourceImageStore } from "@/stores/sourceImageStore"
@@ -43,8 +44,18 @@ export function PromptBar() {
 
   const handleImage = (file?: File | null) => {
     if (!file) return
-    // Keep the image so it can optionally be blended into the result (Remix).
-    fileToB64(file).then(setImage).catch(() => {})
+    // Keep the image (for optional blending) and match the canvas to its aspect
+    // ratio at a ~1 MP budget, so the result has the same shape as the upload.
+    fileToB64(file).then((b64) => {
+      setImage(b64)
+      const img = new Image()
+      img.onload = () => {
+        const { width: tw, height: th } = aspectMatchedResolution(img.naturalWidth, img.naturalHeight)
+        useSettingsStore.getState().setResolution(tw, th)
+        toast.message(`Canvas set to ${tw}×${th} to match your image`)
+      }
+      img.src = `data:image/*;base64,${b64}`
+    }).catch(() => {})
     // Image → rich description → structured prompt. Chaining magic-prompt is
     // what makes this a whole prompt (Style/Description/Elements all fill),
     // not just a blob of text in one box.

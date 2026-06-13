@@ -750,8 +750,13 @@ async def generation_ws(websocket: WebSocket, job_id: str):
     try:
         raw = await asyncio.wait_for(websocket.receive_text(), timeout=30.0)
         params = json.loads(raw)
+    except WebSocketDisconnect:
+        return  # Client closed before sending the request — benign, don't log a traceback
     except (asyncio.TimeoutError, json.JSONDecodeError) as exc:
-        await websocket.send_json({"type": "error", "message": f"Bad request: {exc}"})
+        try:
+            await websocket.send_json({"type": "error", "message": f"Bad request: {exc}"})
+        except (WebSocketDisconnect, RuntimeError):
+            pass
         return
 
     # Validate params
