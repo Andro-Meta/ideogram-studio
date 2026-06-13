@@ -708,11 +708,29 @@ _WS_ALLOWED_ORIGINS = {
 }
 
 
+def _ws_origin_allowed(websocket: WebSocket) -> bool:
+    """Reject cross-origin WebSocket connections, but allow same-origin ones.
+
+    The studio is always served same-origin, so a browser whose page Origin
+    host matches the request Host header is legitimate. This covers localhost,
+    the LAN IP, and generate.athome (over Caddy, which preserves Host) without
+    hardcoding the user's network — the previous fixed allow-list rejected
+    phone/LAN access and broke generation there. Non-browser clients send no
+    Origin and are allowed (the job_id UUID check still guards the endpoint)."""
+    from urllib.parse import urlsplit
+    origin = websocket.headers.get("origin", "")
+    if not origin:
+        return True
+    if origin in _WS_ALLOWED_ORIGINS:
+        return True
+    host = websocket.headers.get("host", "")
+    return bool(host) and urlsplit(origin).netloc == host
+
+
 @app.websocket("/ws/{job_id}")
 async def generation_ws(websocket: WebSocket, job_id: str):
-    # M-2: reject cross-origin WebSocket connections
-    origin = websocket.headers.get("origin", "")
-    if origin and origin not in _WS_ALLOWED_ORIGINS:
+    # M-2: reject cross-origin WebSocket connections (same-origin LAN/phone OK)
+    if not _ws_origin_allowed(websocket):
         await websocket.close(code=1008)
         return
 

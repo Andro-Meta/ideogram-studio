@@ -118,6 +118,22 @@ def _build_compositional(state: dict) -> OrderedDict:
     return comp
 
 
+def _cap_words(text: str, limit: int = 60) -> str:
+    """Cap a description at `limit` words, preferring a clean sentence boundary.
+
+    The magic-prompt model occasionally overruns the ~60-word element budget,
+    which degrades image quality. Trim back to the last sentence end within the
+    limit when one is reasonably close; otherwise hard-cut and end with a period."""
+    words = text.split()
+    if len(words) <= limit:
+        return text
+    head = " ".join(words[:limit])
+    cut = max(head.rfind("."), head.rfind("!"), head.rfind("?"))
+    if cut >= len(head) * 0.6:
+        return head[: cut + 1]
+    return head.rstrip(" ,;:-") + "."
+
+
 def _build_element(e: dict) -> OrderedDict:
     el: OrderedDict = OrderedDict()
     el["type"] = e.get("type", "obj")   # "obj" | "text"
@@ -141,7 +157,7 @@ def _build_element(e: dict) -> OrderedDict:
     if el["type"] == "text":
         el["text"] = e.get("text", "")
 
-    el["desc"] = e.get("desc", "").strip() or "An element in the scene."
+    el["desc"] = _cap_words(e.get("desc", "").strip()) or "An element in the scene."
 
     palette = _clean_palette(e.get("color_palette", []), max_colors=5)
     if palette:
