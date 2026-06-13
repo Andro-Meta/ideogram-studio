@@ -36,6 +36,7 @@ import { useBatchGenerate, type VariationResult } from "@/hooks/useBatchGenerate
 import { Lightbox } from "@/components/lightbox/Lightbox"
 import { RecentGrid } from "@/components/gallery/RecentGrid"
 import { buildCaption, validatePromptState, estimateTokens } from "@/lib/caption"
+import { copyText } from "@/lib/clipboard"
 
 // ── Model status panel ────────────────────────────────────────────────────────
 
@@ -387,8 +388,8 @@ export function Generate() {
               title="Copy caption JSON to clipboard"
               className="text-zinc-600 hover:text-zinc-300 transition-colors shrink-0"
               onClick={() => {
-                navigator.clipboard.writeText(buildCaption(promptState))
-                toast.success("Caption JSON copied")
+                copyText(buildCaption(promptState)).then((ok) =>
+                  ok ? toast.success("Caption JSON copied") : toast.error("Couldn't copy"))
               }}
             >
               <Copy className="h-3 w-3" />

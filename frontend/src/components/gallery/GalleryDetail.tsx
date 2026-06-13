@@ -10,6 +10,7 @@ import { Separator } from "@/components/ui/separator"
 import { cn } from "@/lib/utils"
 import { useGalleryItem, useDeleteGalleryItem, useToggleFavorite } from "@/hooks/useGallery"
 import { useReusePrompt } from "@/hooks/useReusePrompt"
+import { copyText } from "@/lib/clipboard"
 import { toast } from "sonner"
 import { EditorDialog } from "@/components/editor/EditorDialog"
 
@@ -140,8 +141,8 @@ export function GalleryDetail({ itemId, onClose, position, count, onPrev, onNext
                     className="flex items-center gap-2 text-zinc-400 hover:text-zinc-200 transition-colors group/seed"
                     title="Copy seed to clipboard"
                     onClick={() => {
-                      navigator.clipboard.writeText(String(item.seed))
-                      toast.success("Seed copied")
+                      copyText(String(item.seed)).then((ok) =>
+                        ok ? toast.success("Seed copied") : toast.error("Couldn't copy"))
                     }}
                   >
                     <Hash className="h-3.5 w-3.5 text-zinc-600 shrink-0" />
@@ -189,8 +190,8 @@ export function GalleryDetail({ itemId, onClose, position, count, onPrev, onNext
                       className="text-zinc-600 hover:text-zinc-300 transition-colors"
                       title="Copy caption JSON"
                       onClick={() => {
-                        navigator.clipboard.writeText(item.prompt_json!)
-                        toast.success("Caption JSON copied")
+                        copyText(item.prompt_json!).then((ok) =>
+                          ok ? toast.success("Caption JSON copied") : toast.error("Couldn't copy"))
                       }}
                     >
                       <Copy className="h-3 w-3" />
