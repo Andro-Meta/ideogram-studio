@@ -15,10 +15,13 @@ interface SourceImageStore {
   clear: () => void
 }
 
+/** Default blend for a freshly-added image: keep 20% of the original. */
+export const DEFAULT_BLEND_PCT = 20
+
 export const useSourceImageStore = create<SourceImageStore>((set) => ({
   imageB64: null,
-  blendPct: 0,
+  blendPct: DEFAULT_BLEND_PCT,
   setImage: (imageB64) => set({ imageB64 }),
   setBlend: (blendPct) => set({ blendPct: Math.max(0, Math.min(100, Math.round(blendPct))) }),
-  clear: () => set({ imageB64: null, blendPct: 0 }),
+  clear: () => set({ imageB64: null, blendPct: DEFAULT_BLEND_PCT }),
 }))

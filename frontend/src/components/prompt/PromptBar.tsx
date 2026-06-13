@@ -177,11 +177,11 @@ export function PromptBar() {
                   className="h-11 w-11 rounded object-cover border border-zinc-700 shrink-0"
                 />
                 <div className="flex-1 min-w-0">
-                  <p className="text-[11px] font-medium text-zinc-300">Blend original into result</p>
+                  <p className="text-[11px] font-medium text-zinc-300">Image-to-image blend</p>
                   <p className="text-[10px] text-zinc-500 leading-snug">
                     {blendPct === 0
-                      ? "Off — generate fresh from the prompt only"
-                      : `Keep ~${blendPct}% of the original (Remix / img2img)`}
+                      ? "0% — generate fresh from the prompt only"
+                      : `Keep ~${blendPct}% of the original image`}
                   </p>
                 </div>
                 <span className="text-xs font-mono text-zinc-400 tabular-nums w-9 text-right">{blendPct}%</span>
