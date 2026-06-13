@@ -167,6 +167,15 @@ class UpscaleRequest(BaseModel):
             raise ValueError("job_id must be a valid UUID")
         return v
 
+    @field_validator("model_name")
+    @classmethod
+    def model_name_safe(cls, v: str) -> str:
+        # Used to build an output filename — block anything but a plain label so
+        # it can never become a path traversal (no "/", "\\", or separators).
+        if not re.match(r"^[A-Za-z0-9._-]+$", v):
+            raise ValueError("model_name may only contain letters, digits, '.', '_', '-'")
+        return v
+
 
 class UpscaleResponse(BaseModel):
     image_url: str

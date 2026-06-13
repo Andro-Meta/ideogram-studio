@@ -495,7 +495,9 @@ async def loras_apply(request: Request, body: LoraApplyRequest):
 
     if body.filename:
         path = (LORAS_DIR / body.filename).resolve()
-        if not str(path).startswith(str(LORAS_DIR.resolve())) or not path.is_file():
+        # Containment check (defence in depth — the schema already rejects path
+        # separators): the resolved path must live inside LORAS_DIR.
+        if not path.is_relative_to(LORAS_DIR.resolve()) or not path.is_file():
             raise HTTPException(404, f"LoRA file not found: {body.filename}")
         source = str(path)
     elif body.hf_repo:
