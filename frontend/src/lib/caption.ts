@@ -77,6 +77,39 @@ export function validatePromptState(state: PromptState): string[] {
     warnings.push(`Style palette has invalid colors: ${badGlobal.join(", ")}`)
   }
 
+  // Official Ideogram guide: overlapping bounding boxes degrade rendering, and
+  // it's worst for TEXT (each text element needs its own non-overlapping zone).
+  const boxed = state.elements
+    .map((el, i) => ({ i, el }))
+    .filter((x) => !!x.el.bbox)
+  let anyOverlap = false
+  let textOverlap = false
+  for (let a = 0; a < boxed.length; a++) {
+    for (let b = a + 1; b < boxed.length; b++) {
+      const A = boxed[a].el.bbox!
+      const B = boxed[b].el.bbox!
+      const overlap =
+        A.xmin < B.xmax && B.xmin < A.xmax && A.ymin < B.ymax && B.ymin < A.ymax
+      if (overlap) {
+        anyOverlap = true
+        if (boxed[a].el.type === "text" || boxed[b].el.type === "text") textOverlap = true
+      }
+    }
+  }
+  if (textOverlap) {
+    warnings.push("A text box overlaps another box — Ideogram renders text worst when zones overlap. Give each text element its own non-overlapping box.")
+  } else if (anyOverlap) {
+    warnings.push("Some element boxes overlap — Ideogram composes more reliably with non-overlapping boxes.")
+  }
+
+  // Official guide: break multi-line text into separate text elements (the model
+  // renders individual lines more accurately than one box with line breaks).
+  for (const [i, el] of state.elements.entries()) {
+    if (el.type === "text" && (el.text ?? "").includes("\n")) {
+      warnings.push(`Text element ${i + 1} spans multiple lines — the model renders each line more accurately as its own text element.`)
+    }
+  }
+
   return warnings
 }
 
