@@ -282,6 +282,8 @@ export function Generate() {
           imageB64: src.imageB64,
           prompt: buildCaption(promptState),
           blendPct: src.blendPct,
+          width,
+          height,
           sampler_preset: samplerPreset,
           seed: fixedSeed ? seed : null,
         },

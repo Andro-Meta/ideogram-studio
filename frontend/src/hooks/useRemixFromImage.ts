@@ -1,31 +1,49 @@
 import { useMutation } from "@tanstack/react-query"
 import { toast } from "sonner"
-import { aspectMatchedResolution } from "@/lib/caption"
 import type { EditResponse } from "@/types/api"
 
 export interface RemixArgs {
   imageB64: string          // the source image (no data: prefix)
   prompt: string            // structured caption JSON
   blendPct: number          // 0–100: how much of the original to keep
+  width: number             // target canvas resolution (valid Ideogram size)
+  height: number
   sampler_preset?: string
   seed?: number | null
 }
 
-/** Resize the source to an aspect-matched ~1 MP canvas and build a solid-white
- *  mask the same size. The full-image mask turns the inpaint endpoint into a
- *  whole-image Remix (img2img); the resize keeps the run fast (a raw phone photo
- *  would otherwise generate at up to 2048² and run ~4× slower). */
-function prepareRemix(imageB64: string): Promise<{ image: string; mask: string }> {
+/** Keep a generation size inside Ideogram's valid range (256–2048, ×16). */
+function snap16(v: number): number {
+  return Math.max(256, Math.min(2048, Math.round(v / 16) * 16))
+}
+
+/** Resize the source to the target canvas (an Ideogram-valid 1k–2k resolution)
+ *  and build a solid-white mask the same size. The full-image mask turns the
+ *  inpaint endpoint into a whole-image Remix (img2img). The source is *always*
+ *  brought to the canvas size so a raw phone photo generates correctly (not at
+ *  its native 12 MP, which would be wrong/slow); cover-fit preserves the source
+ *  aspect ratio (the canvas is aspect-matched to it on upload, so by default
+ *  this is an exact, non-cropping fit). */
+function prepareRemix(
+  imageB64: string,
+  targetW: number,
+  targetH: number,
+): Promise<{ image: string; mask: string }> {
   return new Promise((resolve, reject) => {
     const img = new Image()
     img.onload = () => {
-      const { width, height } = aspectMatchedResolution(img.naturalWidth, img.naturalHeight)
+      const width = snap16(targetW)
+      const height = snap16(targetH)
       const c = document.createElement("canvas")
       c.width = width
       c.height = height
       const ctx = c.getContext("2d")
       if (!ctx) return reject(new Error("Could not create canvas"))
-      ctx.drawImage(img, 0, 0, width, height)
+      // Cover-fit: scale to fill, centre any overflow (no stretching).
+      const scale = Math.max(width / img.naturalWidth, height / img.naturalHeight)
+      const dw = img.naturalWidth * scale
+      const dh = img.naturalHeight * scale
+      ctx.drawImage(img, (width - dw) / 2, (height - dh) / 2, dw, dh)
       const image = c.toDataURL("image/png").split(",")[1] ?? ""
       ctx.fillStyle = "#ffffff"
       ctx.fillRect(0, 0, width, height)
@@ -38,7 +56,7 @@ function prepareRemix(imageB64: string): Promise<{ image: string; mask: string }
 }
 
 async function callRemix(args: RemixArgs): Promise<EditResponse> {
-  const { image, mask } = await prepareRemix(args.imageB64)
+  const { image, mask } = await prepareRemix(args.imageB64, args.width, args.height)
   // blend 100 → keep original (low strength); blend 0 → full regen (strength 1).
   const strength = Math.max(0.1, Math.min(1, 1 - args.blendPct / 100))
   const res = await fetch("/api/edit/inpaint", {
