@@ -170,7 +170,7 @@ pip install git+https://github.com/huggingface/diffusers.git >> install.log 2>&1
 if errorlevel 1 goto :pip_fail
 
 echo [5/5] Installing remaining Python dependencies...
-pip install "fastapi>=0.136.0" "uvicorn[standard]>=0.49.0" "aiosqlite>=0.22.1" "pydantic-settings>=2.14.1" "python-dotenv>=1.2.2" python-multipart "transformers>=4.49.0" "safetensors>=0.8.0" "accelerate>=1.13.0" "einops>=0.7.0" sentencepiece pillow "huggingface_hub>=1.18.0" requests "bitsandbytes>=0.49.2" "spandrel>=0.4.2" "aura-sr>=0.0.4" >> install.log 2>&1
+pip install "fastapi>=0.136.0" "uvicorn[standard]>=0.49.0" "aiosqlite>=0.22.1" "pydantic-settings>=2.14.1" "python-dotenv>=1.2.2" python-multipart "transformers>=4.49.0" "safetensors>=0.8.0" "accelerate>=1.13.0" "einops>=0.7.0" sentencepiece pillow "huggingface_hub>=1.18.0" requests "bitsandbytes>=0.49.2" "spandrel>=0.4.2" "aura-sr>=0.0.4" "rembg>=2.0.76" "onnxruntime>=1.20" >> install.log 2>&1
 if errorlevel 1 goto :pip_fail
 
 echo done > venv\.install_complete

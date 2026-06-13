@@ -152,6 +152,39 @@ class EnhanceElementsResponse(BaseModel):
     descs: list[str]   # one enriched description per element, in order
 
 
+# ── Split into layers ────────────────────────────────────────────────────────
+
+class LayerElementIn(BaseModel):
+    type: Literal["obj", "text"] = "obj"
+    text: str | None = None
+    desc: str = ""
+    bbox: list[int] | None = None   # [ymin, xmin, ymax, xmax], 0–1000
+
+
+class LayersRequest(BaseModel):
+    image_b64: str                  # the image to split (base64 PNG, no prefix)
+    elements: list[LayerElementIn] = []
+    source_job_id: str | None = None
+
+    @field_validator("image_b64")
+    @classmethod
+    def image_must_be_reasonable(cls, v: str) -> str:
+        if len(v) > 96_000_000:
+            raise ValueError("image too large")
+        return v
+
+
+class LayerInfo(BaseModel):
+    name: str
+    kind: str          # "background" | "foreground" | "obj" | "text"
+    image_url: str
+
+
+class LayersResponse(BaseModel):
+    layers: list[LayerInfo]
+    zip_url: str
+
+
 # ── Gallery ──────────────────────────────────────────────────────────────────
 
 class GalleryItem(BaseModel):

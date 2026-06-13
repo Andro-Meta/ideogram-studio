@@ -53,6 +53,7 @@ It runs comfortably on a single 24 GB consumer GPU (RTX 3090 / 4090) via 4-bit w
 - **Image-to-image blend / Remix** — a 0–100% slider that mixes the uploaded image into the generation.
 - **AI Region Fill (inpaint)** — mask an area and regenerate just that region.
 - **Extend / Reframe (outpaint)** — grow the canvas to a new aspect ratio and continue the scene.
+- **Split into layers** — because Ideogram is bounding-box-native, each element can be matted onto its own **transparent PNG layer** (cut out with rembg) and placed back at its box, plus a background layer — exported as PNGs + a ZIP. Falls back to a foreground/background cutout when there are no boxes.
 - **Layered editor** — selections (rect / ellipse / lasso / brush / wand), adjustment layers, undo history.
 - **Upscale** — 4× with AuraSR-v2.
 

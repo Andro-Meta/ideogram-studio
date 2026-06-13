@@ -61,6 +61,9 @@ from schemas import (
     StyleFuseRequest,
     EnhanceElementsRequest,
     EnhanceElementsResponse,
+    LayersRequest,
+    LayersResponse,
+    LayerInfo,
     StyleFuseResponse,
     SystemInfoResponse,
     UpscaleModelInfo,
@@ -478,6 +481,46 @@ async def enhance_elements_endpoint(body: EnhanceElementsRequest):
         raise HTTPException(502, f"Enhance failed: {_openrouter_error_hint(exc)}") from exc
 
     return EnhanceElementsResponse(descs=descs)
+
+
+@app.post("/api/edit/layers", response_model=LayersResponse)
+async def split_layers_endpoint(body: LayersRequest):
+    """
+    Split an image into separate transparent layers — one per bounding-box
+    element (matted out with rembg), plus a background. Falls back to a single
+    foreground/background split when the prompt had no boxes. Saves PNGs + a ZIP
+    to outputs and returns their URLs.
+    """
+    import base64
+    import io
+    import uuid
+    import layers as layers_mod
+    from PIL import Image
+
+    try:
+        raw = base64.b64decode(body.image_b64)
+        image = Image.open(io.BytesIO(raw))
+        image.load()
+    except Exception as exc:
+        raise HTTPException(400, f"Could not read the image: {exc}") from exc
+
+    stem = body.source_job_id if (body.source_job_id and _UUID_RE.match(body.source_job_id)) else uuid.uuid4().hex
+    stem = os.path.basename(stem)   # never let it become a path
+    els = [e.model_dump() for e in body.elements]
+
+    def _work():
+        layer_imgs = layers_mod.split_into_layers(image, els)
+        return layers_mod.save_layers(layer_imgs, OUTPUTS_DIR, stem)
+
+    try:
+        entries, zip_name = await asyncio.to_thread(_work)
+    except Exception as exc:
+        raise HTTPException(500, f"Split into layers failed: {exc}") from exc
+
+    return LayersResponse(
+        layers=[LayerInfo(name=n, kind=k, image_url=f"/outputs/{fn}") for n, k, fn in entries],
+        zip_url=f"/outputs/{zip_name}",
+    )
 
 
 # ── LoRA adapters ─────────────────────────────────────────────────────────────
