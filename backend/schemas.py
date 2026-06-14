@@ -50,15 +50,45 @@ class PromptStateModel(BaseModel):
 
 # ── Generation ───────────────────────────────────────────────────────────────
 
-class GenerationRequest(BaseModel):
+# ── Shared CFG (guidance) controls ────────────────────────────────────────────
+# A custom CFG curve / "CFG override". When `cfg` is None the model uses the
+# sampler preset's built-in guidance schedule. When set, the backend builds a
+# high→low per-step curve: `cfg` for the first `cfg_override_start` fraction of
+# steps, then `cfg_override` for the tail. Community-recommended for quality and
+# to avoid the model's out-of-distribution refusal collapse (e.g. cfg 3.5 →
+# 2.0 for the last 30%, i.e. cfg_override_start 0.7). Shared by generate + edit.
+
+def _clamp_cfg(v: float | None) -> float | None:
+    return None if v is None else max(0.0, min(15.0, float(v)))
+
+
+def _clamp_fraction(v: float | None) -> float | None:
+    return None if v is None else max(0.0, min(1.0, float(v)))
+
+
+class CfgControlsMixin(BaseModel):
+    cfg: float | None = None
+    cfg_override: float | None = None
+    cfg_override_start: float | None = None
+
+    @field_validator("cfg", "cfg_override")
+    @classmethod
+    def _validate_cfg(cls, v: float | None) -> float | None:
+        return _clamp_cfg(v)
+
+    @field_validator("cfg_override_start")
+    @classmethod
+    def _validate_cfg_start(cls, v: float | None) -> float | None:
+        return _clamp_fraction(v)
+
+
+class GenerationRequest(CfgControlsMixin):
     prompt_json: str
     height: int
     width: int
     sampler_preset: Literal["V4_TURBO_12", "V4_DEFAULT_20", "V4_QUALITY_48"] = "V4_DEFAULT_20"
     seed: int | None = None
     model_variant: Literal["fp8", "nf4", "nf4d", "bf16"] = "nf4"
-    # Gentler CFG curve (less burn/splotch) — community-recommended. Opt-in.
-    soft_guidance: bool = False
 
     @field_validator("height", "width")
     @classmethod
@@ -328,7 +358,7 @@ class EditSaveRequest(BaseModel):
         return v
 
 
-class InpaintRequest(BaseModel):
+class InpaintRequest(CfgControlsMixin):
     """AI region fill: regenerate the masked area of an image from a prompt."""
     image_b64: str                     # current canvas, base64 PNG (no prefix)
     mask_b64: str                      # base64 PNG; white/opaque = regenerate
@@ -360,7 +390,7 @@ class InpaintRequest(BaseModel):
         return v.strip()
 
 
-class ExtendRequest(BaseModel):
+class ExtendRequest(CfgControlsMixin):
     """Outpaint / reframe: grow the canvas to a target aspect ratio and fill
     the new area by continuing the scene."""
     image_b64: str
@@ -382,6 +412,11 @@ class EditResponse(BaseModel):
     image_url: str
     width: int
     height: int
+    # Populated by the diffusion edit paths (inpaint / remix / extend) so the UI
+    # can show the real seed + timing instead of fabricated values. None for
+    # non-diffusion edits (save flatten, import).
+    seed: int | None = None
+    duration_ms: int | None = None
 
 
 class ImportImageRequest(BaseModel):
@@ -422,6 +457,7 @@ class SettingsResponse(BaseModel):
     has_openrouter_api_key: bool
     has_hf_token: bool
     auto_structure_prompt: bool = False
+    auto_retry_on_collapse: bool = False
     safety_moderation_enabled: bool = False
     has_hive_text_key: bool = False
     has_hive_visual_key: bool = False
@@ -436,6 +472,7 @@ class SettingsUpdateRequest(BaseModel):
     openrouter_api_key: SecretStr | None = None
     hf_token: SecretStr | None = None
     auto_structure_prompt: bool | None = None
+    auto_retry_on_collapse: bool | None = None
     safety_moderation_enabled: bool | None = None
     hive_text_key: SecretStr | None = None
     hive_visual_key: SecretStr | None = None

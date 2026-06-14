@@ -68,8 +68,13 @@ export function useGenerate() {
     }
 
     ws.onclose = (ev) => {
-      if (ev.code !== 1000 && store.status === "running") {
-        store.setError("Connection closed unexpectedly")
+      // Read LIVE status (not the render-time snapshot): an abnormal close is a
+      // failure during EITHER model-load or running — not just "running". A
+      // clean finish ("done") or an already-reported "error" must not be
+      // overwritten. code 1000 = our own cancel().
+      const live = useGenerationStore.getState()
+      if (ev.code !== 1000 && live.status !== "done" && live.status !== "error") {
+        live.setError("Connection closed unexpectedly")
       }
       wsRef.current = null
     }

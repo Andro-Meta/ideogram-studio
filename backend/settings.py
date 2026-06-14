@@ -62,6 +62,17 @@ class AppSettings(BaseSettings):
     # so this both improves quality and cuts false refusals. Opt-in.
     auto_structure_prompt: bool = False
 
+    # Auto seed-retry on collapse: when on, if a generation comes back as the
+    # gray "safety filter" card (the model collapsing out-of-distribution), the
+    # app re-rolls the seed and regenerates — the community's most reliable fix
+    # ("changing the seed flips it"). Only applies when the seed is NOT locked.
+    # OFF by default: the collapse detector is conservative but can't be tuned
+    # without real captured cards, so it stays opt-in to avoid ever discarding a
+    # legitimate (e.g. deliberately flat/gray) image.
+    auto_retry_on_collapse: bool = False
+    # How many extra attempts to make before giving up and returning the frame.
+    auto_retry_max_attempts: int = 3
+
     # Optional content moderation via Hive (https://thehive.ai). This is the
     # ONLY filter in the stack — there is no local/weight toggle. When OFF
     # (default), prompts and images are never screened. When ON *and* a key

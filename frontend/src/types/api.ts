@@ -44,14 +44,23 @@ export interface StyleFuseResponse {
   art_style: string
 }
 
-export interface GenerationRequest {
+/** Custom CFG (guidance) controls. Omit `cfg` to use the sampler preset's
+ *  built-in schedule. When set, the backend builds a high→low per-step curve:
+ *  `cfg` for the first `cfg_override_start` fraction of steps, then
+ *  `cfg_override` for the tail (e.g. 3.5 → 2.0 for the last 30% at start 0.7). */
+export interface CfgControls {
+  cfg?: number
+  cfg_override?: number
+  cfg_override_start?: number
+}
+
+export interface GenerationRequest extends CfgControls {
   prompt_json: string
   height: number
   width: number
   sampler_preset: SamplerPreset
   seed: number | null
   model_variant: ModelVariant
-  soft_guidance?: boolean
 }
 
 export type WsMessageType = "started" | "status" | "progress" | "done" | "error"
@@ -115,6 +124,7 @@ export interface SettingsResponse {
   has_openrouter_api_key: boolean
   has_hf_token: boolean
   auto_structure_prompt: boolean
+  auto_retry_on_collapse: boolean
   safety_moderation_enabled: boolean
   has_hive_text_key: boolean
   has_hive_visual_key: boolean
@@ -129,6 +139,7 @@ export interface SettingsUpdateRequest {
   openrouter_api_key?: string
   hf_token?: string
   auto_structure_prompt?: boolean
+  auto_retry_on_collapse?: boolean
   safety_moderation_enabled?: boolean
   hive_text_key?: string
   hive_visual_key?: string
@@ -173,22 +184,15 @@ export interface UpscaleResponse {
 
 // ── Image editing ────────────────────────────────────────────────────────────
 
-export interface EditRequest {
-  job_id: string
-  rotate: 0 | 90 | 180 | 270
-  flip_h: boolean
-  flip_v: boolean
-  brightness: number
-  contrast: number
-  saturation: number
-  sharpness: number
-}
-
 export interface EditResponse {
   job_id: string
   image_url: string
   width: number
   height: number
+  /** Real seed + timing for diffusion edits (inpaint / remix / extend);
+   *  null for non-diffusion edits (flatten-save, import). */
+  seed?: number | null
+  duration_ms?: number | null
 }
 
 // ── Logs ─────────────────────────────────────────────────────────────────────

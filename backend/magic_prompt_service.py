@@ -196,8 +196,3 @@ class MagicPromptService:
             except Exception as exc:  # noqa: BLE001 — retried; re-raised below
                 last_exc = exc
         raise last_exc if last_exc else RuntimeError("magic-prompt expand failed")
-
-    def rebuild(self, backend_name: str, api_key: str | None) -> None:
-        """Hot-swap the backend without restarting (e.g. after settings change)."""
-        self._backend = _make_backend(
-            backend_name, api_key, self._openrouter_model, self._free_only)

@@ -10,6 +10,10 @@ export interface RemixArgs {
   height: number
   sampler_preset?: string
   seed?: number | null
+  // Optional custom CFG curve (same controls as text-to-image).
+  cfg?: number
+  cfg_override?: number
+  cfg_override_start?: number
 }
 
 /** Keep a generation size inside Ideogram's valid range (256–2048, ×16). */
@@ -69,6 +73,9 @@ async function callRemix(args: RemixArgs): Promise<EditResponse> {
       strength,
       sampler_preset: args.sampler_preset ?? "V4_DEFAULT_20",
       seed: args.seed ?? null,
+      ...(args.cfg !== undefined
+        ? { cfg: args.cfg, cfg_override: args.cfg_override, cfg_override_start: args.cfg_override_start }
+        : {}),
     }),
   })
   if (!res.ok) {

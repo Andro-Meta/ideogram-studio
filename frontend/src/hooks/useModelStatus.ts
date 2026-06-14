@@ -56,6 +56,16 @@ export function useLoadModel() {
     onSuccess: (_, { variant }) => {
       toast.info(`Loading ${variant} model...`)
       qc.invalidateQueries({ queryKey: ["model-status"] })
+      // C1: keep the server's persisted default (.env) in sync with the variant
+      // the user actually loads, so the server mirror never goes stale against
+      // the client store. Client stays the authority; fire-and-forget.
+      fetch("/api/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ model_variant: variant }),
+      })
+        .then(() => qc.invalidateQueries({ queryKey: ["settings"] }))
+        .catch(() => { /* non-critical: a stale .env only affects next startup */ })
     },
     onError: (err: Error, args) => {
       if (err instanceof LoadBlockedError) {

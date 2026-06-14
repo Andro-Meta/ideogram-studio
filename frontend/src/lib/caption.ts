@@ -110,7 +110,40 @@ export function validatePromptState(state: PromptState): string[] {
     }
   }
 
+  // Empty-canvas collapse: the community found Ideogram 4 treats large UNBOXED
+  // regions as "transparent/canvas" and is far more likely to collapse (the gray
+  // "blocked" card) or paint a fake-alpha background. The fix is to fill empty
+  // space with a near-full-canvas background element. Warn when boxes leave most
+  // of the canvas uncovered (only meaningful once at least one box exists; pure
+  // text-to-image with no boxes relies on the background text and is fine).
+  if (boxed.length > 0 && boxCoverageFraction(state) < 0.5) {
+    warnings.push(
+      "Most of the canvas has no box — Ideogram tends to collapse or paint a fake transparent background in empty areas. " +
+        "Add a near-full-canvas background element (the community's “fill the empty space” fix).",
+    )
+  }
+
   return warnings
+}
+
+/** Fraction (0–1) of the 0–1000 canvas covered by the union of element boxes.
+ *  Uses a coarse grid sample — exact enough to drive the empty-canvas warning
+ *  without a full polygon-union computation. */
+export function boxCoverageFraction(state: PromptState, grid = 40): number {
+  const boxes = state.elements.map((el) => el.bbox).filter((b): b is NonNullable<typeof b> => !!b)
+  if (boxes.length === 0) return 0
+  const cell = 1000 / grid
+  let covered = 0
+  for (let gy = 0; gy < grid; gy++) {
+    for (let gx = 0; gx < grid; gx++) {
+      const cx = (gx + 0.5) * cell
+      const cy = (gy + 0.5) * cell
+      if (boxes.some((b) => cx >= b.xmin && cx <= b.xmax && cy >= b.ymin && cy <= b.ymax)) {
+        covered++
+      }
+    }
+  }
+  return covered / (grid * grid)
 }
 
 /** Human-readable summary of a sampler preset. */

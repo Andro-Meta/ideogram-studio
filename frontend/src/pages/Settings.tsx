@@ -128,6 +128,7 @@ export function Settings() {
   const [orModel, setOrModel] = useState<string>("")
   const [freeOnly, setFreeOnly] = useState<boolean | null>(null)
   const [autoStructure, setAutoStructure] = useState<boolean | null>(null)
+  const [autoRetry, setAutoRetry] = useState<boolean | null>(null)
   const [safetyOn, setSafetyOn] = useState<boolean | null>(null)
   const [hiveText, setHiveText] = useState("")
   const [hiveVisual, setHiveVisual] = useState("")
@@ -136,6 +137,7 @@ export function Settings() {
   const effectiveOrModel = orModel || serverSettings?.openrouter_model || "google/gemma-4-31b-it:free"
   const effectiveFreeOnly = freeOnly ?? serverSettings?.openrouter_free_only ?? true
   const effectiveAutoStructure = autoStructure ?? serverSettings?.auto_structure_prompt ?? false
+  const effectiveAutoRetry = autoRetry ?? serverSettings?.auto_retry_on_collapse ?? false
   const effectiveSafety = safetyOn ?? serverSettings?.safety_moderation_enabled ?? false
 
   const handleSave = () => {
@@ -147,11 +149,20 @@ export function Settings() {
     if (orModel)       payload.openrouter_model = orModel
     if (freeOnly !== null) payload.openrouter_free_only = freeOnly
     if (autoStructure !== null) payload.auto_structure_prompt = autoStructure
+    if (autoRetry !== null) payload.auto_retry_on_collapse = autoRetry
     if (safetyOn !== null) payload.safety_moderation_enabled = safetyOn
     if (hiveText)      payload.hive_text_key   = hiveText
     if (hiveVisual)    payload.hive_visual_key = hiveVisual
     updateMutation.mutate(payload)
   }
+
+  // Save is enabled when ANY field changed — including toggle-only changes
+  // (free-models / auto-structure / moderation), which previously left Save
+  // disabled and unsaveable. Toggles use null to mean "unchanged".
+  const isDirty =
+    !!hfToken || !!ideogramKey || !!openrouterKey || !!mpBackend || !!orModel ||
+    !!hiveText || !!hiveVisual ||
+    freeOnly !== null || autoStructure !== null || autoRetry !== null || safetyOn !== null
 
   if (isLoading) {
     return (
@@ -392,6 +403,22 @@ export function Settings() {
               <Switch
                 checked={effectiveAutoStructure}
                 onCheckedChange={(v) => setAutoStructure(v)}
+              />
+            </div>
+
+            <div className="border-t border-zinc-800 pt-3 flex items-start justify-between gap-4">
+              <div className="space-y-0.5">
+                <Label className="text-sm text-zinc-200">Auto-retry on collapse</Label>
+                <p className="text-[11px] text-zinc-500">
+                  If a generation comes back as the gray "safety filter" card (the model
+                  collapsing, not real moderation), automatically re-roll the seed and try again —
+                  the community's most reliable fix. Only applies when the seed isn't locked. The
+                  detector is conservative; leave off if you intentionally generate flat/gray images.
+                </p>
+              </div>
+              <Switch
+                checked={effectiveAutoRetry}
+                onCheckedChange={(v) => setAutoRetry(v)}
               />
             </div>
           </div>
@@ -640,7 +667,7 @@ export function Settings() {
         <div className="flex justify-end pb-8">
           <Button
             onClick={handleSave}
-            disabled={updateMutation.isPending || (!hfToken && !ideogramKey && !openrouterKey && !mpBackend)}
+            disabled={updateMutation.isPending || !isDirty}
             className="bg-violet-600 hover:bg-violet-500 text-white gap-2"
           >
             {updateMutation.isPending ? (

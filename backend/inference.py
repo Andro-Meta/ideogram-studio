@@ -189,22 +189,82 @@ class GenerationSettings:
     sampler_preset: str        # "V4_TURBO_12" | "V4_DEFAULT_20" | "V4_QUALITY_48"
     seed: int | None = None
     raise_on_caption_issues: bool = True
-    # Soft guidance: a lower-CFG curve that drops hard for the last ~35% of steps.
-    # The Banodoco #ideogram community found the official CFG (7.0) too high —
-    # it splotches/burns photos; this profile is gentler. Opt-in per generation.
-    soft_guidance: bool = False
+    # Custom CFG curve (a "CFG override" in ComfyUI terms). When `cfg` is None
+    # the preset's frozen guidance_schedule is used unchanged. When set, a
+    # high→low per-step curve is built: `cfg` for the first `cfg_override_start`
+    # fraction of steps, then `cfg_override` for the remaining tail.
+    #
+    # This is the single lever the Banodoco/ComfyUI community uses for BOTH
+    # quality (the official CFG of 7.0 is too high — it splotches/burns photos)
+    # AND for avoiding the model's out-of-distribution "safety collapse". A
+    # typical setting is cfg≈3.5 dropping to ≈2.0 for the last 30% of steps
+    # (cfg_override_start=0.7). Replaces the older boolean "soft guidance".
+    cfg: float | None = None
+    cfg_override: float | None = None       # tail CFG; defaults to `cfg` if None
+    cfg_override_start: float | None = None  # fraction 0–1; defaults to 0.7
 
 
-def _soft_guidance_schedule(
-    num_steps: int, *, forward: bool, high: float = 4.0, low: float = 2.0, low_frac: float = 0.35,
+def _build_guidance_schedule(
+    num_steps: int, *, forward: bool, cfg: float, cfg_override: float, override_start: float,
 ) -> list[float]:
-    """Build a gentler CFG schedule: `high` for the first ~65% of steps, `low`
-    for the final ~35%. `forward` True = diffusers order (index 0 = first step);
-    False = ideogram4-package order (index 0 = last step)."""
-    n_low = max(1, round(num_steps * low_frac))
-    n_high = max(1, num_steps - n_low)
-    fwd = [high] * n_high + [low] * n_low          # first high, last low
+    """Build a high→low per-step CFG curve: `cfg` for the first `override_start`
+    fraction of steps, `cfg_override` for the remaining tail. `forward` True =
+    diffusers order (index 0 = first step); False = ideogram4-package order
+    (index 0 = last step). override_start=1.0 → constant `cfg` (no drop).
+    Always returns exactly `num_steps` values."""
+    start = min(max(override_start, 0.0), 1.0)
+    n_high = max(1, min(num_steps, round(num_steps * start)))
+    n_low = num_steps - n_high
+    fwd = [float(cfg)] * n_high + [float(cfg_override)] * n_low   # first high, last low
     return fwd if forward else fwd[::-1]
+
+
+def _resolve_guidance_schedule(
+    preset_schedule, num_steps: int, settings: "GenerationSettings", *, forward: bool,
+) -> list[float]:
+    """Return the user's custom CFG curve when they set one, else the preset's
+    frozen schedule. Centralises the preset-vs-custom decision so generate() and
+    inpaint() in every pipeline behave identically."""
+    if settings.cfg is None:
+        return list(preset_schedule)
+    start = settings.cfg_override_start if settings.cfg_override_start is not None else 0.7
+    override = settings.cfg_override if settings.cfg_override is not None else settings.cfg
+    return _build_guidance_schedule(
+        num_steps, forward=forward,
+        cfg=settings.cfg, cfg_override=override, override_start=start,
+    )
+
+
+def is_safety_collapse(
+    image: "Image.Image", *,
+    sat_thresh: float = 0.06, var_thresh: float = 120.0, edge_thresh: float = 6.0,
+) -> bool:
+    """Best-effort detection of Ideogram 4's gray "safety filter" card.
+
+    The card is a near-uniform, near-grayscale, low-detail frame (the model
+    collapsing out-of-distribution — not real moderation). This is intentionally
+    CONSERVATIVE: it requires the frame to be near-grayscale AND nearly flat AND
+    nearly edge-free, so a legitimate textured or colourful image is never
+    flagged. It can still flag a deliberately solid-gray image — hence the
+    feature that uses it (auto seed-retry) is OFF by default. Returns False on
+    any error (fail-open: never blocks a result because detection failed).
+
+    Thresholds are tunable against real captured gray-card outputs.
+    """
+    try:
+        import numpy as np
+        sm = image.convert("RGB").resize((64, 64))
+        arr = np.asarray(sm, dtype=np.float32)
+        r, g, b = arr[..., 0], arr[..., 1], arr[..., 2]
+        mx = np.maximum(np.maximum(r, g), b)
+        mn = np.minimum(np.minimum(r, g), b)
+        saturation = float(np.where(mx > 1e-6, (mx - mn) / np.maximum(mx, 1e-6), 0.0).mean())
+        lum = 0.299 * r + 0.587 * g + 0.114 * b
+        variance = float(lum.var())
+        edge = float(np.abs(np.diff(lum, axis=1)).mean() + np.abs(np.diff(lum, axis=0)).mean())
+        return saturation < sat_thresh and variance < var_thresh and edge < edge_thresh
+    except Exception:
+        return False
 
 
 class InferencePipeline(ABC):
@@ -339,9 +399,9 @@ class FP8Pipeline(InferencePipeline):
 
         preset = self.PRESETS[settings.sampler_preset]
         actual_seed = self._resolve_seed(settings.seed)
-        schedule = (
-            _soft_guidance_schedule(preset["num_steps"], forward=self.GUIDANCE_FORWARD)
-            if settings.soft_guidance else preset["guidance_schedule"]
+        schedule = _resolve_guidance_schedule(
+            preset["guidance_schedule"], preset["num_steps"], settings,
+            forward=self.GUIDANCE_FORWARD,
         )
 
         images: list[Image.Image] = self._pipe(
@@ -477,9 +537,9 @@ class BF16Pipeline(InferencePipeline):
         preset = self.PRESETS[settings.sampler_preset]
         actual_seed = self._resolve_seed(settings.seed)
         generator = torch.Generator("cuda").manual_seed(actual_seed)
-        schedule = (
-            _soft_guidance_schedule(preset["num_inference_steps"], forward=self.GUIDANCE_FORWARD)
-            if settings.soft_guidance else preset["guidance_schedule"]
+        schedule = _resolve_guidance_schedule(
+            preset["guidance_schedule"], preset["num_inference_steps"], settings,
+            forward=self.GUIDANCE_FORWARD,
         )
 
         def _on_step(pipe, step_i: int, timestep: int, kwargs: dict) -> dict:
@@ -577,10 +637,14 @@ class BF16Pipeline(InferencePipeline):
 
         preset = self.PRESETS[settings.sampler_preset]
         actual_seed = self._resolve_seed(settings.seed)
+        schedule = _resolve_guidance_schedule(
+            preset["guidance_schedule"], preset["num_inference_steps"], settings,
+            forward=self.GUIDANCE_FORWARD,
+        )
         out = _inpaint.inpaint_region(
             self._pipe, image, mask, prompt_json,
             num_steps=preset["num_inference_steps"],
-            guidance_schedule=preset["guidance_schedule"],
+            guidance_schedule=schedule,
             mu=preset["mu"], std=preset["std"],
             seed=actual_seed, strength=strength, step_callback=step_callback,
         )

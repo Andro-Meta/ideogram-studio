@@ -20,11 +20,23 @@ interface SettingsStore {
   batchCount: number
   /** Layout canvas is opt-in — most generations never pin elements. */
   canvasOpen: boolean
-  /** Soft guidance: gentler CFG curve (less burn/splotch). Off by default. */
-  softGuidance: boolean
+  /** Custom CFG curve. On by default with community-recommended values: the
+   *  official CFG (7) is too high and burns/splotches photos. When off, the
+   *  sampler preset's built-in schedule is used unchanged. */
+  customCfg: boolean
+  /** Main guidance scale for the first part of the run. */
+  cfg: number
+  /** Lower guidance for the tail (reduces burn / lingering noise). */
+  cfgOverride: number
+  /** Fraction (0–1) of the run at `cfg` before dropping to `cfgOverride`.
+   *  0.7 = first 70% at `cfg`, last 30% at `cfgOverride`. */
+  cfgOverrideStart: number
 
   setModelVariant: (v: ModelVariant) => void
-  setSoftGuidance: (v: boolean) => void
+  setCustomCfg: (v: boolean) => void
+  setCfg: (v: number) => void
+  setCfgOverride: (v: number) => void
+  setCfgOverrideStart: (v: number) => void
   setCanvasOpen: (v: boolean) => void
   setSamplerPreset: (v: SamplerPreset) => void
   setResolution: (w: number, h: number) => void
@@ -47,10 +59,19 @@ export const useSettingsStore = create<SettingsStore>()(
       seed: 42,
       batchCount: 4,
       canvasOpen: false,
-      softGuidance: false,
+      // Ship the community-recommended defaults ON: CFG 3.5 dropping to 2.0 for
+      // the last 30% of steps. Users can turn this off to use the raw preset
+      // (CFG 7) or tune the values.
+      customCfg: true,
+      cfg: 3.5,
+      cfgOverride: 2.0,
+      cfgOverrideStart: 0.7,
 
       setModelVariant: (v) => set({ modelVariant: v }),
-      setSoftGuidance: (v) => set({ softGuidance: v }),
+      setCustomCfg: (v) => set({ customCfg: v }),
+      setCfg: (v) => set({ cfg: Math.max(1, Math.min(15, v)) }),
+      setCfgOverride: (v) => set({ cfgOverride: Math.max(1, Math.min(15, v)) }),
+      setCfgOverrideStart: (v) => set({ cfgOverrideStart: Math.max(0, Math.min(1, v)) }),
       setCanvasOpen: (v) => set({ canvasOpen: v }),
       setSamplerPreset: (v) => set({ samplerPreset: v }),
       setResolution: (w, h) => set({ width: w, height: h }),
@@ -62,9 +83,12 @@ export const useSettingsStore = create<SettingsStore>()(
     }),
     {
       name: "ideogram-studio-settings",
-      version: 2,
+      version: 3,
       migrate: (persisted, version) => {
-        const state = persisted as Partial<SettingsStore> & { variationCount?: number }
+        const state = persisted as Partial<SettingsStore> & {
+          variationCount?: number
+          softGuidance?: boolean
+        }
         // v0 shipped with fp8 as the default — migrate to nf4.
         if (version < 1 && state.modelVariant === "fp8") {
           state.modelVariant = "nf4"
@@ -73,6 +97,14 @@ export const useSettingsStore = create<SettingsStore>()(
         if (version < 2) {
           state.batchCount = clampBatch(state.variationCount ?? 4)
           delete state.variationCount
+        }
+        // v3 replaced the softGuidance boolean with explicit CFG controls.
+        if (version < 3) {
+          state.customCfg = true
+          state.cfg = 3.5
+          state.cfgOverride = 2.0
+          state.cfgOverrideStart = 0.7
+          delete state.softGuidance
         }
         return state as SettingsStore
       },

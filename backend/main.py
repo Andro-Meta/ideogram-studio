@@ -30,7 +30,7 @@ from fastapi.staticfiles import StaticFiles
 
 import gallery as gallery_service
 from caption import build_caption, parse_caption_json
-from inference import GenerationSettings, PipelineManager
+from inference import GenerationSettings, PipelineManager, is_safety_collapse
 from magic_prompt_service import MagicPromptService
 import style_fuse
 import enhance_elements as enhance_mod
@@ -596,6 +596,8 @@ async def loras_apply(request: Request, body: LoraApplyRequest):
 @app.post("/api/loras/weight", response_model=LoraListResponse)
 async def loras_weight(request: Request, body: LoraWeightRequest):
     pm: PipelineManager = request.app.state.pipeline
+    if not pm.supports_lora:
+        raise HTTPException(409, f"The {pm.variant or 'current'} model can't use LoRA adapters.")
     loop = asyncio.get_running_loop()
     try:
         await loop.run_in_executor(
@@ -609,6 +611,8 @@ async def loras_weight(request: Request, body: LoraWeightRequest):
 @app.post("/api/loras/remove", response_model=LoraListResponse)
 async def loras_remove(request: Request, body: LoraRemoveRequest):
     pm: PipelineManager = request.app.state.pipeline
+    if not pm.supports_lora:
+        raise HTTPException(409, f"The {pm.variant or 'current'} model can't use LoRA adapters.")
     loop = asyncio.get_running_loop()
     await loop.run_in_executor(
         _inference_executor, lambda: pm.remove_lora(body.name)
@@ -688,6 +692,7 @@ async def get_settings():
         has_openrouter_api_key=bool(app_settings.openrouter_api_key),
         has_hf_token=bool(app_settings.hf_token),
         auto_structure_prompt=app_settings.auto_structure_prompt,
+        auto_retry_on_collapse=app_settings.auto_retry_on_collapse,
         safety_moderation_enabled=app_settings.safety_moderation_enabled,
         has_hive_text_key=bool(app_settings.hive_text_key),
         has_hive_visual_key=bool(app_settings.hive_visual_key),
@@ -743,6 +748,9 @@ async def update_settings(request: Request, body: SettingsUpdateRequest):
     if body.auto_structure_prompt is not None:
         _set("AUTO_STRUCTURE_PROMPT", "true" if body.auto_structure_prompt else "false")
         app_settings.auto_structure_prompt = body.auto_structure_prompt
+    if body.auto_retry_on_collapse is not None:
+        _set("AUTO_RETRY_ON_COLLAPSE", "true" if body.auto_retry_on_collapse else "false")
+        app_settings.auto_retry_on_collapse = body.auto_retry_on_collapse
     if body.safety_moderation_enabled is not None:
         _set("SAFETY_MODERATION_ENABLED", "true" if body.safety_moderation_enabled else "false")
         app_settings.safety_moderation_enabled = body.safety_moderation_enabled
@@ -947,7 +955,9 @@ async def generation_ws(websocket: WebSocket, job_id: str):
         sampler_preset=gen_req.sampler_preset,
         seed=gen_req.seed,
         raise_on_caption_issues=False,   # warnings only, don't block generation
-        soft_guidance=gen_req.soft_guidance,
+        cfg=gen_req.cfg,
+        cfg_override=gen_req.cfg_override,
+        cfg_override_start=gen_req.cfg_override_start,
     )
 
     # Create DB record using the WebSocket job_id so complete_job can find it
@@ -976,7 +986,30 @@ async def generation_ws(websocket: WebSocket, job_id: str):
                     loop,
                 )
 
-            image, actual_seed = pm.generate(gen_req.prompt_json, settings, on_step)
+            # Auto seed-retry on collapse (opt-in). If the model returns its gray
+            # "safety filter" card, re-roll the seed and try again — the most
+            # reliable community fix. Only when the seed isn't user-locked (a
+            # locked seed must stay reproducible).
+            retries = (
+                app_settings.auto_retry_on_collapse
+                and gen_req.seed is None
+            )
+            max_attempts = max(1, app_settings.auto_retry_max_attempts + 1) if retries else 1
+            for attempt in range(max_attempts):
+                image, actual_seed = pm.generate(gen_req.prompt_json, settings, on_step)
+                if attempt + 1 < max_attempts and is_safety_collapse(image):
+                    asyncio.run_coroutine_threadsafe(
+                        queue.put({
+                            "type": "status",
+                            "message": (
+                                f"Detected a blocked/collapsed frame — retrying with a new seed "
+                                f"({attempt + 2}/{max_attempts})…"
+                            ),
+                        }),
+                        loop,
+                    )
+                    continue
+                break
 
             # Optional Hive image screening (opt-in). On a hit, discard the
             # image rather than saving it.
@@ -1026,7 +1059,15 @@ async def generation_ws(websocket: WebSocket, job_id: str):
                 await gallery_service.fail_job(db, job_id, msg["message"])
                 break
     except WebSocketDisconnect:
-        pass  # Client disconnected mid-generation — generation thread continues but we stop forwarding
+        # Client disconnected mid-generation. The inference thread keeps running
+        # to completion (we can't cancel a GPU step), but nothing will read its
+        # result, so the DB row would otherwise be orphaned as "running" forever.
+        # Reap it: mark the job failed/cancelled so the gallery stays consistent.
+        logger.info("Client disconnected during generation %s — marking cancelled.", job_id)
+        try:
+            await gallery_service.fail_job(db, job_id, "Cancelled — client disconnected.")
+        except Exception:
+            logger.exception("Could not reap disconnected job %s", job_id)
 
 
 # ── Upscale API ───────────────────────────────────────────────────────────────
@@ -1214,6 +1255,7 @@ async def inpaint_endpoint(request: Request, body: InpaintRequest):
         height=image.height, width=image.width,
         sampler_preset=body.sampler_preset, seed=body.seed,
         raise_on_caption_issues=False,
+        cfg=body.cfg, cfg_override=body.cfg_override, cfg_override_start=body.cfg_override_start,
     )
 
     # Structure the prompt into a JSON caption, exactly like the text-to-image
@@ -1233,11 +1275,13 @@ async def inpaint_endpoint(request: Request, body: InpaintRequest):
     def _run():
         return pm.inpaint(image, mask, fill_prompt, settings, body.strength)
 
+    t0 = time.monotonic()
     try:
-        out_img, _seed = await loop.run_in_executor(_inference_executor, _run)
+        out_img, actual_seed = await loop.run_in_executor(_inference_executor, _run)
     except Exception as exc:
         logger.exception("Inpaint failed")
         raise HTTPException(500, f"AI region fill failed: {exc}") from exc
+    duration_ms = int((time.monotonic() - t0) * 1000)
 
     db = request.app.state.db
     new_id = str(_uuid.uuid4())
@@ -1250,8 +1294,11 @@ async def inpaint_endpoint(request: Request, body: InpaintRequest):
         await gallery_service.insert_derived(db, source=source, new_id=new_id, image_path=out_name, width=w, height=h)
     else:
         await gallery_service.insert_imported(db, new_id=new_id, image_path=out_name, width=w, height=h, label="AI region fill")
-    logger.info("Inpaint -> %s (%dx%d)", new_id, w, h)
-    return EditResponse(job_id=new_id, image_url=f"/outputs/{out_name}", width=w, height=h)
+    logger.info("Inpaint -> %s (%dx%d) seed=%d", new_id, w, h, actual_seed)
+    return EditResponse(
+        job_id=new_id, image_url=f"/outputs/{out_name}", width=w, height=h,
+        seed=actual_seed, duration_ms=duration_ms,
+    )
 
 
 @app.post("/api/edit/extend", response_model=EditResponse)
@@ -1293,6 +1340,7 @@ async def extend_endpoint(request: Request, body: ExtendRequest):
     settings = GenerationSettings(
         height=padded.height, width=padded.width,
         sampler_preset="V4_DEFAULT_20", seed=body.seed, raise_on_caption_issues=False,
+        cfg=body.cfg, cfg_override=body.cfg_override, cfg_override_start=body.cfg_override_start,
     )
 
     def _run():
@@ -1300,11 +1348,13 @@ async def extend_endpoint(request: Request, body: ExtendRequest):
         # init + the pinned original give continuity.
         return pm.inpaint(padded, mask, prompt, settings, 0.95)
 
+    t0 = time.monotonic()
     try:
-        out_img, _seed = await loop.run_in_executor(_inference_executor, _run)
+        out_img, actual_seed = await loop.run_in_executor(_inference_executor, _run)
     except Exception as exc:
         logger.exception("Extend failed")
         raise HTTPException(500, f"Extend failed: {exc}") from exc
+    duration_ms = int((time.monotonic() - t0) * 1000)
 
     db = request.app.state.db
     new_id = str(_uuid.uuid4())
@@ -1316,8 +1366,11 @@ async def extend_endpoint(request: Request, body: ExtendRequest):
         await gallery_service.insert_derived(db, source=source, new_id=new_id, image_path=out_name, width=w, height=h)
     else:
         await gallery_service.insert_imported(db, new_id=new_id, image_path=out_name, width=w, height=h, label="Extended")
-    logger.info("Extend -> %s (%dx%d, %s)", new_id, w, h, body.target_ratio)
-    return EditResponse(job_id=new_id, image_url=f"/outputs/{out_name}", width=w, height=h)
+    logger.info("Extend -> %s (%dx%d, %s) seed=%d", new_id, w, h, body.target_ratio, actual_seed)
+    return EditResponse(
+        job_id=new_id, image_url=f"/outputs/{out_name}", width=w, height=h,
+        seed=actual_seed, duration_ms=duration_ms,
+    )
 
 
 @app.post("/api/edit/save", response_model=EditResponse)
@@ -1381,6 +1434,7 @@ class SPAStaticFiles(StaticFiles):
 
 
 if DIST_DIR.exists():
+    # SPA mount is registered LAST so it never shadows an /api or /ws route.
     app.mount("/", SPAStaticFiles(directory=str(DIST_DIR), html=True), name="spa")
 else:
     @app.get("/{full_path:path}")

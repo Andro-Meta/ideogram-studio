@@ -13,7 +13,6 @@ import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { Progress } from "@/components/ui/progress"
 import { Separator } from "@/components/ui/separator"
-import { Switch } from "@/components/ui/switch"
 import { Rail } from "@/components/ui/rail"
 import { cn } from "@/lib/utils"
 import { PromptBar } from "@/components/prompt/PromptBar"
@@ -25,6 +24,7 @@ import { BBoxCanvas } from "@/components/canvas/BBoxCanvas"
 import { ModelVariantToggle } from "@/components/controls/ModelVariantToggle"
 import { LoraSection } from "@/components/controls/LoraPanel"
 import { SamplerPresetPicker } from "@/components/controls/SamplerPresetPicker"
+import { CfgControl } from "@/components/controls/CfgControl"
 import { ResolutionPicker } from "@/components/controls/ResolutionPicker"
 import { SeedControl } from "@/components/controls/SeedControl"
 import { VariationsGrid } from "@/components/variations/VariationsGrid"
@@ -208,7 +208,8 @@ export function Generate() {
   const promptState = usePromptStore()
   const {
     modelVariant, samplerPreset, width, height, fixedSeed, seed, batchCount,
-    setBatchCount, canvasOpen, setCanvasOpen, softGuidance, setSoftGuidance,
+    setBatchCount, canvasOpen, setCanvasOpen,
+    customCfg, cfg, cfgOverride, cfgOverrideStart,
   } = useSettingsStore()
   const { status, progress, resultImageUrl, resultSeed, resultDurationMs, errorMessage, jobId } =
     useGenerationStore()
@@ -258,6 +259,11 @@ export function Generate() {
   const displaySeed = selectedVariation?.seed ?? resultSeed
   const displayDurationMs = selectedVariation?.durationMs ?? resultDurationMs
 
+  // Custom CFG curve is opt-in; when off, omit the fields so the backend uses
+  // the sampler preset's built-in schedule.
+  const cfgFields = () =>
+    customCfg ? { cfg, cfg_override: cfgOverride, cfg_override_start: cfgOverrideStart } : {}
+
   const buildReq = () => ({
     prompt_json: buildCaption(promptState),
     height,
@@ -265,7 +271,7 @@ export function Generate() {
     sampler_preset: samplerPreset,
     seed: fixedSeed ? seed : null,
     model_variant: modelVariant,
-    soft_guidance: softGuidance,
+    ...cfgFields(),
   })
 
   const handleGenerate = () => {
@@ -289,10 +295,13 @@ export function Generate() {
           height,
           sampler_preset: samplerPreset,
           seed: fixedSeed ? seed : null,
+          ...cfgFields(),
         },
         {
           onSuccess: (res) => {
-            gen.setDone(res.image_url, fixedSeed ? seed : 0, 0)
+            // Use the real seed + duration the backend reports (it resolves a
+            // random seed when none is locked) instead of fabricating 0/0.
+            gen.setDone(res.image_url, res.seed ?? (fixedSeed ? seed : 0), res.duration_ms ?? 0)
             queryClient.invalidateQueries({ queryKey: ["gallery"] })
           },
           onError: (e: Error) => gen.setError(e.message),
@@ -349,17 +358,9 @@ export function Generate() {
             <Separator className="bg-zinc-800" />
             <SamplerPresetPicker />
 
-            {/* Soft guidance — gentler CFG curve (less burn/splotch). From the
-                Banodoco community: the official CFG (7) is too high for photos. */}
-            <label className="flex items-start gap-2.5 cursor-pointer">
-              <Switch checked={softGuidance} onCheckedChange={setSoftGuidance} className="mt-0.5 scale-90" />
-              <div className="min-w-0">
-                <p className="text-xs font-medium text-zinc-300">Soft guidance</p>
-                <p className="text-[10px] text-zinc-500 leading-snug">
-                  Lower CFG with a late drop — less burnt/splotchy, softer photos. Try it if results look over-contrasted.
-                </p>
-              </div>
-            </label>
+            {/* Custom CFG curve (value + late drop). From the Banodoco
+                community: the official CFG (7) is too high for photos. */}
+            <CfgControl />
 
             <Separator className="bg-zinc-800" />
             <ResolutionPicker />
