@@ -37,8 +37,7 @@ from PIL import Image, ImageFilter
 # serialise access (this app is single-user / single-worker).
 _session = None
 _sam = None  # (model, processor, device)
-_vitmatte = None  # (model, processor, device)
-_vitmatte_ok = True  # flips false once if the model can't be loaded/used
+_vitmatte = None  # None = unloaded, False = load failed, else (model, proc, device)
 _lock = threading.Lock()
 
 # ViTMatte soft-alpha refinement of SAM masks. Off via LAYERS_SOFT_MATTE=0.
@@ -95,8 +94,8 @@ def _get_vitmatte():
     """Lazy-load ViTMatte (hustvl/vitmatte-small-composition-1k, ~100MB). Returns
     None — and disables itself for the rest of the process — if it can't load, so
     callers fall back to the binary SAM mask."""
-    global _vitmatte, _vitmatte_ok
-    if not _vitmatte_ok:
+    global _vitmatte
+    if _vitmatte is False:
         return None
     if _vitmatte is None:
         try:
@@ -107,7 +106,7 @@ def _get_vitmatte():
             proc = VitMatteImageProcessor.from_pretrained(VITMATTE_MODEL)
             _vitmatte = (model, proc, dev)
         except Exception:
-            _vitmatte_ok = False
+            _vitmatte = False  # don't retry the load every element
             return None
     return _vitmatte
 
