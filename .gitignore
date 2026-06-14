@@ -56,3 +56,6 @@ npm-debug.log*
 logs/
 models/
 discord_research/
+
+# Playwright MCP scratch (browser verification snapshots)
+.playwright-mcp/
