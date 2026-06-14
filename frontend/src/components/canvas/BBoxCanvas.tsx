@@ -1,12 +1,13 @@
 import { useRef, useState, useEffect, type PointerEvent as ReactPointerEvent } from "react"
 import {
   LayoutGrid, MapPin, MousePointer2, Square, Circle, Lasso, Type, Shapes, Ban,
+  AlertTriangle,
 } from "lucide-react"
 import { BBoxRect } from "./BBoxRect"
 import { usePromptStore } from "@/stores/promptStore"
 import { useSettingsStore } from "@/stores/settingsStore"
 import { useGenerationStore } from "@/stores/generationStore"
-import { pixelToNorm, clampBBox, type BBox } from "@/lib/bbox"
+import { pixelToNorm, normToPixel, clampBBox, type BBox } from "@/lib/bbox"
 
 // Draw tools. "move" is the default — existing pin/drag/resize behaviour.
 // box/ellipse/lasso are opt-in: they let you sketch a region directly on the
@@ -63,6 +64,31 @@ export function BBoxCanvas() {
   const elementsWithBBox = elements.filter((el) => !!el.bbox)
   const isGenerating = status === "running" || status === "loading-model"
   const drawing = tool !== "move"
+
+  // Live overlap feedback. Ideogram composes worse when boxes overlap — worst
+  // of all for text (each text element needs its own zone). We don't *prevent*
+  // overlap (a subject in front of a background is legitimate), but we surface
+  // the offending intersection so it's obvious as you stack boxes. Mirrors the
+  // detection in validatePromptState (lib/caption.ts).
+  const overlaps: { rect: { left: number; top: number; width: number; height: number }; text: boolean }[] = []
+  if (canvasSize.w > 0) {
+    for (let a = 0; a < elementsWithBBox.length; a++) {
+      for (let b = a + 1; b < elementsWithBBox.length; b++) {
+        const A = elementsWithBBox[a].bbox!
+        const B = elementsWithBBox[b].bbox!
+        const x0 = Math.max(A.xmin, B.xmin), x1 = Math.min(A.xmax, B.xmax)
+        const y0 = Math.max(A.ymin, B.ymin), y1 = Math.min(A.ymax, B.ymax)
+        if (x1 > x0 && y1 > y0) {
+          const text = elementsWithBBox[a].type === "text" || elementsWithBBox[b].type === "text"
+          overlaps.push({
+            rect: normToPixel({ ymin: y0, xmin: x0, ymax: y1, xmax: x1 }, canvasSize.w, canvasSize.h),
+            text,
+          })
+        }
+      }
+    }
+  }
+  const hasTextOverlap = overlaps.some((o) => o.text)
 
   // ---- draw-capture handlers (only active when a draw tool is selected) ----
 
@@ -244,6 +270,55 @@ export function BBoxCanvas() {
               )
             })}
           </div>
+
+          {/* Overlap warning overlay — tints the intersection of any two pinned
+              boxes so stacked/overlapping regions are obvious. Red when a text
+              box is involved (worst case), amber for object-on-object. */}
+          {overlaps.length > 0 && !isGenerating && (
+            <svg className="absolute inset-0 w-full h-full pointer-events-none z-10">
+              <defs>
+                <pattern id="overlap-hatch-red" width="8" height="8" patternTransform="rotate(45)" patternUnits="userSpaceOnUse">
+                  <rect width="8" height="8" fill="rgba(239,68,68,0.10)" />
+                  <line x1="0" y1="0" x2="0" y2="8" stroke="rgba(239,68,68,0.55)" strokeWidth="1.5" />
+                </pattern>
+                <pattern id="overlap-hatch-amber" width="8" height="8" patternTransform="rotate(45)" patternUnits="userSpaceOnUse">
+                  <rect width="8" height="8" fill="rgba(245,158,11,0.08)" />
+                  <line x1="0" y1="0" x2="0" y2="8" stroke="rgba(245,158,11,0.45)" strokeWidth="1.5" />
+                </pattern>
+              </defs>
+              {overlaps.map((o, i) => (
+                <rect
+                  key={i}
+                  x={o.rect.left}
+                  y={o.rect.top}
+                  width={o.rect.width}
+                  height={o.rect.height}
+                  fill={`url(#overlap-hatch-${o.text ? "red" : "amber"})`}
+                  stroke={o.text ? "rgba(239,68,68,0.8)" : "rgba(245,158,11,0.7)"}
+                  strokeWidth={1}
+                  strokeDasharray="3 2"
+                />
+              ))}
+            </svg>
+          )}
+
+          {/* Overlap count badge */}
+          {overlaps.length > 0 && !isGenerating && (
+            <div
+              className={`absolute top-2 left-2 z-10 flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium pointer-events-none ${
+                hasTextOverlap ? "bg-red-500/20 text-red-300" : "bg-amber-500/20 text-amber-300"
+              }`}
+              title={
+                hasTextOverlap
+                  ? "A text box overlaps another box. Ideogram renders text worst when zones overlap — give each text element its own non-overlapping box."
+                  : "Some boxes overlap. Ideogram composes more reliably with non-overlapping boxes (a little overlap for depth is usually fine)."
+              }
+            >
+              <AlertTriangle className="h-3 w-3" />
+              {overlaps.length} overlap{overlaps.length > 1 ? "s" : ""}
+              {hasTextOverlap && " · text"}
+            </div>
+          )}
 
           {/* Draw-capture layer — on top, only catches events when a draw tool
               is active. Renders live feedback for the shape being drawn. */}
