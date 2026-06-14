@@ -33,10 +33,9 @@ export function useGenerate() {
       try {
         msg = JSON.parse(event.data)
       } catch (err) {
-        // Log only the error + payload size, never the raw (untrusted) payload
-        // text — keeps the diagnostic useful without a log-injection vector.
-        const size = typeof event.data === "string" ? event.data.length : -1
-        console.error(`Malformed WS message from server (len=${size}):`, err)
+        // Log only the parse error — never the raw (untrusted) WS payload, so
+        // there's no log-injection / tainted-format-string vector.
+        console.error("Malformed WS message from server:", err)
         return
       }
 
