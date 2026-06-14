@@ -28,6 +28,7 @@ import os
 import re
 import threading
 import zipfile
+from functools import lru_cache
 from pathlib import Path
 
 import numpy as np
@@ -37,7 +38,6 @@ from PIL import Image, ImageFilter
 # serialise access (this app is single-user / single-worker).
 _session = None
 _sam = None  # (model, processor, device)
-_vitmatte = None  # None = unloaded, False = load failed, else (model, proc, device)
 _lock = threading.Lock()
 
 # ViTMatte soft-alpha refinement of SAM masks. Off via LAYERS_SOFT_MATTE=0.
@@ -90,25 +90,20 @@ def _sam_mask(image: Image.Image, box_px: tuple[int, int, int, int]) -> np.ndarr
     return masks[0][0][int(iou.argmax())].numpy()
 
 
+@lru_cache(maxsize=1)
 def _get_vitmatte():
     """Lazy-load ViTMatte (hustvl/vitmatte-small-composition-1k, ~100MB). Returns
-    None — and disables itself for the rest of the process — if it can't load, so
-    callers fall back to the binary SAM mask."""
-    global _vitmatte
-    if _vitmatte is False:
+    None if it can't load; lru_cache memoises that result so we don't retry the
+    download for every element, and callers fall back to the binary SAM mask."""
+    try:
+        import torch
+        from transformers import VitMatteForImageMatting, VitMatteImageProcessor
+        dev = "cuda" if torch.cuda.is_available() else "cpu"
+        model = VitMatteForImageMatting.from_pretrained(VITMATTE_MODEL).to(dev).eval()
+        proc = VitMatteImageProcessor.from_pretrained(VITMATTE_MODEL)
+        return (model, proc, dev)
+    except Exception:
         return None
-    if _vitmatte is None:
-        try:
-            import torch
-            from transformers import VitMatteForImageMatting, VitMatteImageProcessor
-            dev = "cuda" if torch.cuda.is_available() else "cpu"
-            model = VitMatteForImageMatting.from_pretrained(VITMATTE_MODEL).to(dev).eval()
-            proc = VitMatteImageProcessor.from_pretrained(VITMATTE_MODEL)
-            _vitmatte = (model, proc, dev)
-        except Exception:
-            _vitmatte = False  # don't retry the load every element
-            return None
-    return _vitmatte
 
 
 def _trimap_from_mask(mask_bool: np.ndarray, w: int, h: int) -> Image.Image:
