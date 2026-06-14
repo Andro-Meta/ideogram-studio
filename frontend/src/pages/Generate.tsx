@@ -20,6 +20,7 @@ import { PromptBar } from "@/components/prompt/PromptBar"
 import { HighLevelDescription } from "@/components/prompt/HighLevelDescription"
 import { StylePanel } from "@/components/style/StylePanel"
 import { ElementList } from "@/components/elements/ElementList"
+import { SplitLayersPanel } from "@/components/layers/SplitLayersPanel"
 import { BBoxCanvas } from "@/components/canvas/BBoxCanvas"
 import { ModelVariantToggle } from "@/components/controls/ModelVariantToggle"
 import { LoraSection } from "@/components/controls/LoraPanel"
@@ -736,6 +737,13 @@ export function Generate() {
                     setUpscaledUrl(url)
                     setUpscaledSize({ w, h })
                   }}
+                />
+
+                {/* Split into transparent layers (uses the prompt's boxes) */}
+                <SplitLayersPanel
+                  imageUrl={displayImageUrl}
+                  promptJson={buildCaption(promptState)}
+                  sourceJobId={jobId ?? undefined}
                 />
               </div>
             )}
