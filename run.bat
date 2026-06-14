@@ -19,15 +19,63 @@ if not exist frontend\dist\index.html (
     exit /b 1
 )
 
-:: Port 8000 already in use? (another copy probably running)
-netstat -ano 2>nul | findstr "LISTENING" | findstr ":8000 " >nul 2>&1
-if not errorlevel 1 (
-    echo [ERROR] Port 8000 is already in use.
-    echo         The studio may already be running in another window -
-    echo         check http://localhost:8000 or close the other window.
+:: Port 8000 already in use? Figure out WHO holds it. A previous run.bat can
+:: leave a headless uvicorn alive (its console window closed but the process
+:: kept running), which looks like "nothing is running" but still binds 8000.
+:: Identify the owner: if it's our uvicorn, offer to stop it; if it's some
+:: unrelated program, refuse to kill it and tell the user.
+set _PORTSTATUS=FREE
+for /f "usebackq delims=" %%s in (`powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\port_owner.ps1" -Port 8000 2^>nul`) do set _PORTSTATUS=%%s
+
+if "!_PORTSTATUS!"=="FREE" goto :port_ok
+
+for /f "tokens=1,2,3 delims=|" %%a in ("!_PORTSTATUS!") do (
+    set _PKIND=%%a
+    set _PPID=%%b
+    set _PNAME=%%c
+)
+
+if "!_PKIND!"=="OTHER" (
+    echo [ERROR] Port 8000 is held by another program - PID !_PPID! ^(!_PNAME!^),
+    echo         not the Ideogram studio. Close that program or free port 8000,
+    echo         then run this again.
     pause
     exit /b 1
 )
+
+:: It's our studio, already running (likely a leftover headless instance).
+echo [NOTICE] The studio is already running in the background ^(PID !_PPID!^) -
+echo          probably left over from an earlier run whose window was closed.
+set _KILL=Y
+set /p _KILL=  Stop it and start fresh? (Y/n):
+if /i "!_KILL!"=="n" (
+    echo.
+    echo Leaving the running instance as-is. Open it here:
+    echo   http://localhost:8000
+    pause
+    exit /b 0
+)
+echo Stopping PID !_PPID! ...
+taskkill /PID !_PPID! /F >nul 2>&1
+
+:: Wait for the port to actually free before we try to bind it.
+set _TRIES=0
+:portwait
+netstat -ano 2>nul | findstr "LISTENING" | findstr ":8000 " >nul 2>&1
+if errorlevel 1 (
+    echo [OK] Stopped the old instance - port 8000 is free.
+    goto :port_ok
+)
+set /a _TRIES+=1
+if !_TRIES! geq 10 (
+    echo [WARN] Port 8000 is still busy after stopping the process. Continuing
+    echo        anyway; if startup fails, free port 8000 manually and retry.
+    goto :port_ok
+)
+timeout /t 1 /nobreak >nul
+goto :portwait
+
+:port_ok
 
 :: == HF_TOKEN check ==============================================
 set _HF_TOKEN_VAL=
