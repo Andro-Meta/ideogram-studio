@@ -1,6 +1,7 @@
 import { create } from "zustand"
 import type { AnyElement, PromptState, StyleDescription, StyleMode } from "@/types/caption"
 import { defaultPromptState } from "@/types/caption"
+import type { BBox } from "@/lib/bbox"
 import { uid } from "@/lib/uid"
 
 // uid() works over plain HTTP on the LAN (crypto.randomUUID does not).
@@ -14,6 +15,7 @@ interface PromptStore extends PromptState {
   setStyleField: <K extends keyof StyleDescription>(key: K, value: StyleDescription[K]) => void
   setStyleMode: (mode: StyleMode) => void
   addElement: (type: "obj" | "text") => void
+  addDrawnElement: (type: "obj" | "text", bbox: BBox, color?: string) => string
   updateElement: (id: string, patch: Partial<AnyElement>) => void
   removeElement: (id: string) => void
   reorderElements: (from: number, to: number) => void
@@ -45,6 +47,19 @@ export const usePromptStore = create<PromptStore>((set, get) => ({
           : { id: newId(), type: "obj",  desc: "", color_palette: [] }
       return { elements: [...s.elements, newEl] }
     }),
+
+  // Create an element from a region drawn on the layout canvas (box/ellipse/
+  // lasso all reduce to a bounding box — the model only takes boxes). Returns
+  // the new element's id so the canvas can focus it.
+  addDrawnElement: (type, bbox, color) => {
+    const id = newId()
+    const newEl: AnyElement =
+      type === "text"
+        ? { id, type: "text", text: "", desc: "", bbox, color_palette: color ? [color] : [] }
+        : { id, type: "obj",  desc: "", bbox, color_palette: color ? [color] : [] }
+    set((s) => ({ elements: [...s.elements, newEl] }))
+    return id
+  },
 
   updateElement: (id, patch) =>
     set((s) => ({
