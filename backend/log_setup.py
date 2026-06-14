@@ -9,7 +9,6 @@ happened. The console output still works as before.
 from __future__ import annotations
 
 import logging
-import sys
 from logging.handlers import RotatingFileHandler
 
 from settings import BASE_DIR

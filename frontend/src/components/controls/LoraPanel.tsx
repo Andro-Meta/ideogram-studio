@@ -33,7 +33,7 @@ export function LoraSection() {
 export function LoraPanel() {
   const { data: status } = useModelStatus()
   const ready = status?.status === "ready"
-  const { data, isLoading, refetch, isRefetching } = useLoras(ready)
+  const { data, refetch, isRefetching } = useLoras(ready)
   const { apply, setWeight, remove } = useLoraMutations()
   const [hfRepo, setHfRepo] = useState("")
 

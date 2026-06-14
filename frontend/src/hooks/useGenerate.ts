@@ -33,7 +33,10 @@ export function useGenerate() {
       try {
         msg = JSON.parse(event.data)
       } catch (err) {
-        console.error("Malformed WS message from server:", err, event.data)
+        // Strip line breaks + bound length before logging the raw payload
+        // (avoids log-injection from an unexpected server message).
+        const snippet = String(event.data).replace(/[\r\n]+/g, " ").slice(0, 200)
+        console.error("Malformed WS message from server:", err, snippet)
         return
       }
 
