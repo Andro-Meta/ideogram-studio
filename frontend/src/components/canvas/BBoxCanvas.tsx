@@ -8,6 +8,7 @@ import { usePromptStore } from "@/stores/promptStore"
 import { useSettingsStore } from "@/stores/settingsStore"
 import { useGenerationStore } from "@/stores/generationStore"
 import { pixelToNorm, normToPixel, clampBBox, type BBox } from "@/lib/bbox"
+import { ColorPicker } from "@/components/palette/ColorPicker"
 
 // Draw tools. "move" is the default — existing pin/drag/resize behaviour.
 // box/ellipse/lasso are opt-in: they let you sketch a region directly on the
@@ -15,13 +16,6 @@ import { pixelToNorm, normToPixel, clampBBox, type BBox } from "@/lib/bbox"
 // bounding box, so ellipse + lasso simply auto-fit a box to the drawn shape —
 // the shape itself is just visual guidance while you draw.
 type Tool = "move" | "box" | "ellipse" | "lasso"
-
-// A compact palette for tagging a drawn region with a starting color. These are
-// already valid uppercase #RRGGBB (what Ideogram 4 wants); `null` = no color.
-const DRAW_COLORS = [
-  "#E11D48", "#F59E0B", "#10B981", "#3B82F6",
-  "#8B5CF6", "#EC4899", "#FFFFFF", "#000000",
-]
 
 interface Pt { x: number; y: number }
 
@@ -48,6 +42,7 @@ export function BBoxCanvas() {
   const [tool, setTool] = useState<Tool>("move")
   const [newType, setNewType] = useState<"obj" | "text">("obj")
   const [color, setColor] = useState<string | null>(null)
+  const [pickerOpen, setPickerOpen] = useState(false)
   const [draft, setDraft] = useState<Pt[] | null>(null) // null = not drawing
 
   useEffect(() => {
@@ -185,30 +180,48 @@ export function BBoxCanvas() {
               </ToolBtn>
             </div>
 
-            {/* Optional starting color for the region */}
-            <div className="inline-flex items-center gap-1">
+            {/* Optional starting color for the region — full picker (wheel +
+                swatch grid), same as the palette editor. */}
+            <div className="relative inline-flex items-center gap-1">
               <button
                 type="button"
                 onClick={() => setColor(null)}
                 title="No color"
-                className={`h-4 w-4 rounded-full border flex items-center justify-center ${
+                className={`h-5 w-5 rounded-full border flex items-center justify-center ${
                   color === null ? "border-violet-400" : "border-zinc-600"
                 }`}
               >
                 <Ban className="h-3 w-3 text-zinc-500" />
               </button>
-              {DRAW_COLORS.map((c) => (
-                <button
-                  key={c}
-                  type="button"
-                  onClick={() => setColor(c)}
-                  title={c}
-                  className={`h-4 w-4 rounded-full border ${
-                    color === c ? "border-white ring-1 ring-violet-400" : "border-zinc-600"
-                  }`}
-                  style={{ backgroundColor: c }}
-                />
-              ))}
+              <button
+                type="button"
+                onClick={() => setPickerOpen((v) => !v)}
+                title={color ?? "Pick a color"}
+                className={`h-5 w-5 rounded-full border ${
+                  color ? "border-white ring-1 ring-violet-400" : "border-zinc-500"
+                }`}
+                style={
+                  color
+                    ? { backgroundColor: color }
+                    : { background: "conic-gradient(from 0deg, #ef4444, #f59e0b, #22c55e, #06b6d4, #3b82f6, #a855f7, #ef4444)" }
+                }
+              />
+              {pickerOpen && (
+                <>
+                  <button
+                    type="button"
+                    aria-label="Close color picker"
+                    className="fixed inset-0 z-40 cursor-default"
+                    onClick={() => setPickerOpen(false)}
+                  />
+                  <ColorPicker
+                    value={color ?? "#000000"}
+                    onPick={(c) => setColor(c)}
+                    onClose={() => setPickerOpen(false)}
+                    className="absolute top-7 left-0 z-50"
+                  />
+                </>
+              )}
             </div>
           </>
         )}
