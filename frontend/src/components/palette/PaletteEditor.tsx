@@ -40,8 +40,8 @@ export function PaletteEditor({ colors, maxColors, onChange, label, className }:
         </p>
       )}
 
-      {/* Palette mode presets */}
-      <div className="flex flex-wrap gap-1">
+      {/* Palette mode presets — scrollable since there are many */}
+      <div className="flex flex-wrap gap-1 max-h-28 overflow-y-auto pr-1">
         {PALETTE_MODES.map((mode) => (
           <button
             key={mode.id}
