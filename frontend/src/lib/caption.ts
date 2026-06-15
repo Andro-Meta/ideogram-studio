@@ -123,6 +123,31 @@ export function validatePromptState(state: PromptState): string[] {
     )
   }
 
+  // Official Ideogram JSON limits: at most 16 hex colors across the WHOLE image
+  // (global palette + every element palette combined) and at most 6 text layers.
+  // Exceeding either silently degrades output. Count distinct valid colors so
+  // repeating the same swatch doesn't trip the warning.
+  const uniqueColors = new Set(
+    [
+      ...(state.style_description.color_palette ?? []),
+      ...state.elements.flatMap((el) => el.color_palette ?? []),
+    ]
+      .filter(isValidHex)
+      .map((c) => c.toUpperCase()),
+  )
+  if (uniqueColors.size > 16) {
+    warnings.push(
+      `${uniqueColors.size} distinct colors across the image — Ideogram supports at most 16. Trim the global and per-element palettes.`,
+    )
+  }
+
+  const textCount = state.elements.filter((el) => el.type === "text").length
+  if (textCount > 6) {
+    warnings.push(
+      `${textCount} text elements — Ideogram supports at most 6 text layers. Merge or remove some.`,
+    )
+  }
+
   return warnings
 }
 
