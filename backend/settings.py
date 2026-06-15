@@ -70,8 +70,6 @@ class AppSettings(BaseSettings):
     # without real captured cards, so it stays opt-in to avoid ever discarding a
     # legitimate (e.g. deliberately flat/gray) image.
     auto_retry_on_collapse: bool = False
-    # How many extra attempts to make before giving up and returning the frame.
-    auto_retry_max_attempts: int = 3
 
     # Optional content moderation via Hive (https://thehive.ai). This is the
     # ONLY filter in the stack — there is no local/weight toggle. When OFF
@@ -108,3 +106,10 @@ class AppSettings(BaseSettings):
 
 
 settings = AppSettings()
+
+# Auto seed-retry tuning. Advanced and not user-facing, so kept as constants
+# rather than a half-exposed setting (the user toggle is auto_retry_on_collapse).
+# Cap BOTH the number of extra attempts AND the total wall-clock spent retrying,
+# so a prompt that collapses every time can't multiply latency without bound.
+AUTO_RETRY_MAX_ATTEMPTS = 3
+AUTO_RETRY_BUDGET_S = 120.0

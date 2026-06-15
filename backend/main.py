@@ -72,7 +72,10 @@ from schemas import (
 )
 import system_check
 import log_setup
-from settings import DIST_DIR, OUTPUTS_DIR, DB_PATH, LORAS_DIR, settings as app_settings
+from settings import (
+    DIST_DIR, OUTPUTS_DIR, DB_PATH, LORAS_DIR, settings as app_settings,
+    AUTO_RETRY_MAX_ATTEMPTS, AUTO_RETRY_BUDGET_S,
+)
 
 # Persistent rotating log — survives crashes; this is where post-mortems live.
 log_setup.setup_logging()
@@ -921,6 +924,12 @@ async def generation_ws(websocket: WebSocket, job_id: str):
             )
             return
 
+    # Start the clock here, BEFORE auto-structure, so the reported duration
+    # reflects the real wall-clock the user waited — auto-structure is an LLM
+    # round-trip that can add seconds (the model-load wait above is a separate,
+    # already-surfaced phase and is intentionally excluded).
+    t_start = time.monotonic()
+
     # Auto-structure (opt-in): enrich a sparse prompt into structured JSON,
     # which Ideogram 4 refuses far less often. Done before moderation so the
     # final prompt is what gets screened and generated.
@@ -976,7 +985,9 @@ async def generation_ws(websocket: WebSocket, job_id: str):
         model_variant=gen_req.model_variant,
     )
 
-    t_start = time.monotonic()
+    # Set when the client disconnects mid-run so the worker thread (which can't
+    # be cancelled) skips saving an orphan PNG for a job that's been reaped.
+    client_gone = threading.Event()
 
     def _run():
         try:
@@ -994,10 +1005,14 @@ async def generation_ws(websocket: WebSocket, job_id: str):
                 app_settings.auto_retry_on_collapse
                 and gen_req.seed is None
             )
-            max_attempts = max(1, app_settings.auto_retry_max_attempts + 1) if retries else 1
+            max_attempts = max(1, AUTO_RETRY_MAX_ATTEMPTS + 1) if retries else 1
             for attempt in range(max_attempts):
                 image, actual_seed = pm.generate(gen_req.prompt_json, settings, on_step)
-                if attempt + 1 < max_attempts and is_safety_collapse(image):
+                # Retry on collapse, but only while we have BOTH attempts left and
+                # wall-clock budget — a prompt that collapses every time must not
+                # multiply latency without bound.
+                over_budget = time.monotonic() - t_start > AUTO_RETRY_BUDGET_S
+                if attempt + 1 < max_attempts and not over_budget and is_safety_collapse(image):
                     asyncio.run_coroutine_threadsafe(
                         queue.put({
                             "type": "status",
@@ -1020,6 +1035,10 @@ async def generation_ws(websocket: WebSocket, job_id: str):
                     f"{', '.join(sorted(set(img_flags)))}."
                 )
 
+            # If the client already disconnected, the result will never be read
+            # and the job has been reaped — don't write an orphan PNG.
+            if client_gone.is_set():
+                return
             filename = f"{job_id}.png"
             image.save(str(OUTPUTS_DIR / filename))
             duration_ms = int((time.monotonic() - t_start) * 1000)
@@ -1064,10 +1083,17 @@ async def generation_ws(websocket: WebSocket, job_id: str):
         # result, so the DB row would otherwise be orphaned as "running" forever.
         # Reap it: mark the job failed/cancelled so the gallery stays consistent.
         logger.info("Client disconnected during generation %s — marking cancelled.", job_id)
+        client_gone.set()  # tell the worker to skip saving its result
         try:
             await gallery_service.fail_job(db, job_id, "Cancelled — client disconnected.")
         except Exception:
             logger.exception("Could not reap disconnected job %s", job_id)
+        # If the worker had already written the PNG before we set the flag, remove
+        # it so a cancelled job leaves no orphan file on disk.
+        try:
+            (OUTPUTS_DIR / f"{job_id}.png").unlink(missing_ok=True)
+        except Exception:
+            pass
 
 
 # ── Upscale API ───────────────────────────────────────────────────────────────
@@ -1264,6 +1290,9 @@ async def inpaint_endpoint(request: Request, body: InpaintRequest):
     # prompt is the most refusal-prone input in the whole app. This brings AI
     # Fill to parity. (Can't eliminate refusals — they're baked into the
     # weights — but it minimises them, the same lever we use for generation.)
+    # Time from here — BEFORE prompt-expansion — so the reported duration matches
+    # the user's real wait (mp.expand is an LLM round-trip that can add seconds).
+    t0 = time.monotonic()
     fill_prompt = body.prompt
     mp: MagicPromptService | None = request.app.state.magic_prompt
     if mp is not None:
@@ -1275,7 +1304,6 @@ async def inpaint_endpoint(request: Request, body: InpaintRequest):
     def _run():
         return pm.inpaint(image, mask, fill_prompt, settings, body.strength)
 
-    t0 = time.monotonic()
     try:
         out_img, actual_seed = await loop.run_in_executor(_inference_executor, _run)
     except Exception as exc:
@@ -1329,6 +1357,9 @@ async def extend_endpoint(request: Request, body: ExtendRequest):
         new_w, new_h = ow, round(ow * th / tw)
     padded, mask = _inpaint.build_outpaint(image, new_w, new_h)
 
+    # Time from here — BEFORE prompt-expansion — so the duration reflects the
+    # real wait (mp.expand below is an LLM round-trip that can add seconds).
+    t0 = time.monotonic()
     prompt = body.prompt.strip() or "seamlessly continue and extend the scene, matching the existing style, lighting, perspective, and subject"
     mp: MagicPromptService | None = request.app.state.magic_prompt
     if mp is not None:
@@ -1348,7 +1379,6 @@ async def extend_endpoint(request: Request, body: ExtendRequest):
         # init + the pinned original give continuity.
         return pm.inpaint(padded, mask, prompt, settings, 0.95)
 
-    t0 = time.monotonic()
     try:
         out_img, actual_seed = await loop.run_in_executor(_inference_executor, _run)
     except Exception as exc:

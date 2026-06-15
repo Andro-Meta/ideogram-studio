@@ -5,8 +5,15 @@ import type { ModelVariant, SamplerPreset } from "@/types/caption"
 export const MIN_BATCH = 1
 export const MAX_BATCH = 12
 
+// Shared CFG (guidance) bounds — the single source of truth for the sliders, the
+// store clamps, and (kept in sync) the backend's _clamp_cfg in schemas.py.
+export const CFG_MIN = 1
+export const CFG_MAX = 10
+
 const clampBatch = (n: number) =>
   Math.max(MIN_BATCH, Math.min(MAX_BATCH, Math.round(n) || MIN_BATCH))
+
+const clampCfg = (v: number) => Math.max(CFG_MIN, Math.min(CFG_MAX, v))
 
 interface SettingsStore {
   // Generation defaults (persisted in localStorage)
@@ -69,8 +76,8 @@ export const useSettingsStore = create<SettingsStore>()(
 
       setModelVariant: (v) => set({ modelVariant: v }),
       setCustomCfg: (v) => set({ customCfg: v }),
-      setCfg: (v) => set({ cfg: Math.max(1, Math.min(15, v)) }),
-      setCfgOverride: (v) => set({ cfgOverride: Math.max(1, Math.min(15, v)) }),
+      setCfg: (v) => set({ cfg: clampCfg(v) }),
+      setCfgOverride: (v) => set({ cfgOverride: clampCfg(v) }),
       setCfgOverrideStart: (v) => set({ cfgOverrideStart: Math.max(0, Math.min(1, v)) }),
       setCanvasOpen: (v) => set({ canvasOpen: v }),
       setSamplerPreset: (v) => set({ samplerPreset: v }),
@@ -111,3 +118,18 @@ export const useSettingsStore = create<SettingsStore>()(
     }
   )
 )
+
+/**
+ * The CFG fields to send with a generation/edit request — empty when custom CFG
+ * is off, so the backend falls back to the sampler preset's built-in schedule.
+ * Shared by text-to-image, remix, inpaint, and extend so every path honours the
+ * same control. Reads the live store at call time.
+ */
+export function cfgRequestFields():
+  | { cfg: number; cfg_override: number; cfg_override_start: number }
+  | Record<string, never> {
+  const s = useSettingsStore.getState()
+  return s.customCfg
+    ? { cfg: s.cfg, cfg_override: s.cfgOverride, cfg_override_start: s.cfgOverrideStart }
+    : {}
+}

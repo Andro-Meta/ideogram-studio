@@ -238,16 +238,21 @@ def _resolve_guidance_schedule(
 def is_safety_collapse(
     image: "Image.Image", *,
     sat_thresh: float = 0.06, var_thresh: float = 120.0, edge_thresh: float = 6.0,
+    lum_lo: float = 80.0, lum_hi: float = 190.0,
 ) -> bool:
     """Best-effort detection of Ideogram 4's gray "safety filter" card.
 
-    The card is a near-uniform, near-grayscale, low-detail frame (the model
-    collapsing out-of-distribution — not real moderation). This is intentionally
-    CONSERVATIVE: it requires the frame to be near-grayscale AND nearly flat AND
-    nearly edge-free, so a legitimate textured or colourful image is never
-    flagged. It can still flag a deliberately solid-gray image — hence the
-    feature that uses it (auto seed-retry) is OFF by default. Returns False on
-    any error (fail-open: never blocks a result because detection failed).
+    The card is a near-uniform, near-grayscale, MID-gray, low-detail frame (the
+    model collapsing out-of-distribution — not real moderation). This is
+    intentionally CONSERVATIVE: it requires the frame to be near-grayscale AND
+    nearly flat AND nearly edge-free AND sitting in a mid-gray luminance band, so
+    a legitimate textured or colourful image is never flagged. The luminance band
+    excludes the most likely false positives — legitimately flat images that are
+    DARK (night scenes) or BRIGHT (snow, fog, blown highlights) — which pass the
+    saturation/variance/edge tests but are not the gray card. It can still flag a
+    deliberately solid mid-gray image — hence the feature that uses it (auto
+    seed-retry) is OFF by default. Returns False on any error (fail-open: never
+    blocks a result because detection failed).
 
     Thresholds are tunable against real captured gray-card outputs.
     """
@@ -260,9 +265,15 @@ def is_safety_collapse(
         mn = np.minimum(np.minimum(r, g), b)
         saturation = float(np.where(mx > 1e-6, (mx - mn) / np.maximum(mx, 1e-6), 0.0).mean())
         lum = 0.299 * r + 0.587 * g + 0.114 * b
+        mean_lum = float(lum.mean())
         variance = float(lum.var())
         edge = float(np.abs(np.diff(lum, axis=1)).mean() + np.abs(np.diff(lum, axis=0)).mean())
-        return saturation < sat_thresh and variance < var_thresh and edge < edge_thresh
+        return (
+            lum_lo <= mean_lum <= lum_hi
+            and saturation < sat_thresh
+            and variance < var_thresh
+            and edge < edge_thresh
+        )
     except Exception:
         return False
 

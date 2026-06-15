@@ -1,6 +1,6 @@
 import { Switch } from "@/components/ui/switch"
 import { Slider } from "@/components/ui/slider"
-import { useSettingsStore } from "@/stores/settingsStore"
+import { useSettingsStore, CFG_MIN, CFG_MAX } from "@/stores/settingsStore"
 
 /** Custom CFG (guidance) controls.
  *
@@ -37,7 +37,7 @@ export function CfgControl() {
       </label>
 
       {customCfg && (
-        <div className="space-y-3 pl-1 border-l border-zinc-800 ml-1 pl-3">
+        <div className="space-y-3 border-l border-zinc-800 ml-1 pl-3">
           {/* Main CFG */}
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
@@ -45,7 +45,7 @@ export function CfgControl() {
               <span className="text-[11px] font-mono text-zinc-300">{cfg.toFixed(1)}</span>
             </div>
             <Slider
-              min={1} max={10} step={0.1}
+              min={CFG_MIN} max={CFG_MAX} step={0.1}
               value={[cfg]}
               onValueChange={([v]) => setCfg(v)}
               aria-label="Main CFG"
@@ -59,7 +59,7 @@ export function CfgControl() {
               <span className="text-[11px] font-mono text-zinc-300">{cfgOverride.toFixed(1)}</span>
             </div>
             <Slider
-              min={1} max={7} step={0.1}
+              min={CFG_MIN} max={CFG_MAX} step={0.1}
               value={[cfgOverride]}
               onValueChange={([v]) => setCfgOverride(v)}
               aria-label="Override CFG"

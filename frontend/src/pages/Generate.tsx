@@ -29,7 +29,7 @@ import { ResolutionPicker } from "@/components/controls/ResolutionPicker"
 import { SeedControl } from "@/components/controls/SeedControl"
 import { VariationsGrid } from "@/components/variations/VariationsGrid"
 import { usePromptStore } from "@/stores/promptStore"
-import { useSettingsStore, MIN_BATCH, MAX_BATCH } from "@/stores/settingsStore"
+import { useSettingsStore, MIN_BATCH, MAX_BATCH, cfgRequestFields } from "@/stores/settingsStore"
 import { useGenerationStore } from "@/stores/generationStore"
 import { useSourceImageStore } from "@/stores/sourceImageStore"
 import { useRemixFromImage } from "@/hooks/useRemixFromImage"
@@ -209,7 +209,6 @@ export function Generate() {
   const {
     modelVariant, samplerPreset, width, height, fixedSeed, seed, batchCount,
     setBatchCount, canvasOpen, setCanvasOpen,
-    customCfg, cfg, cfgOverride, cfgOverrideStart,
   } = useSettingsStore()
   const { status, progress, resultImageUrl, resultSeed, resultDurationMs, errorMessage, jobId } =
     useGenerationStore()
@@ -259,11 +258,6 @@ export function Generate() {
   const displaySeed = selectedVariation?.seed ?? resultSeed
   const displayDurationMs = selectedVariation?.durationMs ?? resultDurationMs
 
-  // Custom CFG curve is opt-in; when off, omit the fields so the backend uses
-  // the sampler preset's built-in schedule.
-  const cfgFields = () =>
-    customCfg ? { cfg, cfg_override: cfgOverride, cfg_override_start: cfgOverrideStart } : {}
-
   const buildReq = () => ({
     prompt_json: buildCaption(promptState),
     height,
@@ -271,7 +265,7 @@ export function Generate() {
     sampler_preset: samplerPreset,
     seed: fixedSeed ? seed : null,
     model_variant: modelVariant,
-    ...cfgFields(),
+    ...cfgRequestFields(),
   })
 
   const handleGenerate = () => {
@@ -295,7 +289,7 @@ export function Generate() {
           height,
           sampler_preset: samplerPreset,
           seed: fixedSeed ? seed : null,
-          ...cfgFields(),
+          ...cfgRequestFields(),
         },
         {
           onSuccess: (res) => {

@@ -1,6 +1,7 @@
 import { useMutation } from "@tanstack/react-query"
 import { toast } from "sonner"
 import type { EditResponse } from "@/types/api"
+import { cfgRequestFields } from "@/stores/settingsStore"
 
 export interface ExtendArgs {
   imageBlob: Blob
@@ -28,6 +29,8 @@ async function callExtend(args: ExtendArgs): Promise<EditResponse> {
       target_ratio: args.targetRatio,
       prompt: args.prompt ?? "",
       source_job_id: args.sourceJobId,
+      // Honour the user's custom CFG curve (same as text-to-image / remix).
+      ...cfgRequestFields(),
     }),
   })
   if (!res.ok) {

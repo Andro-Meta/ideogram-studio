@@ -58,8 +58,15 @@ class PromptStateModel(BaseModel):
 # to avoid the model's out-of-distribution refusal collapse (e.g. cfg 3.5 →
 # 2.0 for the last 30%, i.e. cfg_override_start 0.7). Shared by generate + edit.
 
+# Shared CFG bounds. Keep in sync with the frontend (CFG_MIN/CFG_MAX in
+# settingsStore.ts) and the CfgControl sliders. Floor is 1.0, not 0.0: cfg=0
+# would build an all-zero guidance schedule that disables guidance entirely and
+# ignores the prompt.
+CFG_MIN, CFG_MAX = 1.0, 10.0
+
+
 def _clamp_cfg(v: float | None) -> float | None:
-    return None if v is None else max(0.0, min(15.0, float(v)))
+    return None if v is None else max(CFG_MIN, min(CFG_MAX, float(v)))
 
 
 def _clamp_fraction(v: float | None) -> float | None:

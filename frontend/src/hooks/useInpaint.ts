@@ -1,6 +1,7 @@
 import { useMutation } from "@tanstack/react-query"
 import { toast } from "sonner"
 import type { EditResponse } from "@/types/api"
+import { cfgRequestFields } from "@/stores/settingsStore"
 
 export interface InpaintArgs {
   imageBlob: Blob              // flattened canvas
@@ -33,6 +34,9 @@ async function callInpaint(args: InpaintArgs): Promise<EditResponse> {
       strength: args.strength ?? 0.75,
       sampler_preset: args.sampler_preset ?? "V4_DEFAULT_20",
       source_job_id: args.sourceJobId,
+      // Honour the user's custom CFG curve (e.g. the default 3.5→2.0) so AI Fill
+      // doesn't silently fall back to the burn-prone preset CFG 7.
+      ...cfgRequestFields(),
     }),
   })
   if (!res.ok) {
