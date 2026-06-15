@@ -1089,11 +1089,13 @@ async def generation_ws(websocket: WebSocket, job_id: str):
         except Exception:
             logger.exception("Could not reap disconnected job %s", job_id)
         # If the worker had already written the PNG before we set the flag, remove
-        # it so a cancelled job leaves no orphan file on disk.
+        # it so a cancelled job leaves no orphan file on disk. job_id is already
+        # UUID-validated above; basename() is belt-and-suspenders against any
+        # path traversal in the filename.
         try:
-            (OUTPUTS_DIR / f"{job_id}.png").unlink(missing_ok=True)
+            (OUTPUTS_DIR / os.path.basename(f"{job_id}.png")).unlink(missing_ok=True)
         except Exception:
-            pass
+            logger.debug("Could not remove orphan PNG for %s", job_id)
 
 
 # ── Upscale API ───────────────────────────────────────────────────────────────
