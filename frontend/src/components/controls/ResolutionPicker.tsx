@@ -3,7 +3,7 @@ import { cn } from "@/lib/utils"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
-import { ASPECT_RATIO_PRESETS, snapTo16 } from "@/lib/caption"
+import { ASPECT_RATIO_PRESETS, clampAspect, MAX_ASPECT_RATIO } from "@/lib/caption"
 import { useSettingsStore } from "@/stores/settingsStore"
 
 /** Tiny visual preview rectangle proportional to the aspect ratio. */
@@ -36,6 +36,7 @@ export function ResolutionPicker() {
   const [custom, setCustom] = useState(false)
   const [wInput, setWInput] = useState("")
   const [hInput, setHInput] = useState("")
+  const [aspectNotice, setAspectNotice] = useState(false)
 
   const activePreset = ASPECT_RATIO_PRESETS.find(
     (p) => p.width === width && p.height === height
@@ -47,6 +48,7 @@ export function ResolutionPicker() {
     const preset = fromTier.find((p) => p.label === label)
     if (!preset) return
     setCustom(false)
+    setAspectNotice(false)
     setResolution(preset.width, preset.height)
   }
 
@@ -56,16 +58,23 @@ export function ResolutionPicker() {
     pickRatio(label, on ? HD_PRESETS : SD_PRESETS)
   }
 
+  // Commit a custom dimension: snap to 16, clamp to 256–2048, then clamp the
+  // pair to ≤ 6:1. The just-edited side is the anchor, so the OTHER side is the
+  // one nudged when the ratio would be too extreme.
   const commitW = () => {
-    const snapped = snapTo16(parseInt(wInput) || width)
-    setResolution(snapped, height)
-    setWInput(String(snapped))
+    const res = clampAspect(parseInt(wInput) || width, height, "w")
+    setResolution(res.width, res.height)
+    setWInput(String(res.width))
+    setHInput(String(res.height))
+    setAspectNotice(res.changed)
   }
 
   const commitH = () => {
-    const snapped = snapTo16(parseInt(hInput) || height)
-    setResolution(width, snapped)
-    setHInput(String(snapped))
+    const res = clampAspect(width, parseInt(hInput) || height, "h")
+    setResolution(res.width, res.height)
+    setWInput(String(res.width))
+    setHInput(String(res.height))
+    setAspectNotice(res.changed)
   }
 
   return (
@@ -102,7 +111,7 @@ export function ResolutionPicker() {
         })}
         <button
           type="button"
-          onClick={() => { setCustom(true); setWInput(String(width)); setHInput(String(height)) }}
+          onClick={() => { setCustom(true); setAspectNotice(false); setWInput(String(width)); setHInput(String(height)) }}
           className={cn(
             "rounded-md border px-1.5 py-1 text-[10px] font-medium transition-all",
             custom
@@ -142,11 +151,17 @@ export function ResolutionPicker() {
         </div>
       )}
 
+      {custom && aspectNotice && (
+        <p className="text-[10px] text-amber-400/90">
+          Adjusted to keep the aspect ratio within {MAX_ASPECT_RATIO}:1 — Ideogram 4's supported range.
+        </p>
+      )}
+
       {/* Single-line readout: active size + constraints */}
       <p className="text-[10px] text-zinc-600 font-mono">
         {width} × {height}
         {activePreset && ` · ${activePreset.label}${hd ? " HD" : ""}`}
-        <span className="text-zinc-700 font-sans"> · 256–2048, ×16</span>
+        <span className="text-zinc-700 font-sans"> · 256–2048, ×16, ≤{MAX_ASPECT_RATIO}:1</span>
       </p>
     </div>
   )

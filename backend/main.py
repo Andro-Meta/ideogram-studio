@@ -31,7 +31,7 @@ from fastapi.staticfiles import StaticFiles
 import gallery as gallery_service
 from caption import build_caption, parse_caption_json
 from inference import GenerationSettings, PipelineManager, is_safety_collapse
-from magic_prompt_service import MagicPromptService
+from magic_prompt_service import MagicPromptService, is_ideogram_caption
 import style_fuse
 import enhance_elements as enhance_mod
 from schemas import (
@@ -399,6 +399,19 @@ async def magic_prompt_endpoint(request: Request, body: MagicPromptRequest):
         raise HTTPException(503, "Magic Prompt service not configured. Add an API key in Settings.")
 
     try:
+        # If the user already pasted/built a full JSON caption, don't expand it
+        # (and don't fold Style fields into it) — just normalize and verify.
+        # Detect on the RAW text, before compose_styled_prompt mutates it.
+        if is_ideogram_caption(body.text):
+            state = parse_caption_json(body.text)
+            rebuilt_json, warnings = build_caption(state)
+            warnings = [
+                "Input was already a JSON caption — skipped Magic Prompt expansion "
+                "to preserve your structure.",
+                *warnings,
+            ]
+            return MagicPromptResponse(caption_json=rebuilt_json, warnings=warnings)
+
         styled_text = compose_styled_prompt(
             body.text, body.style.model_dump() if body.style else None
         )

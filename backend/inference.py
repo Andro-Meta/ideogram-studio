@@ -357,7 +357,14 @@ class FP8Pipeline(InferencePipeline):
     DTYPE_HINT = "fp8"
     GUIDANCE_FORWARD = False   # ideogram4 package order: index 0 = LAST step
 
-    # PRESETS in reverse loop order (index 0 = LAST step) — matches ideogram4 package
+    # PRESETS in reverse loop order (index 0 = LAST step) — matches ideogram4 package.
+    #
+    # `mu` here is the schedule's BASE mean (known_mean), not the final mean. The
+    # pipeline applies a resolution shift internally:
+    #   mean = mu + 0.5 * log(H*W / (512*512))   (ideogram4/scheduler.get_schedule_for_resolution)
+    # so larger / extreme-aspect renders get the right schedule automatically. We
+    # pass the fixed preset base value on purpose — do NOT pre-adjust mu for
+    # resolution here. (Verified against the installed package source.)
     PRESETS: dict = {
         "V4_QUALITY_48": {
             "num_steps": 48,

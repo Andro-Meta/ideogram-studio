@@ -1,7 +1,7 @@
 from __future__ import annotations
 import re
 from typing import Literal
-from pydantic import BaseModel, SecretStr, field_validator
+from pydantic import BaseModel, SecretStr, field_validator, model_validator
 
 _UUID_RE = re.compile(
     r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', re.I
@@ -89,6 +89,19 @@ class CfgControlsMixin(BaseModel):
         return _clamp_fraction(v)
 
 
+# ── Resolution limits (docs/inference.md) ────────────────────────────────────
+# Keep in sync with the frontend (RES_MIN/RES_MAX/MAX_ASPECT_RATIO in caption.ts).
+RES_MIN, RES_MAX, RES_STEP = 256, 2048, 16
+# Ideogram 4 supports aspect ratios up to 6:1 (or 1:6); beyond that it samples
+# out of its trained distribution. RES_MIN * MAX_ASPECT_RATIO = 1536 ≤ RES_MAX,
+# so a valid in-range pair always exists after clamping.
+MAX_ASPECT_RATIO = 6.0
+
+
+def _snap_to_step(v: int) -> int:
+    return max(RES_MIN, min(RES_MAX, round(v / RES_STEP) * RES_STEP))
+
+
 class GenerationRequest(CfgControlsMixin):
     prompt_json: str
     height: int
@@ -102,7 +115,24 @@ class GenerationRequest(CfgControlsMixin):
     def must_be_multiple_of_16(cls, v: int) -> int:
         if v % 16 != 0:
             raise ValueError(f"Must be a multiple of 16, got {v}")
-        return max(256, min(2048, v))
+        return max(RES_MIN, min(RES_MAX, v))
+
+    @model_validator(mode="after")
+    def enforce_aspect_ratio(self) -> "GenerationRequest":
+        """Defense-in-depth: keep width:height within ±6:1 even if a client
+        bypasses the UI. Consistent with the silent 256–2048 clamp above, the
+        LONGER side is pulled in (snapped to 16) rather than raising — the short
+        side is authoritative, so requested detail in the dominant axis is kept.
+        """
+        if self.height <= 0 or self.width <= 0:
+            return self
+        if max(self.width / self.height, self.height / self.width) <= MAX_ASPECT_RATIO:
+            return self
+        if self.width >= self.height:
+            self.width = min(self.width, _snap_to_step(int(self.height * MAX_ASPECT_RATIO)))
+        else:
+            self.height = min(self.height, _snap_to_step(int(self.width * MAX_ASPECT_RATIO)))
+        return self
 
 
 # ── Magic Prompt ─────────────────────────────────────────────────────────────

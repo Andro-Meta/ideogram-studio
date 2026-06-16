@@ -6,9 +6,37 @@ always dispatched to a thread pool via asyncio.run_in_executor.
 """
 from __future__ import annotations
 import asyncio
+import json
 from concurrent.futures import ThreadPoolExecutor
 
 _executor = ThreadPoolExecutor(max_workers=2)
+
+
+def is_ideogram_caption(text: str) -> bool:
+    """True when `text` is already an Ideogram 4 JSON caption — a dict carrying
+    the required `compositional_deconstruction` object.
+
+    Such input must NOT be sent through Magic Prompt: the LLM would paraphrase a
+    caption the user already built (e.g. in the visual editor), losing exact
+    layout/text. Mirrors SD.Next's "detect an existing JSON prompt and skip
+    enhancement" behavior.
+    """
+    text = (text or "").strip()
+    if not (text.startswith("{") and text.endswith("}")):
+        return False
+    try:
+        data = json.loads(text)
+    except (ValueError, TypeError):
+        return False
+    return isinstance(data, dict) and isinstance(
+        data.get("compositional_deconstruction"), dict
+    )
+
+
+def minify_caption(text: str) -> str:
+    """Re-serialize a caption string into the model's minified form
+    (no spaces, literal UTF-8). Assumes `text` is valid JSON."""
+    return json.dumps(json.loads(text), separators=(",", ":"), ensure_ascii=False)
 
 
 # Older Settings builds saved these values; map them to the package's keys.
@@ -182,6 +210,11 @@ class MagicPromptService:
         return a transient 429/5xx or time out; retry a couple of times before
         giving up so one hiccup doesn't fail the whole request.
         """
+        # If the caller already handed us a full JSON caption, skip the LLM
+        # entirely — expanding it would rewrite the user's own structure.
+        if is_ideogram_caption(text):
+            return minify_caption(text)
+
         from ideogram4.magic_prompt import aspect_ratio_from_size
         aspect_ratio = aspect_ratio_from_size(width, height)
 

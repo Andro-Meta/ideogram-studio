@@ -34,15 +34,35 @@ text rendering and layout control.
 - Pick colors per element and globally via hex color pickers
 - Switch between Photo and Illustration style modes
 - Choose sampler presets (Turbo / Default / Quality)
-- Select resolution from presets or custom width/height
-- Toggle between fp8 (~13 GB VRAM) and bf16 (~22 GB VRAM) model variants
+- Select resolution from presets or custom width/height (clamped to 256–2048, ×16, and ≤ 6:1 aspect)
+- Choose a model variant — `nf4d` (default, recommended for 24 GB consumer GPUs), `nf4`, `fp8`, or `bf16`
+- Edit existing images (img2img/remix, inpaint, outpaint, layer split, upscale) — see *What it is not* for how
 - Browse generation history in a gallery, reload any previous generation into the editor
 - Download images, copy seeds, delete history entries
 
-### What it is not
+### What it is not — and how editing works
 
-Ideogram 4.0 is **text-to-image only**. There is no img2img, inpainting, or ControlNet.
-"Edit" means editing the structured prompt of a prior generation and re-running it.
+The **base Ideogram 4.0 model is text-to-image only**: it has no native img2img,
+inpainting, outpainting, or ControlNet, and no negative prompt (the second
+transformer denoises with zeroed text features instead). The official repo and
+model card are explicit about this.
+
+The studio's editing features are therefore **approximations built on top of the
+text-to-image weights**, not model-native modes:
+
+- **img2img / remix, inpaint, outpaint** are SDEdit / RePaint-style latent
+  techniques: VAE-encode the source, start denoising from a noised version of it,
+  and (for inpaint) pin the unmasked tokens to the source trajectory each step.
+  These only work on the **diffusers-based pipelines (`nf4d`, `bf16`)**, which
+  expose the per-step latent callback + an invertible VAE. The `ideogram4`-package
+  pipelines (`fp8`, `nf4`) have no such hooks, so editing is unavailable there.
+- **Layer split** mattes elements out via SAM + ViTMatte; **upscale** uses
+  external ESRGAN/AuraSR (and optional PiD). None of these are part of the
+  Ideogram model itself.
+
+Because they sample around the model's trained text-to-image distribution,
+results are best-effort and degrade more than a purpose-built edit model would.
+"Edit the prompt and re-run" remains the highest-fidelity path.
 
 ---
 
@@ -62,8 +82,12 @@ FastAPI Server (port 8000, single process, single worker)
        ├── WebSocket    →  /ws/{job_id}
        │
        ├── InferencePipeline (abstract)
-       │     ├── FP8Pipeline   (ideogram4 package → ideogram-ai/ideogram-4-fp8)
-       │     └── BF16Pipeline  (diffusers → CalamitousFelicitousness/Ideogram-4-bf16-Diffusers)
+       │     ├── FP8Pipeline          (ideogram4 package → ideogram-ai/ideogram-4-fp8)
+       │     ├── NF4Pipeline          (ideogram4 package → ideogram-ai/ideogram-4-nf4; subclass of FP8Pipeline)
+       │     ├── BF16Pipeline         (diffusers → CalamitousFelicitousness/Ideogram-4-bf16-Diffusers)
+       │     └── NF4DiffusersPipeline (diffusers → ideogram-ai/ideogram-4-nf4-diffusers; subclass of BF16Pipeline)
+       │           # nf4d is the DEFAULT: ~16 GB, fits 24 GB GPUs, and (being diffusers-based)
+       │           # is the only consumer variant that supports LoRA + the editing features.
        │
        ├── MagicPromptService
        │     ├── Ideogram4MagicPromptV1  (Ideogram API — default)
@@ -91,7 +115,7 @@ E:\IdeoGram_4\
 │
 ├── backend/
 │   ├── main.py              # FastAPI app, lifespan, all route registrations
-│   ├── inference.py         # Abstract InferencePipeline + FP8Pipeline + BF16Pipeline
+│   ├── inference.py         # InferencePipeline + FP8/NF4 (package) + BF16/NF4Diffusers (diffusers)
 │   ├── magic_prompt.py      # MagicPromptService wrapping ideogram4's magic_prompt module
 │   ├── caption.py           # CaptionBuilder (dict → ordered dict → minified JSON string)
 │   ├── gallery.py           # GalleryService — async CRUD over SQLite jobs table
@@ -122,7 +146,7 @@ E:\IdeoGram_4\
 │   │   │   ├── controls/
 │   │   │   │   ├── SamplerPresetPicker.tsx  # 3-card selector: Turbo/Default/Quality
 │   │   │   │   ├── ResolutionPicker.tsx     # Aspect ratio grid + custom W×H inputs
-│   │   │   │   ├── ModelVariantToggle.tsx   # fp8 / bf16 toggle with VRAM indicator
+│   │   │   │   ├── ModelVariantToggle.tsx   # nf4d / nf4 / fp8 / bf16 selector with VRAM indicator
 │   │   │   │   └── SeedControl.tsx          # Random/fixed seed + seed number input
 │   │   │   ├── prompt/
 │   │   │   │   ├── PromptBar.tsx        # Natural language input + Magic Prompt button
@@ -832,8 +856,8 @@ All routes prefixed `/api/`:
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/api/model/status` | `{status: "unloaded"\|"loading"\|"ready", variant: "fp8"\|"bf16"\|null, vram_used_mb: int}` |
-| `POST` | `/api/model/load` | Body: `{variant: "fp8"\|"bf16"}` — loads model, returns 202 while loading |
+| `GET` | `/api/model/status` | `{status: "unloaded"\|"loading"\|"ready", variant: "nf4d"\|"nf4"\|"fp8"\|"bf16"\|null, vram_used_mb: int}` |
+| `POST` | `/api/model/load` | Body: `{variant: "nf4d"\|"nf4"\|"fp8"\|"bf16"}` — loads model, returns 202 while loading |
 | `GET` | `/api/gallery` | `{items: GalleryItem[], total: int}`. Query: `?page=1&per_page=20&sort=desc` |
 | `GET` | `/api/gallery/{job_id}` | Single gallery item with full prompt JSON |
 | `DELETE` | `/api/gallery/{job_id}` | Deletes DB record + image file |
@@ -858,7 +882,7 @@ CREATE TABLE IF NOT EXISTS jobs (
     width INTEGER,
     height INTEGER,
     sampler_preset TEXT,
-    model_variant TEXT,                -- "fp8" | "bf16"
+    model_variant TEXT,                -- "nf4d" | "nf4" | "fp8" | "bf16"
     duration_ms INTEGER,               -- wall-clock generation time
     created_at TEXT NOT NULL,          -- ISO 8601 UTC
     error_message TEXT                 -- populated on failure
@@ -872,7 +896,7 @@ from pydantic_settings import BaseSettings
 
 class AppSettings(BaseSettings):
     # Model
-    model_variant: str = "fp8"              # "fp8" | "bf16"
+    model_variant: str = "nf4d"             # "nf4d" (default) | "nf4" | "fp8" | "bf16"
     hf_token: str | None = None             # HuggingFace token (required for gated repos)
 
     # Magic Prompt
@@ -1077,7 +1101,7 @@ export interface GenerationRequest {
   width: number
   sampler_preset: "V4_TURBO_12" | "V4_DEFAULT_20" | "V4_QUALITY_48"
   seed: number | null
-  model_variant: "fp8" | "bf16"
+  model_variant: "nf4d" | "nf4" | "fp8" | "bf16"
 }
 
 export type WsMessage =
@@ -1398,8 +1422,10 @@ OPENROUTER_API_KEY=
 #   https://huggingface.co/ideogram-ai/ideogram-4-nf4
 HF_TOKEN=
 
-# Model variant: fp8 (13 GB VRAM) or bf16 (22 GB VRAM)
-MODEL_VARIANT=fp8
+# Model variant: nf4d (default, ~16 GB — fits 24 GB consumer GPUs, supports
+# LoRA + editing) | nf4 (~16 GB, package path, no LoRA/editing) |
+# fp8 (~30 GB, A100/H100-class) | bf16 (~19–22 GB community diffusers weights)
+MODEL_VARIANT=nf4d
 
 # Magic prompt backend: ideogram-4-v1 | claude-sonnet-v1 | claude-opus-v1
 MAGIC_PROMPT_BACKEND=ideogram-4-v1
@@ -1414,7 +1440,7 @@ MAGIC_PROMPT_BACKEND=ideogram-4-v1
 | `HF_TOKEN` | Yes | HuggingFace user access token; gated repos require it |
 | `IDEOGRAM_API_KEY` | If using `ideogram-4-v1` backend | Free at developer.ideogram.ai |
 | `OPENROUTER_API_KEY` | If using Claude backends | For claude-sonnet-v1 or claude-opus-v1 |
-| `MODEL_VARIANT` | No (default: `fp8`) | `fp8` or `bf16` |
+| `MODEL_VARIANT` | No (default: `nf4d`) | `nf4d` (recommended, 24 GB GPUs), `nf4`, `fp8` (datacenter), or `bf16` |
 | `MAGIC_PROMPT_BACKEND` | No (default: `ideogram-4-v1`) | See above |
 
 ---
@@ -1470,10 +1496,22 @@ from ideogram4 import Ideogram4MagicPromptV1  # ImportError
 from ideogram4.magic_prompt import Ideogram4MagicPromptV1
 ```
 
-### 9.8 Width and Height Must Be Multiples of 16
+### 9.8 Width and Height: Multiples of 16, 256–2048, and ≤ 6:1 Aspect
 
-`vae_scale_factor (8) × patch_size (2) = 16`. Any non-multiple is invalid. Enforce in the
-UI (snap to nearest 16 on input) and validate server-side before calling the pipeline.
+`vae_scale_factor (8) × patch_size (2) = 16`. Any non-multiple is invalid. Each side must
+also be 256–2048, and the **aspect ratio must stay within 6:1 (or 1:6)** — beyond that the
+model samples out of its trained distribution (`docs/inference.md`).
+
+Enforced in two places (keep them in sync):
+- **Frontend** — `caption.ts`: `snapTo16()` (256–2048, ×16) and `clampAspect(w, h, anchor)`
+  (≤ 6:1, anchored on the just-edited side). `ResolutionPicker` calls `clampAspect` on custom
+  W/H commit and shows a notice when a value was adjusted; `aspectMatchedResolution()` also
+  routes through it so an extreme uploaded image (e.g. 8:1) maps to ≤ 6:1.
+- **Backend** — `schemas.py`: `GenerationRequest.must_be_multiple_of_16` (256–2048) plus a
+  `model_validator(after)` `enforce_aspect_ratio` that pulls the longer side in to ≤ 6:1.
+  Constants `RES_MIN`/`RES_MAX`/`MAX_ASPECT_RATIO` mirror the frontend.
+
+Because `RES_MIN × 6 = 1536 ≤ RES_MAX`, a valid in-range pair always exists after clamping.
 
 ### 9.9 Seed Handling
 
@@ -1497,11 +1535,41 @@ to `from_pretrained()`.
 Always run uvicorn with `--workers 1`. Multiple workers each load the model into VRAM,
 immediately exhausting GPU memory on any consumer card.
 
-### 9.12 bf16 Community Model VRAM
+### 9.12 Model Variants and VRAM
 
-The `CalamitousFelicitousness/Ideogram-4-bf16-Diffusers` community model requires
-approximately 19–22 GB VRAM. On an RTX 4090 (24 GB), this leaves little headroom.
-Display a warning in the UI when the user selects bf16.
+Four variants, default **`nf4d`**:
+
+| Variant | Pipeline (class) | Repo | ~VRAM | LoRA + editing | Notes |
+|---------|------------------|------|-------|----------------|-------|
+| `nf4d` (default) | diffusers (`NF4DiffusersPipeline`) | `ideogram-ai/ideogram-4-nf4-diffusers` | ~16 GB | ✅ | Recommended for 24 GB consumer GPUs (RTX 3090/4090) |
+| `nf4` | package (`NF4Pipeline`) | `ideogram-ai/ideogram-4-nf4` | ~16 GB | ❌ | Same weights, package path; no latent callback → no LoRA/editing |
+| `fp8` | package (`FP8Pipeline`) | `ideogram-ai/ideogram-4-fp8` | ~30 GB | ❌ | A100/H100-class hardware |
+| `bf16` | diffusers (`BF16Pipeline`) | `CalamitousFelicitousness/Ideogram-4-bf16-Diffusers` | ~19–22 GB | ✅ | Community weights; little headroom on a 24 GB card — warn in UI |
+
+Only the **diffusers** variants (`nf4d`, `bf16`) expose the per-step latent callback and an
+invertible VAE, so LoRA and the editing features (img2img/inpaint/outpaint/layers) are available
+on those two only. The `ideogram4`-package variants (`nf4`, `fp8`) are generation-only.
+
+### 9.12a `mu` Is Resolution-Shifted Inside the Pipeline (verified)
+
+The per-preset `mu` we pass is the schedule's **base** mean (`known_mean`), NOT the final mean.
+`ideogram4/scheduler.py::get_schedule_for_resolution` computes
+`mean = known_mean + 0.5 * log(num_pixels / known_pixels)` (with `known_resolution = 512×512`),
+and `pipeline_ideogram4.py` calls it as `get_schedule_for_resolution((height, width), known_mean=mu, std=std)`.
+So large or extreme-aspect renders automatically get a shifted schedule — passing the fixed
+preset `mu` (0.0 / 0.0 / 0.5 for Quality / Default / Turbo) is correct, and no per-resolution
+adjustment is needed in our code. The diffusers pipeline mirrors this. (Verified against the
+installed package source on 2026-06-16.)
+
+### 9.12b Magic Prompt Skips Already-Valid Captions
+
+If the input to `/api/magic-prompt` is already an Ideogram 4 JSON caption (a dict with a
+`compositional_deconstruction` object), the LLM expansion is **skipped** — the caption is
+normalized/verified and returned with a warning. This prevents Magic Prompt from paraphrasing
+a caption the user built in the visual editor, and avoids `compose_styled_prompt` corrupting
+the JSON by prepending Style text. Detection lives in `magic_prompt_service.is_ideogram_caption`
+(also short-circuits `MagicPromptService.expand` for any caller) and the endpoint checks the raw
+input before composing. Mirrors SD.Next's "detect JSON, skip enhancement" behavior.
 
 ### 9.13 Caption Passed to Pipeline Must Be Minified JSON String
 

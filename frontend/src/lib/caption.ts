@@ -6,6 +6,21 @@ import type { PromptState, StyleDescription } from "@/types/caption"
 
 const HEX_RE = /^#[0-9A-Fa-f]{6}$/
 
+// ── Caption schema limits (docs/prompting.md) ────────────────────────────────
+// These are INDEPENDENT limits, applied per-palette — never summed together.
+export const GLOBAL_PALETTE_MAX = 16   // style_description.color_palette
+export const ELEMENT_PALETTE_MAX = 5   // each element's color_palette
+// Hosted-API-only limit (NOT a model/weights constraint) — advisory.
+export const HOSTED_API_TEXT_LAYER_MAX = 6
+
+// ── Resolution limits (docs/inference.md) ────────────────────────────────────
+export const RES_MIN = 256
+export const RES_MAX = 2048
+export const RES_STEP = 16
+// Ideogram 4 supports aspect ratios up to 6:1 (or 1:6). Beyond that the model is
+// out of its trained distribution, so we clamp custom/derived sizes to ≤ 6:1.
+export const MAX_ASPECT_RATIO = 6
+
 export function isValidHex(color: string): boolean {
   return HEX_RE.test(color)
 }
@@ -123,28 +138,37 @@ export function validatePromptState(state: PromptState): string[] {
     )
   }
 
-  // Official Ideogram JSON limits: at most 16 hex colors across the WHOLE image
-  // (global palette + every element palette combined) and at most 6 text layers.
-  // Exceeding either silently degrades output. Count distinct valid colors so
-  // repeating the same swatch doesn't trip the warning.
-  const uniqueColors = new Set(
-    [
-      ...(state.style_description.color_palette ?? []),
-      ...state.elements.flatMap((el) => el.color_palette ?? []),
-    ]
-      .filter(isValidHex)
-      .map((c) => c.toUpperCase()),
-  )
-  if (uniqueColors.size > 16) {
+  // Ideogram 4 caption schema palette limits are INDEPENDENT, not combined:
+  //   • style_description.color_palette         → up to 16 colors (overall image)
+  //   • each element's color_palette            → up to 5 colors (that element)
+  // (docs/prompting.md "Color palette conditioning"). Count DISTINCT valid
+  // colors per palette so repeating the same swatch never trips the warning.
+  const distinct = (palette: string[] | undefined) =>
+    new Set((palette ?? []).filter(isValidHex).map((c) => c.toUpperCase())).size
+
+  const globalColors = distinct(state.style_description.color_palette)
+  if (globalColors > GLOBAL_PALETTE_MAX) {
     warnings.push(
-      `${uniqueColors.size} distinct colors across the image — Ideogram supports at most 16. Trim the global and per-element palettes.`,
+      `Style palette has ${globalColors} distinct colors — Ideogram supports at most ${GLOBAL_PALETTE_MAX} in the overall image palette. Trim the global palette.`,
     )
   }
+  for (const [i, el] of state.elements.entries()) {
+    const elColors = distinct(el.color_palette)
+    if (elColors > ELEMENT_PALETTE_MAX) {
+      warnings.push(
+        `Element ${i + 1} has ${elColors} distinct colors — Ideogram supports at most ${ELEMENT_PALETTE_MAX} per element. Trim this element's palette.`,
+      )
+    }
+  }
 
+  // NOTE: the ≤6 text-layer ceiling is a limit of the hosted Ideogram.ai API,
+  // NOT of the open-weights model or its caption schema (CaptionVerifier imposes
+  // no such cap). It's surfaced as a soft advisory so people targeting the
+  // hosted product aren't surprised; local-weights users can safely ignore it.
   const textCount = state.elements.filter((el) => el.type === "text").length
-  if (textCount > 6) {
+  if (textCount > HOSTED_API_TEXT_LAYER_MAX) {
     warnings.push(
-      `${textCount} text elements — Ideogram supports at most 6 text layers. Merge or remove some.`,
+      `${textCount} text elements — the hosted Ideogram.ai API allows at most ${HOSTED_API_TEXT_LAYER_MAX} text layers (the open-weights model has no such limit). Merge or remove some if you target the hosted API.`,
     )
   }
 
@@ -224,7 +248,52 @@ export function elementColor(index: number) {
 }
 
 export function snapTo16(value: number): number {
-  return Math.max(256, Math.min(2048, Math.round(value / 16) * 16))
+  return Math.max(RES_MIN, Math.min(RES_MAX, Math.round(value / RES_STEP) * RES_STEP))
+}
+
+/**
+ * Clamp a (width, height) pair to Ideogram 4's ≤ 6:1 / ≥ 1:6 aspect range,
+ * keeping both sides valid (multiple of 16, within 256–2048).
+ *
+ * `anchor` decides which side is authoritative when the ratio is too extreme:
+ *  - "w": the just-edited width is kept; height is pulled toward it.
+ *  - "h": the just-edited height is kept; width is pulled toward it.
+ * The anchored side is itself snapped/clamped first, then the other side is
+ * brought into the [anchor/6, anchor*6] window (snapped, re-clamped). Because
+ * RES_MIN*6 = 1536 ≤ RES_MAX, a valid in-range window always exists, so the
+ * result is guaranteed to satisfy the ratio bound.
+ *
+ * Returns the clamped pair plus `changed` = true when either side was adjusted
+ * for the aspect bound (so the UI can show a notice).
+ */
+export function clampAspect(
+  width: number,
+  height: number,
+  anchor: "w" | "h" = "w",
+): { width: number; height: number; changed: boolean } {
+  let w = snapTo16(width)
+  let h = snapTo16(height)
+
+  const ratio = Math.max(w / h, h / w)
+  if (ratio <= MAX_ASPECT_RATIO) return { width: w, height: h, changed: false }
+
+  // Snap the dependent side INTO the legal window. The lower bound rounds UP
+  // and the upper bound rounds DOWN to the nearest 16, so 16-px snapping can
+  // never push the ratio back over the limit (plain rounding could, e.g.
+  // 2048×256 → 2048×336 = 6.1:1). Since RES_MIN × 6 = 1536 ≤ RES_MAX, the
+  // window is always non-empty for any in-range anchor.
+  const up16 = (v: number) =>
+    Math.min(RES_MAX, Math.max(RES_MIN, Math.ceil(v / RES_STEP) * RES_STEP))
+  const down16 = (v: number) =>
+    Math.min(RES_MAX, Math.max(RES_MIN, Math.floor(v / RES_STEP) * RES_STEP))
+  const into = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v))
+
+  if (anchor === "w") {
+    h = into(h, up16(w / MAX_ASPECT_RATIO), down16(w * MAX_ASPECT_RATIO))
+  } else {
+    w = into(w, up16(h / MAX_ASPECT_RATIO), down16(h * MAX_ASPECT_RATIO))
+  }
+  return { width: w, height: h, changed: true }
 }
 
 /**
@@ -241,7 +310,11 @@ export function aspectMatchedResolution(
 ): { width: number; height: number } {
   if (!srcW || !srcH) return { width: 1024, height: 1024 }
   const scale = Math.sqrt(budget / (srcW * srcH))
-  return { width: snapTo16(srcW * scale), height: snapTo16(srcH * scale) }
+  // Anchor on the longer side so an extreme source (e.g. 8:1) keeps its long
+  // dimension and the short side is pulled up to satisfy the ≤ 6:1 bound.
+  const anchor = srcW >= srcH ? "w" : "h"
+  const { width, height } = clampAspect(srcW * scale, srcH * scale, anchor)
+  return { width, height }
 }
 
 /**
