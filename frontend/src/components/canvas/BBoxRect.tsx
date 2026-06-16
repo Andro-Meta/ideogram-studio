@@ -116,6 +116,17 @@ export function BBoxRect({ element, elementIndex, canvasW, canvasH, onUpdate, on
       style={{ left: rect.left, top: rect.top, width: rect.width, height: rect.height, cursor: "move" }}
       onMouseDown={(e) => startDrag(e, "move")}
     >
+      {/* Hover bridge. The label + remove button sit ABOVE the box (-top-5),
+          with a gap between them and the box's own hover area. Without this,
+          moving the cursor up to the red X leaves the box, group-hover flips
+          off, and the X vanishes before you can click it. This transparent
+          strip is part of the group, so hover stays active across the gap.
+          stopPropagation keeps a click in the strip from starting a drag. */}
+      <div
+        className="absolute -top-5 left-0 right-0 h-5"
+        onMouseDown={(e) => e.stopPropagation()}
+      />
+
       {/* Label chip */}
       <div
         className={cn(
