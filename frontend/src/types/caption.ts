@@ -5,7 +5,7 @@ export type { BBox }
 export type ElementType = "obj" | "text"
 export type StyleMode = "photo" | "illustration"
 export type SamplerPreset = "V4_TURBO_12" | "V4_DEFAULT_20" | "V4_QUALITY_48"
-export type ModelVariant = "fp8" | "nf4" | "nf4d" | "bf16"
+export type ModelVariant = "fp8" | "nf4" | "nf4d" | "bf16" | "gguf-q4k"
 
 export interface ObjElement {
   id: string

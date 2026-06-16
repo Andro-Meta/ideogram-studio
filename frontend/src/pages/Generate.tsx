@@ -25,6 +25,8 @@ import { ModelVariantToggle } from "@/components/controls/ModelVariantToggle"
 import { LoraSection } from "@/components/controls/LoraPanel"
 import { SamplerPresetPicker } from "@/components/controls/SamplerPresetPicker"
 import { CfgControl } from "@/components/controls/CfgControl"
+import { ArtifactSuppression } from "@/components/controls/ArtifactSuppression"
+import { PromptToolbar } from "@/components/prompt/PromptToolbar"
 import { ResolutionPicker } from "@/components/controls/ResolutionPicker"
 import { SeedControl } from "@/components/controls/SeedControl"
 import { VariationsGrid } from "@/components/variations/VariationsGrid"
@@ -41,6 +43,7 @@ import { useBatchGenerate, type VariationResult } from "@/hooks/useBatchGenerate
 import { Lightbox } from "@/components/lightbox/Lightbox"
 import { RecentGrid } from "@/components/gallery/RecentGrid"
 import { buildCaption, validatePromptState, estimateTokens } from "@/lib/caption"
+import { buildConstraintClause } from "@/lib/constraintPresets"
 import { copyText } from "@/lib/clipboard"
 
 // ── Model status panel ────────────────────────────────────────────────────────
@@ -237,6 +240,13 @@ export function Generate() {
   }, [status])
 
   const warnings = validatePromptState(promptState)
+  // Artifact-suppression clause (pseudo–negative-prompt), recomputed reactively
+  // when the toggles change. Empty when suppression is off. Threaded into every
+  // buildCaption() call below so the preview, copy, and generation all match.
+  const constraintClause = useSettingsStore((s) =>
+    s.artifactSuppression ? buildConstraintClause(s.artifactCategoryIds, s.artifactCustom) : ""
+  )
+  const captionOpts = { constraintClause }
   const tokenCount = estimateTokens(promptState)
   const isRunning = status === "running" || status === "loading-model"
   const isDone = status === "done"
@@ -259,7 +269,7 @@ export function Generate() {
   const displayDurationMs = selectedVariation?.durationMs ?? resultDurationMs
 
   const buildReq = () => ({
-    prompt_json: buildCaption(promptState),
+    prompt_json: buildCaption(promptState, captionOpts),
     height,
     width,
     sampler_preset: samplerPreset,
@@ -283,7 +293,7 @@ export function Generate() {
       remix.mutate(
         {
           imageB64: src.imageB64,
-          prompt: buildCaption(promptState),
+          prompt: buildCaption(promptState, captionOpts),
           blendPct: src.blendPct,
           width,
           height,
@@ -357,6 +367,10 @@ export function Generate() {
             <CfgControl />
 
             <Separator className="bg-zinc-800" />
+            {/* Artifact suppression — the on-model pseudo–negative-prompt. */}
+            <ArtifactSuppression />
+
+            <Separator className="bg-zinc-800" />
             <ResolutionPicker />
             <Separator className="bg-zinc-800" />
             <ModelVariantToggle />
@@ -372,6 +386,11 @@ export function Generate() {
       <div className="order-1 lg:order-none w-full lg:flex-1 flex flex-col min-w-0 lg:overflow-hidden">
         <Rail>
           <div className="max-w-[620px] mx-auto p-5 space-y-4">
+            {/* Templates + scene save/load */}
+            <div className="flex justify-end">
+              <PromptToolbar />
+            </div>
+
             <FlowSection step={1} title="Style" hint="how should it look?">
               <StylePanel />
             </FlowSection>
@@ -433,7 +452,7 @@ export function Generate() {
               title="Copy caption JSON to clipboard"
               className="text-zinc-600 hover:text-zinc-300 transition-colors shrink-0"
               onClick={() => {
-                copyText(buildCaption(promptState)).then((ok) =>
+                copyText(buildCaption(promptState, captionOpts)).then((ok) =>
                   ok ? toast.success("Caption JSON copied") : toast.error("Couldn't copy"))
               }}
             >
@@ -737,7 +756,7 @@ export function Generate() {
                 {/* Split into transparent layers (uses the prompt's boxes) */}
                 <SplitLayersPanel
                   imageUrl={displayImageUrl}
-                  promptJson={buildCaption(promptState)}
+                  promptJson={buildCaption(promptState, captionOpts)}
                   sourceJobId={jobId ?? undefined}
                 />
               </div>

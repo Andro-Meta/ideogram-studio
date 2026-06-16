@@ -685,6 +685,107 @@ class NF4DiffusersPipeline(BF16Pipeline):
     REPO = "ideogram-ai/ideogram-4-nf4-diffusers"
 
 
+# ── GGUF Q4_K pipeline (sub-24 GB GPUs) ───────────────────────────────────────
+
+class GGUFQ4KPipeline(BF16Pipeline):
+    """
+    GGUF Q4_K-quantized Ideogram 4 for GPUs below the 24 GB floor (the DiT
+    transformer is ~6–7 GB in VRAM, vs ~16 GB for nf4).
+
+    SCAFFOLD — designed here, verify + finish on the GPU box. See
+    docs/BUILD_SPEC_2026-06-16.md §6.1. The novel part (loading a single .gguf
+    transformer via diffusers' GGUFQuantizationConfig) is implemented; the exact
+    GGUF filename and the transformer class symbol must be confirmed against the
+    installed diffusers version on first run (clear errors are raised if not).
+
+    It assembles a real diffusers Ideogram4Pipeline (GGUF transformer + the
+    VAE / text-encoder / scheduler from the official nf4d diffusers repo), so it
+    inherits generate() and inpaint() from BF16Pipeline unchanged. LoRA is
+    disabled on a GGUF base — PEFT can't patch ggml tensors — until verified.
+    """
+
+    # GGML tensors aren't PEFT-patchable. Inpaint uses only the diffusers latent
+    # callback (no adapters), so it can stay on once verified on hardware.
+    supports_lora = False
+    supports_inpaint = True
+
+    # The single-file Q4_K GGUF transformer. CONFIRM the exact filename on the
+    # hub before first run — repos vary (e.g. "ideogram-4-Q4_K.gguf" or
+    # "ideogram-4-transformer-Q4_K.gguf"). transformerlab's repo holds only the
+    # Q4_K file, so PipelineManager._download (snapshot_download) stays cheap.
+    GGUF_REPO = "transformerlab/ideogram-4-gguf-q4_k"
+    GGUF_FILENAME = "ideogram-4-Q4_K.gguf"
+    # Non-transformer components (VAE, text encoder, tokenizer, scheduler) come
+    # from the official diffusers layout.
+    BASE_REPO = "ideogram-ai/ideogram-4-nf4-diffusers"
+    # What PipelineManager._download fetches (small — just the gguf file). The
+    # base components download lazily during load() (diffusers caches them).
+    REPO = GGUF_REPO
+
+    def load(self) -> None:
+        import torch
+        from huggingface_hub import hf_hub_download
+
+        try:
+            from diffusers import Ideogram4Pipeline as DiffusersPipeline
+            from diffusers import GGUFQuantizationConfig
+        except Exception as exc:  # noqa: BLE001 — surface an actionable message
+            raise RuntimeError(
+                "This diffusers build doesn't expose GGUFQuantizationConfig / "
+                "Ideogram4Pipeline. Upgrade diffusers "
+                "(pip install -U \"git+https://github.com/huggingface/diffusers.git\"), "
+                "or use the ComfyUI-GGUF loader path instead. "
+                f"Original import error: {exc!r}"
+            )
+
+        token = os.environ.get("HF_TOKEN")
+        gguf_path = hf_hub_download(self.GGUF_REPO, self.GGUF_FILENAME, token=token)
+
+        # Locate the Ideogram 4 transformer class — the symbol moved between
+        # diffusers versions, so try the known locations.
+        transformer_cls = None
+        try:
+            from diffusers import Ideogram4Transformer2DModel as transformer_cls  # type: ignore
+        except Exception:
+            try:
+                from diffusers.models.transformers.transformer_ideogram4 import (  # type: ignore
+                    Ideogram4Transformer2DModel as transformer_cls,
+                )
+            except Exception:
+                transformer_cls = None
+        if transformer_cls is None:
+            raise RuntimeError(
+                "Couldn't locate the Ideogram 4 transformer class in diffusers "
+                "(Ideogram4Transformer2DModel). Confirm the installed diffusers "
+                "version exposes it, then update GGUFQ4KPipeline.load()."
+            )
+
+        with _no_random_init():
+            transformer = transformer_cls.from_single_file(
+                gguf_path,
+                quantization_config=GGUFQuantizationConfig(compute_dtype=torch.bfloat16),
+                config=self.BASE_REPO,
+                subfolder="transformer",
+                token=token,
+            )
+
+        # NOTE (optimization, GPU box): from_pretrained(BASE_REPO, transformer=…)
+        # still downloads BASE_REPO's own transformer shards we don't use. To keep
+        # disk to the gguf + (vae/text-encoder/scheduler) only, load those
+        # subfolders individually and construct DiffusersPipeline(...) directly.
+        kwargs: dict = {"torch_dtype": torch.bfloat16, "transformer": transformer}
+        if token:
+            kwargs["token"] = token
+        pipe = DiffusersPipeline.from_pretrained(self.BASE_REPO, **kwargs)
+        try:
+            pipe.to("cuda")
+        except ValueError as exc:
+            if "quantiz" not in str(exc).lower() and "bitsandbytes" not in str(exc).lower():
+                raise
+            logger.info("GGUF pipeline declined .to('cuda') (quantized components placed): %s", exc)
+        self._pipe = pipe
+
+
 # ── Pipeline manager ─────────────────────────────────────────────────────────
 
 class PipelineManager:
@@ -704,6 +805,8 @@ class PipelineManager:
         "nf4": NF4Pipeline.REPO,
         "nf4d": NF4DiffusersPipeline.REPO,
         "bf16": BF16Pipeline.REPO,
+        # GGUF Q4_K — sub-24 GB GPUs. Scaffold; verify on hardware (§6.1).
+        "gguf-q4k": GGUFQ4KPipeline.REPO,
     }
 
     def __init__(self) -> None:
@@ -879,6 +982,8 @@ class PipelineManager:
                     pipeline = NF4Pipeline()
                 elif variant == "nf4d":
                     pipeline = NF4DiffusersPipeline()
+                elif variant == "gguf-q4k":
+                    pipeline = GGUFQ4KPipeline()
                 else:
                     pipeline = BF16Pipeline()
 

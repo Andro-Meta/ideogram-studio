@@ -90,7 +90,7 @@ class AppSettings(BaseSettings):
     @field_validator("model_variant")
     @classmethod
     def _valid_variant(cls, v: str) -> str:
-        if v not in ("fp8", "nf4", "nf4d", "bf16"):
+        if v not in ("fp8", "nf4", "nf4d", "bf16", "gguf-q4k"):
             return "nf4"
         return v
 

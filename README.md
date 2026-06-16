@@ -62,6 +62,16 @@ It runs comfortably on a single 24 GB consumer GPU (RTX 3090 / 4090) via 4-bit w
 - **Mobile-friendly & LAN access** — responsive down to phone width; the server binds your LAN so you can open it from a phone on the same Wi-Fi. Works behind a reverse proxy (e.g. Caddy) for a friendly hostname.
 - **Content-safety toggle** — optional Hive moderation (off by default).
 
+### Recently added — community ports (June 2026)
+Best ideas from the Ideogram 4 ecosystem on GitHub + Hugging Face, re-implemented locally (see [`docs/RESEARCH_2026-06-16.md`](docs/RESEARCH_2026-06-16.md) and [`docs/BUILD_SPEC_2026-06-16.md`](docs/BUILD_SPEC_2026-06-16.md)):
+
+- **Quality constraints** — the on-model "negative prompt": positive constraints (e.g. *sharp focus, no motion blur*) appended to the caption, since Ideogram 4 has no negative field.
+- **Native ratios + megapixel dial** — all of Ideogram's native aspect ratios plus a megapixel size slider (snapped to ×16).
+- **Template library** — 12 built-in structured-caption starters (typography, product, portrait, UI, branding, scenes).
+- **Scene presets + CLI** — save/load a whole scene as `.ideoscene.json`, and a headless `backend/ideogram_cli.py` (caption / magic-prompt / describe / generate).
+- **Curated LoRA gallery** — one-click vetted Ideogram 4 LoRAs from Hugging Face.
+- **GGUF Q4_K variant** 🧪 — experimental sub-24 GB path (scaffold), plus an inpaint-LoRA A/B harness.
+
 ---
 
 ## Requirements
@@ -108,6 +118,7 @@ Pick under **Settings → Model**. **NF4·D is the recommended default** for 24 
 |---|---|---|---|
 | **`nf4d`** ⭐ | 16.1 GB | ~20 GB | **24 GB consumer GPUs.** NF4 in diffusers layout — live step-by-step progress, LoRA, image editing. |
 | `nf4` | 16.1 GB | ~20 GB | 24 GB GPUs, official inference package. |
+| `gguf-q4k` 🧪 | ~22 GB | ~12 GB | **12 GB GPUs.** GGUF Q4_K transformer (diffusers). No LoRA. Experimental scaffold — see `docs/BUILD_SPEC_2026-06-16.md`. |
 | `fp8` | 27.5 GB | ~30 GB | A100/H100-class GPUs (+~48 GB RAM). Higher fidelity. |
 | `bf16` | 53.6 GB | ~40 GB | Datacenter-scale, experimental community weights. |
 

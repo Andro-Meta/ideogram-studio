@@ -1,6 +1,7 @@
 import { create } from "zustand"
 import { persist } from "zustand/middleware"
 import type { ModelVariant, SamplerPreset } from "@/types/caption"
+import { DEFAULT_CONSTRAINT_IDS, buildConstraintClause } from "@/lib/constraintPresets"
 
 export const MIN_BATCH = 1
 export const MAX_BATCH = 12
@@ -39,6 +40,26 @@ interface SettingsStore {
    *  0.7 = first 70% at `cfg`, last 30% at `cfgOverride`. */
   cfgOverrideStart: number
 
+  /** Target image size in megapixels — drives the ratio→W/H computation in the
+   *  resolution picker (Ideogram native ratios, snapped to ×16). */
+  megapixels: number
+  /** Currently selected native aspect-ratio label (e.g. "16:9"), or "" for a
+   *  custom W/H pair. */
+  ratioLabel: string
+
+  /** Artifact suppression (pseudo–negative-prompt). When on, a positive
+   *  constraint clause is appended to the caption at build time. */
+  artifactSuppression: boolean
+  /** Which constraint categories are active (ids from constraintPresets). */
+  artifactCategoryIds: string[]
+  /** Optional free-text addition to the constraint clause. */
+  artifactCustom: string
+
+  setMegapixels: (v: number) => void
+  setRatioLabel: (v: string) => void
+  setArtifactSuppression: (v: boolean) => void
+  toggleArtifactCategory: (id: string) => void
+  setArtifactCustom: (v: string) => void
   setModelVariant: (v: ModelVariant) => void
   setCustomCfg: (v: boolean) => void
   setCfg: (v: number) => void
@@ -74,6 +95,27 @@ export const useSettingsStore = create<SettingsStore>()(
       cfgOverride: 2.0,
       cfgOverrideStart: 0.7,
 
+      // Resolution: default 1:1 at ~1 MP (1024²). The picker recomputes W/H from
+      // the selected native ratio + this MP budget, snapped to ×16.
+      megapixels: 1.0,
+      ratioLabel: "1:1",
+
+      // Artifact suppression is OFF by default — it's an opt-in quality lever, not
+      // something to silently inject into every caption.
+      artifactSuppression: false,
+      artifactCategoryIds: [...DEFAULT_CONSTRAINT_IDS],
+      artifactCustom: "",
+
+      setMegapixels: (v) => set({ megapixels: Math.max(0.25, Math.min(4.0, v)) }),
+      setRatioLabel: (v) => set({ ratioLabel: v }),
+      setArtifactSuppression: (v) => set({ artifactSuppression: v }),
+      toggleArtifactCategory: (id) =>
+        set((s) => ({
+          artifactCategoryIds: s.artifactCategoryIds.includes(id)
+            ? s.artifactCategoryIds.filter((x) => x !== id)
+            : [...s.artifactCategoryIds, id],
+        })),
+      setArtifactCustom: (v) => set({ artifactCustom: v }),
       setModelVariant: (v) => set({ modelVariant: v }),
       setCustomCfg: (v) => set({ customCfg: v }),
       setCfg: (v) => set({ cfg: clampCfg(v) }),
@@ -90,7 +132,7 @@ export const useSettingsStore = create<SettingsStore>()(
     }),
     {
       name: "ideogram-studio-settings",
-      version: 3,
+      version: 4,
       migrate: (persisted, version) => {
         const state = persisted as Partial<SettingsStore> & {
           variationCount?: number
@@ -113,6 +155,15 @@ export const useSettingsStore = create<SettingsStore>()(
           state.cfgOverrideStart = 0.7
           delete state.softGuidance
         }
+        // v4 added the megapixel/native-ratio resolution model + artifact
+        // suppression. Seed sensible defaults for anyone upgrading.
+        if (version < 4) {
+          state.megapixels = state.megapixels ?? 1.0
+          state.ratioLabel = state.ratioLabel ?? "1:1"
+          state.artifactSuppression = state.artifactSuppression ?? false
+          state.artifactCategoryIds = state.artifactCategoryIds ?? [...DEFAULT_CONSTRAINT_IDS]
+          state.artifactCustom = state.artifactCustom ?? ""
+        }
         return state as SettingsStore
       },
     }
@@ -132,4 +183,15 @@ export function cfgRequestFields():
   return s.customCfg
     ? { cfg: s.cfg, cfg_override: s.cfgOverride, cfg_override_start: s.cfgOverrideStart }
     : {}
+}
+
+/**
+ * The current artifact-suppression clause to inject into the caption, or "" when
+ * suppression is off / nothing is selected. Reads the live store at call time so
+ * callers (Generate page, scene export) stay in sync. Pure string out.
+ */
+export function currentConstraintClause(): string {
+  const s = useSettingsStore.getState()
+  if (!s.artifactSuppression) return ""
+  return buildConstraintClause(s.artifactCategoryIds, s.artifactCustom)
 }

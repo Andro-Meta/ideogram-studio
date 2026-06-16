@@ -2,8 +2,15 @@ import { useState } from "react"
 import { cn } from "@/lib/utils"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Switch } from "@/components/ui/switch"
-import { ASPECT_RATIO_PRESETS, clampAspect, MAX_ASPECT_RATIO } from "@/lib/caption"
+import { Slider } from "@/components/ui/slider"
+import {
+  NATIVE_ASPECT_RATIOS,
+  resolutionForRatio,
+  clampAspect,
+  MAX_ASPECT_RATIO,
+  MP_MIN,
+  MP_MAX,
+} from "@/lib/caption"
 import { useSettingsStore } from "@/stores/settingsStore"
 
 /** Tiny visual preview rectangle proportional to the aspect ratio. */
@@ -23,44 +30,45 @@ function RatioIcon({ w, h, active }: { w: number; h: number; active: boolean }) 
   )
 }
 
-const SD_PRESETS = ASPECT_RATIO_PRESETS.filter((p) => !p.group.startsWith("hd"))
-const HD_PRESETS = ASPECT_RATIO_PRESETS.filter((p) => p.group.startsWith("hd"))
-
 /**
- * Compact resolution picker: one wrapped row of aspect-ratio chips plus an
- * HD toggle, instead of six stacked preset groups. Same presets, ~1/4 the
- * vertical space (progressive disclosure: custom size stays behind a chip).
+ * Resolution picker: the full set of Ideogram 4 native aspect ratios plus a
+ * megapixel budget slider that derives W×H (snapped to ×16). This replaces the
+ * old fixed SD/HD preset table — pick a shape, dial the size. Custom W/H stays
+ * available behind a chip. Ports the ComfyUI "Resolution Selector" idea locally,
+ * snapping to ×16 (our pipeline's requirement) rather than ×8.
  */
 export function ResolutionPicker() {
-  const { width, height, setResolution } = useSettingsStore()
+  const {
+    width, height, setResolution,
+    megapixels, setMegapixels,
+    ratioLabel, setRatioLabel,
+  } = useSettingsStore()
   const [custom, setCustom] = useState(false)
   const [wInput, setWInput] = useState("")
   const [hInput, setHInput] = useState("")
   const [aspectNotice, setAspectNotice] = useState(false)
+  const [mp, setMp] = useState(megapixels)
 
-  const activePreset = ASPECT_RATIO_PRESETS.find(
-    (p) => p.width === width && p.height === height
-  )
-  const hd = activePreset ? activePreset.group.startsWith("hd") : false
-  const tier = hd ? HD_PRESETS : SD_PRESETS
-
-  const pickRatio = (label: string, fromTier = tier) => {
-    const preset = fromTier.find((p) => p.label === label)
-    if (!preset) return
+  const pickRatio = (r: { label: string; w: number; h: number }) => {
     setCustom(false)
     setAspectNotice(false)
-    setResolution(preset.width, preset.height)
+    setRatioLabel(r.label)
+    const res = resolutionForRatio(r.w, r.h, mp)
+    setResolution(res.width, res.height)
   }
 
-  const toggleHd = (on: boolean) => {
-    // Re-pick the current ratio in the other tier (every ratio exists in both)
-    const label = activePreset?.label ?? "1:1"
-    pickRatio(label, on ? HD_PRESETS : SD_PRESETS)
+  // Live-update the readout while dragging; recompute the current ratio's size
+  // and commit on release.
+  const onMpChange = (v: number) => {
+    setMp(v)
+    setMegapixels(v)
+    const r = NATIVE_ASPECT_RATIOS.find((x) => x.label === ratioLabel)
+    if (r && !custom) {
+      const res = resolutionForRatio(r.w, r.h, v)
+      setResolution(res.width, res.height)
+    }
   }
 
-  // Commit a custom dimension: snap to 16, clamp to 256–2048, then clamp the
-  // pair to ≤ 6:1. The just-edited side is the anchor, so the OTHER side is the
-  // one nudged when the ratio would be too extreme.
   const commitW = () => {
     const res = clampAspect(parseInt(wInput) || width, height, "w")
     setResolution(res.width, res.height)
@@ -77,26 +85,25 @@ export function ResolutionPicker() {
     setAspectNotice(res.changed)
   }
 
+  const mpActual = ((width * height) / 1_000_000).toFixed(2)
+
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between">
         <p className="text-xs font-medium text-zinc-300 uppercase tracking-wider">Resolution</p>
-        <label className="flex items-center gap-1.5 cursor-pointer" title="HD presets — up to 2048 px, needs more VRAM">
-          <span className={cn("text-[10px]", hd ? "text-amber-400" : "text-zinc-600")}>HD</span>
-          <Switch checked={hd} onCheckedChange={toggleHd} className="scale-75 -my-1" />
-        </label>
+        <span className="text-[10px] text-zinc-600 font-mono">{mpActual} MP</span>
       </div>
 
-      {/* One wrapped row of ratio chips (landscape → square → portrait) */}
+      {/* One wrapped row of native ratio chips (tall → square → wide) */}
       <div className="flex flex-wrap gap-1">
-        {tier.map((p) => {
-          const active = !custom && p.width === width && p.height === height
+        {NATIVE_ASPECT_RATIOS.map((r) => {
+          const active = !custom && r.label === ratioLabel
           return (
             <button
-              key={`${p.group}-${p.label}`}
+              key={r.label}
               type="button"
-              onClick={() => pickRatio(p.label)}
-              title={`${p.width} × ${p.height}`}
+              onClick={() => pickRatio(r)}
+              title={`${r.label} · ${(() => { const x = resolutionForRatio(r.w, r.h, mp); return `${x.width}×${x.height}` })()}`}
               className={cn(
                 "flex items-center gap-1.5 rounded-md border px-1.5 py-1 transition-all",
                 active
@@ -104,14 +111,14 @@ export function ResolutionPicker() {
                   : "border-zinc-700 bg-zinc-800/60 text-zinc-500 hover:border-zinc-500 hover:text-zinc-300"
               )}
             >
-              <RatioIcon w={p.width} h={p.height} active={active} />
-              <span className="text-[10px] font-medium leading-none">{p.label}</span>
+              <RatioIcon w={r.w} h={r.h} active={active} />
+              <span className="text-[10px] font-medium leading-none">{r.label}</span>
             </button>
           )
         })}
         <button
           type="button"
-          onClick={() => { setCustom(true); setAspectNotice(false); setWInput(String(width)); setHInput(String(height)) }}
+          onClick={() => { setCustom(true); setAspectNotice(false); setRatioLabel(""); setWInput(String(width)); setHInput(String(height)) }}
           className={cn(
             "rounded-md border px-1.5 py-1 text-[10px] font-medium transition-all",
             custom
@@ -122,6 +129,27 @@ export function ResolutionPicker() {
           Custom…
         </button>
       </div>
+
+      {/* Megapixel budget — only meaningful in ratio mode */}
+      {!custom && (
+        <div className="space-y-1 pt-0.5">
+          <div className="flex items-center justify-between">
+            <Label className="text-[10px] text-zinc-500">Size (megapixels)</Label>
+            <span className="text-[10px] tabular-nums text-zinc-400">{mp.toFixed(2)} MP</span>
+          </div>
+          <Slider
+            value={[mp]}
+            min={MP_MIN}
+            max={MP_MAX}
+            step={0.05}
+            onValueChange={([v]) => onMpChange(v)}
+          />
+          <div className="flex justify-between text-[9px] text-zinc-600">
+            <span>fast · 0.25</span>
+            <span>~2K · 4.0</span>
+          </div>
+        </div>
+      )}
 
       {custom && (
         <div className="flex gap-2 items-end">
@@ -160,7 +188,7 @@ export function ResolutionPicker() {
       {/* Single-line readout: active size + constraints */}
       <p className="text-[10px] text-zinc-600 font-mono">
         {width} × {height}
-        {activePreset && ` · ${activePreset.label}${hd ? " HD" : ""}`}
+        {!custom && ratioLabel && ` · ${ratioLabel}`}
         <span className="text-zinc-700 font-sans"> · 256–2048, ×16, ≤{MAX_ASPECT_RATIO}:1</span>
       </p>
     </div>

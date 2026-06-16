@@ -26,6 +26,8 @@ REPOS: dict[str, str] = {
     "nf4": "ideogram-ai/ideogram-4-nf4",
     "nf4d": "ideogram-ai/ideogram-4-nf4-diffusers",
     "bf16": "CalamitousFelicitousness/Ideogram-4-bf16-Diffusers",
+    # GGUF Q4_K — single-file quantized transformer for sub-24 GB GPUs.
+    "gguf-q4k": "transformerlab/ideogram-4-gguf-q4_k",
 }
 
 # Requirements verified against the real repos (HfApi files_metadata) and the
@@ -69,6 +71,17 @@ VARIANT_REQS: dict[str, dict[str, Any]] = {
         "vram_gb": 40.0,
         "ram_gb": 48.0,
         "label": "Community bf16 diffusers weights — experimental, datacenter-scale",
+    },
+    # GGUF Q4_K: the transformer is ~6.5 GB and runs in ~10–12 GB VRAM total
+    # (transformer + VAE + text encoder), opening the door to 12 GB cards.
+    # Disk is higher than VRAM here because the base VAE/text-encoder/scheduler
+    # are pulled from the nf4d diffusers repo (see GGUFQ4KPipeline.load TODO to
+    # trim this to the needed subfolders). Scaffold — verify on hardware.
+    "gguf-q4k": {
+        "download_gb": 22.0,
+        "vram_gb": 12.0,
+        "ram_gb": 12.0,
+        "label": "GGUF Q4_K — smallest VRAM (~12 GB GPUs). No LoRA. Experimental",
     },
 }
 
@@ -425,7 +438,7 @@ def get_system_report() -> dict[str, Any]:
             pass
 
     variants = []
-    for v in ("nf4", "nf4d", "fp8", "bf16"):
+    for v in ("nf4", "nf4d", "gguf-q4k", "fp8", "bf16"):
         variants.append(
             assess_variant(
                 v,

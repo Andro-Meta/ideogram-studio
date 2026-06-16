@@ -1,10 +1,11 @@
 import { useState } from "react"
-import { Boxes, Loader2, Plus, RefreshCw, Trash2 } from "lucide-react"
+import { Boxes, Loader2, Plus, RefreshCw, Trash2, Sparkles, ChevronDown } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Slider } from "@/components/ui/slider"
 import { Separator } from "@/components/ui/separator"
 import { useModelStatus } from "@/hooks/useModelStatus"
 import { useLoras, useLoraMutations } from "@/hooks/useLoras"
+import { CURATED_LORAS } from "@/lib/loraGallery"
 import type { LoraInfo } from "@/types/api"
 
 /**
@@ -36,6 +37,7 @@ export function LoraPanel() {
   const { data, refetch, isRefetching } = useLoras(ready)
   const { apply, setWeight, remove } = useLoraMutations()
   const [hfRepo, setHfRepo] = useState("")
+  const [showCurated, setShowCurated] = useState(false)
 
   // Hidden entirely unless a LoRA-capable model is actually loaded.
   if (!ready || !data?.supported) return null
@@ -95,6 +97,47 @@ export function LoraPanel() {
           ))}
         </div>
       )}
+
+      {/* Curated gallery — vetted Ideogram 4 LoRAs from Hugging Face, one click */}
+      <div className="rounded-md border border-zinc-800 bg-zinc-900/40">
+        <button
+          type="button"
+          onClick={() => setShowCurated((v) => !v)}
+          className="w-full flex items-center justify-between px-2 py-1.5 text-[11px] text-zinc-300 hover:text-violet-200 transition-colors"
+        >
+          <span className="flex items-center gap-1.5">
+            <Sparkles className="h-3.5 w-3.5 text-violet-400/70" />
+            Browse curated ({CURATED_LORAS.length})
+          </span>
+          <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", showCurated && "rotate-180")} />
+        </button>
+        {showCurated && (
+          <div className="px-1.5 pb-1.5 space-y-1">
+            {CURATED_LORAS.map((c) => {
+              const loaded = data.loaded.some((l) => l.source === c.repo)
+              return (
+                <button
+                  key={c.repo}
+                  type="button"
+                  disabled={apply.isPending || loaded}
+                  onClick={() => apply.mutate({ hf_repo: c.repo, weight: 1.0 })}
+                  title={`${c.repo} — ${c.blurb}`}
+                  className="w-full text-left rounded border border-zinc-700/70 bg-zinc-800/50 px-2 py-1.5 hover:border-violet-600/60 hover:bg-violet-500/5 disabled:opacity-50 transition-colors"
+                >
+                  <div className="flex items-center justify-between gap-1.5">
+                    <span className="text-[11px] font-medium text-zinc-200 truncate">{c.title}</span>
+                    <span className="text-[9px] uppercase tracking-wider text-violet-300/60 shrink-0">{c.kind}</span>
+                  </div>
+                  <p className="text-[10px] text-zinc-500 leading-snug line-clamp-2">{c.blurb}</p>
+                </button>
+              )
+            })}
+            <p className="text-[9px] text-zinc-600 px-1 pt-0.5">
+              First use downloads the adapter from Hugging Face (gated repos need your HF token).
+            </p>
+          </div>
+        )}
+      </div>
 
       {/* Load from a Hugging Face repo id */}
       <div className="flex items-center gap-1.5">

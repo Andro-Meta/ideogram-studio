@@ -232,6 +232,64 @@ export const ASPECT_RATIO_PRESETS = [
   { label: "9:16",  width: 1152, height: 2048, group: "hd-portrait"  as const }, // 1152/2048 = 9/16 ✓ — max 9:16
 ]
 
+// ── Native aspect ratios (Ideogram 4) ────────────────────────────────────────
+// The full set Ideogram 4 accepts natively (plus AUTO). Ordered tall → wide.
+// Used by the resolution picker together with a megapixel budget: instead of a
+// fixed W×H preset table, we compute the size from (ratio, megapixels) and snap
+// to ×16. Mirrors the ComfyUI "Resolution Selector" idea, but ×16 (our pipeline
+// requires multiples of 16) not ×8. All native ratios are ≤ 4:1, well within the
+// model's ≤ 6:1 range.
+export interface NativeRatio {
+  label: string
+  w: number
+  h: number
+  group: "portrait" | "square" | "landscape"
+}
+
+export const NATIVE_ASPECT_RATIOS: NativeRatio[] = [
+  { label: "1:4",   w: 1,  h: 4,  group: "portrait" },
+  { label: "1:3",   w: 1,  h: 3,  group: "portrait" },
+  { label: "9:16",  w: 9,  h: 16, group: "portrait" },
+  { label: "10:16", w: 10, h: 16, group: "portrait" },
+  { label: "1:2",   w: 1,  h: 2,  group: "portrait" },
+  { label: "2:3",   w: 2,  h: 3,  group: "portrait" },
+  { label: "3:4",   w: 3,  h: 4,  group: "portrait" },
+  { label: "4:5",   w: 4,  h: 5,  group: "portrait" },
+  { label: "1:1",   w: 1,  h: 1,  group: "square" },
+  { label: "5:4",   w: 5,  h: 4,  group: "landscape" },
+  { label: "4:3",   w: 4,  h: 3,  group: "landscape" },
+  { label: "3:2",   w: 3,  h: 2,  group: "landscape" },
+  { label: "16:10", w: 16, h: 10, group: "landscape" },
+  { label: "16:9",  w: 16, h: 9,  group: "landscape" },
+  { label: "2:1",   w: 2,  h: 1,  group: "landscape" },
+  { label: "3:1",   w: 3,  h: 1,  group: "landscape" },
+  { label: "4:1",   w: 4,  h: 1,  group: "landscape" },
+]
+
+// Megapixel slider bounds. The model tops out near 2048² ≈ 4.19 MP; 0.25 MP
+// (512²) is a sensible fast floor.
+export const MP_MIN = 0.25
+export const MP_MAX = 4.0
+
+/**
+ * Compute a generation size from an aspect ratio (rw:rh) and a target megapixel
+ * budget. Each side is snapped to ×16 and clamped to 256–2048 (and ≤ 6:1) via
+ * clampAspect, so the result is always a valid Ideogram 4 resolution. The longer
+ * side is the anchor, so extreme ratios keep their dominant dimension.
+ */
+export function resolutionForRatio(
+  rw: number,
+  rh: number,
+  megapixels: number,
+): { width: number; height: number } {
+  if (!rw || !rh) return { width: 1024, height: 1024 }
+  const target = Math.max(MP_MIN, Math.min(MP_MAX, megapixels)) * 1_000_000
+  const scale = Math.sqrt(target / (rw * rh))
+  const anchor = rw >= rh ? "w" : "h"
+  const { width, height } = clampAspect(rw * scale, rh * scale, anchor)
+  return { width, height }
+}
+
 export const ELEMENT_COLORS = [
   { border: "border-violet-500", bg: "bg-violet-500/20", text: "text-violet-300" },
   { border: "border-cyan-500",   bg: "bg-cyan-500/20",   text: "text-cyan-300"   },
@@ -329,10 +387,21 @@ export function aspectMatchedResolution(
  *    "Load into Editor" can reliably round-trip photo vs illustration mode
  *  - Fill defaults for empty required fields, matching backend caption.py
  */
-export function buildCaption(state: PromptState): string {
+export function buildCaption(
+  state: PromptState,
+  opts?: { constraintClause?: string },
+): string {
   const caption: Record<string, unknown> = {}
 
-  const hld = state.high_level_description.trim()
+  // Artifact suppression / pseudo–negative-prompt: append positive quality
+  // constraints to the high-level description (the model has no negative field).
+  // Done here, after validatePromptState runs on the raw state, so the appended
+  // clause never trips the word-count warnings.
+  const clause = opts?.constraintClause?.trim()
+  const baseHld = state.high_level_description.trim()
+  const hld = clause
+    ? (baseHld ? `${baseHld}. Rendering quality: ${clause}.` : `Rendering quality: ${clause}.`)
+    : baseHld
   if (hld) caption.high_level_description = hld
 
   const sd = state.style_description
