@@ -247,7 +247,7 @@ export function Generate() {
     s.artifactSuppression ? buildConstraintClause(s.artifactCategoryIds, s.artifactCustom) : ""
   )
   const captionOpts = { constraintClause }
-  const tokenCount = estimateTokens(promptState)
+  const tokenCount = estimateTokens(promptState, captionOpts)
   const isRunning = status === "running" || status === "loading-model"
   const isDone = status === "done"
 

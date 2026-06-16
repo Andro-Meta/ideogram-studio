@@ -47,20 +47,21 @@ export function ResolutionPicker() {
   const [wInput, setWInput] = useState("")
   const [hInput, setHInput] = useState("")
   const [aspectNotice, setAspectNotice] = useState(false)
-  const [mp, setMp] = useState(megapixels)
+  // `megapixels` is read straight from the store (no local shadow state) so a
+  // scene/template load that writes it is reflected immediately, instead of the
+  // slider/chip sizes going stale.
 
   const pickRatio = (r: { label: string; w: number; h: number }) => {
     setCustom(false)
     setAspectNotice(false)
     setRatioLabel(r.label)
-    const res = resolutionForRatio(r.w, r.h, mp)
+    const res = resolutionForRatio(r.w, r.h, megapixels)
     setResolution(res.width, res.height)
   }
 
   // Live-update the readout while dragging; recompute the current ratio's size
   // and commit on release.
   const onMpChange = (v: number) => {
-    setMp(v)
     setMegapixels(v)
     const r = NATIVE_ASPECT_RATIOS.find((x) => x.label === ratioLabel)
     if (r && !custom) {
@@ -103,7 +104,7 @@ export function ResolutionPicker() {
               key={r.label}
               type="button"
               onClick={() => pickRatio(r)}
-              title={`${r.label} · ${(() => { const x = resolutionForRatio(r.w, r.h, mp); return `${x.width}×${x.height}` })()}`}
+              title={`${r.label} · ${(() => { const x = resolutionForRatio(r.w, r.h, megapixels); return `${x.width}×${x.height}` })()}`}
               className={cn(
                 "flex items-center gap-1.5 rounded-md border px-1.5 py-1 transition-all",
                 active
@@ -135,10 +136,10 @@ export function ResolutionPicker() {
         <div className="space-y-1 pt-0.5">
           <div className="flex items-center justify-between">
             <Label className="text-[10px] text-zinc-500">Size (megapixels)</Label>
-            <span className="text-[10px] tabular-nums text-zinc-400">{mp.toFixed(2)} MP</span>
+            <span className="text-[10px] tabular-nums text-zinc-400">{megapixels.toFixed(2)} MP</span>
           </div>
           <Slider
-            value={[mp]}
+            value={[megapixels]}
             min={MP_MIN}
             max={MP_MAX}
             step={0.05}

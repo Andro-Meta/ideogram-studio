@@ -13,16 +13,23 @@ clause. Keep the snippets in sync with the frontend file.
 """
 from __future__ import annotations
 import json
+import re
+from pathlib import Path
 
-CONSTRAINT_CATEGORIES: dict[str, str] = {
-    "sharpness":   "sharp focus, crisp fine detail, no motion blur",
-    "noise":       "clean signal, no grain, no sensor noise",
-    "compression": "high fidelity, no compression artifacts, no jpeg blocking",
-    "color":       "accurate natural color, no chromatic aberration, no color banding",
-    "anatomy":     "correct anatomy, well-formed hands, natural proportions",
-}
-
-DEFAULT_CONSTRAINT_IDS = ["sharpness", "noise", "compression", "color"]
+# Single source of truth shared with the frontend (constraintPresets.ts imports
+# the same file) so the web UI and this CLI mirror can never drift.
+_SNIPPETS_PATH = (
+    Path(__file__).resolve().parent.parent
+    / "frontend" / "src" / "lib" / "constraintSnippets.json"
+)
+try:
+    _data = json.loads(_SNIPPETS_PATH.read_text(encoding="utf-8"))
+    CONSTRAINT_CATEGORIES: dict[str, str] = dict(_data["categories"])
+    DEFAULT_CONSTRAINT_IDS: list[str] = list(_data["defaults"])
+except (OSError, ValueError, KeyError) as exc:  # loud, not silent — avoids drift
+    raise RuntimeError(
+        f"Could not load constraint snippets from {_SNIPPETS_PATH}: {exc}"
+    ) from exc
 
 
 def build_constraint_clause(ids: list[str] | None = None, custom: str = "") -> str:
@@ -39,9 +46,11 @@ def apply_constraints_to_caption(caption_json: str, clause: str) -> str:
     """Inject `clause` into a minified Ideogram caption JSON string.
 
     The clause is appended to `high_level_description` under a clear "Rendering
-    quality:" lead-in (matching the frontend builder). Idempotent-ish: a second
-    apply with the same clause is a no-op. Returns the input unchanged if it
-    isn't valid caption JSON or the clause is empty.
+    quality:" lead-in (matching the frontend builder). Idempotent: any prior
+    "Rendering quality: …" sentence is stripped first, so re-applying with a
+    different/reordered clause REPLACES it rather than stacking a second one.
+    Returns the input unchanged if it isn't valid caption JSON or the clause is
+    empty.
     """
     clause = (clause or "").strip()
     if not clause:
@@ -53,11 +62,11 @@ def apply_constraints_to_caption(caption_json: str, clause: str) -> str:
     if not isinstance(data, dict):
         return caption_json
 
-    lead = "Rendering quality: "
-    suffix = f"{lead}{clause}."
+    suffix = f"Rendering quality: {clause}."
     hld = str(data.get("high_level_description", "")).strip()
-    if suffix in hld:
-        return caption_json  # already applied
+    # Strip any previously-injected "Rendering quality: …" sentence (to end of
+    # string) before re-adding, so the clause never doubles.
+    hld = re.sub(r"\s*\.?\s*Rendering quality:.*$", "", hld).strip()
     data["high_level_description"] = f"{hld}. {suffix}" if hld else suffix
 
     # Re-serialize in the model's minified form (matches caption.py).

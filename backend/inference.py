@@ -724,7 +724,7 @@ class GGUFQ4KPipeline(BF16Pipeline):
 
     def load(self) -> None:
         import torch
-        from huggingface_hub import hf_hub_download
+        from huggingface_hub import hf_hub_download, list_repo_files
 
         try:
             from diffusers import Ideogram4Pipeline as DiffusersPipeline
@@ -739,7 +739,20 @@ class GGUFQ4KPipeline(BF16Pipeline):
             )
 
         token = os.environ.get("HF_TOKEN")
-        gguf_path = hf_hub_download(self.GGUF_REPO, self.GGUF_FILENAME, token=token)
+        # Resolve the actual .gguf file in the repo rather than trusting one
+        # hardcoded name (repos vary). Listing is cheap and happens before any
+        # large download, so a wrong/missing file fails fast with a clear error.
+        try:
+            repo_files = [f for f in list_repo_files(self.GGUF_REPO, token=token)
+                          if f.lower().endswith(".gguf")]
+        except Exception:
+            repo_files = []
+        gguf_name = self.GGUF_FILENAME  # fallback if listing fails
+        if repo_files:
+            q4 = [f for f in repo_files if "q4_k" in f.lower()] or \
+                 [f for f in repo_files if "q4" in f.lower()]
+            gguf_name = (q4 or repo_files)[0]
+        gguf_path = hf_hub_download(self.GGUF_REPO, gguf_name, token=token)
 
         # Locate the Ideogram 4 transformer class — the symbol moved between
         # diffusers versions, so try the known locations.

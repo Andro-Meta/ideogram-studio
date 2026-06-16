@@ -13,7 +13,7 @@ import type { ModelVariant } from "@/types/caption"
 const VARIANTS: { value: ModelVariant; label: string; vram: string; desc: string }[] = [
   { value: "nf4d", label: "NF4·D", vram: "24 GB GPU",  desc: "Live progress · LoRA" },
   { value: "nf4",  label: "NF4",   vram: "24 GB GPU",  desc: "No live progress" },
-  { value: "gguf-q4k", label: "GGUF Q4", vram: "12 GB GPU", desc: "Smallest VRAM · no LoRA" },
+  { value: "gguf-q4k", label: "GGUF Q4", vram: "12 GB GPU", desc: "Experimental · no LoRA" },
   { value: "fp8",  label: "FP8",   vram: "32 GB+ GPU", desc: "A100 / H100" },
   { value: "bf16", label: "BF16",  vram: "40 GB+ GPU", desc: "Community" },
 ]

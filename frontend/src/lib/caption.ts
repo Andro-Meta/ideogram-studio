@@ -202,36 +202,6 @@ export const PRESET_LABELS: Record<string, { name: string; steps: string; time: 
   V4_QUALITY_48: { name: "Quality", steps: "48 steps", time: "~60s" },
 }
 
-// Ideogram 4 supports any resolution 256–2048 px (multiples of 16), aspect ratio ≤ 6:1.
-// Max is ~2K equivalent — 4K (3840+) is NOT possible with this model.
-//
-// All preset dimensions are verified pixel-perfect: exact ratios AND valid multiples of 16.
-// Verified with: node -e "check all pairs for w%16===0 && h%16===0 && w/h===exact_ratio"
-export const ASPECT_RATIO_PRESETS = [
-  // ── Standard — ~1MP, fast, good for most GPUs ─────────────────────────────────
-  { label: "21:9",  width: 1792, height: 768,  group: "landscape" as const },  // 1792/768  = 7/3  ✓ (prev: 1512×648, 648÷16=40.5 — was WRONG)
-  { label: "16:9",  width: 1280, height: 720,  group: "landscape" as const },  // 1280/720  = 16/9 ✓
-  { label: "3:2",   width: 1152, height: 768,  group: "landscape" as const },  // 1152/768  = 3/2  ✓
-  { label: "4:3",   width: 1024, height: 768,  group: "landscape" as const },  // 1024/768  = 4/3  ✓
-  { label: "5:4",   width: 1280, height: 1024, group: "landscape" as const },  // 1280/1024 = 5/4  ✓
-  { label: "1:1",   width: 1024, height: 1024, group: "square"    as const },
-  { label: "4:5",   width: 1024, height: 1280, group: "portrait"  as const },  // 1024/1280 = 4/5  ✓
-  { label: "3:4",   width: 768,  height: 1024, group: "portrait"  as const },  // 768/1024  = 3/4  ✓
-  { label: "2:3",   width: 768,  height: 1152, group: "portrait"  as const },  // 768/1152  = 2/3  ✓
-  { label: "9:16",  width: 720,  height: 1280, group: "portrait"  as const },  // 720/1280  = 9/16 ✓
-  // ── HD — up to 2048px (max the model supports, ~2–4× more VRAM) ──────────────
-  { label: "21:9",  width: 2016, height: 864,  group: "hd-landscape" as const }, // 2016/864  = 7/3  ✓
-  { label: "16:9",  width: 2048, height: 1152, group: "hd-landscape" as const }, // 2048/1152 = 16/9 ✓ — max 16:9
-  { label: "3:2",   width: 2016, height: 1344, group: "hd-landscape" as const }, // 2016/1344 = 3/2  ✓
-  { label: "4:3",   width: 2048, height: 1536, group: "hd-landscape" as const }, // 2048/1536 = 4/3  ✓ — max 4:3
-  { label: "5:4",   width: 1920, height: 1536, group: "hd-landscape" as const }, // 1920/1536 = 5/4  ✓
-  { label: "1:1",   width: 2048, height: 2048, group: "hd-square"    as const }, // max square
-  { label: "4:5",   width: 1536, height: 1920, group: "hd-portrait"  as const }, // 1536/1920 = 4/5  ✓
-  { label: "3:4",   width: 1536, height: 2048, group: "hd-portrait"  as const }, // 1536/2048 = 3/4  ✓ — max 3:4
-  { label: "2:3",   width: 1344, height: 2016, group: "hd-portrait"  as const }, // 1344/2016 = 2/3  ✓
-  { label: "9:16",  width: 1152, height: 2048, group: "hd-portrait"  as const }, // 1152/2048 = 9/16 ✓ — max 9:16
-]
-
 // ── Native aspect ratios (Ideogram 4) ────────────────────────────────────────
 // The full set Ideogram 4 accepts natively (plus AUTO). Ordered tall → wide.
 // Used by the resolution picker together with a megapixel budget: instead of a
@@ -283,11 +253,10 @@ export function resolutionForRatio(
   megapixels: number,
 ): { width: number; height: number } {
   if (!rw || !rh) return { width: 1024, height: 1024 }
-  const target = Math.max(MP_MIN, Math.min(MP_MAX, megapixels)) * 1_000_000
-  const scale = Math.sqrt(target / (rw * rh))
-  const anchor = rw >= rh ? "w" : "h"
-  const { width, height } = clampAspect(rw * scale, rh * scale, anchor)
-  return { width, height }
+  // Same sqrt-scale + anchor + clampAspect as aspectMatchedResolution; this is
+  // just the megapixel-budget wrapper, so reuse that one body.
+  const mp = Math.max(MP_MIN, Math.min(MP_MAX, megapixels))
+  return aspectMatchedResolution(rw, rh, mp * 1_000_000)
 }
 
 export const ELEMENT_COLORS = [
@@ -446,6 +415,9 @@ export function buildCaption(
  * Estimate token count for the current prompt state.
  * Uses chars/4 heuristic from kjnodes. Hard cap is 2048 (Qwen tokenizer).
  */
-export function estimateTokens(state: PromptState): number {
-  return Math.ceil(buildCaption(state).length / 4)
+export function estimateTokens(
+  state: PromptState,
+  opts?: { constraintClause?: string },
+): number {
+  return Math.ceil(buildCaption(state, opts).length / 4)
 }

@@ -13,6 +13,8 @@
  * settings store, the caption builder, and unit tests.
  */
 
+import snippetData from "./constraintSnippets.json"
+
 export interface ConstraintCategory {
   id: string
   label: string
@@ -21,41 +23,27 @@ export interface ConstraintCategory {
   snippet: string
 }
 
-export const CONSTRAINT_CATEGORIES: ConstraintCategory[] = [
-  {
-    id: "sharpness",
-    label: "Sharpness",
-    hint: "Crisp detail, no motion blur",
-    snippet: "sharp focus, crisp fine detail, no motion blur",
-  },
-  {
-    id: "noise",
-    label: "Clean",
-    hint: "No grain / sensor noise",
-    snippet: "clean signal, no grain, no sensor noise",
-  },
-  {
-    id: "compression",
-    label: "No artifacts",
-    hint: "No JPEG / compression blocking",
-    snippet: "high fidelity, no compression artifacts, no jpeg blocking",
-  },
-  {
-    id: "color",
-    label: "Color",
-    hint: "Accurate color, no fringing/banding",
-    snippet: "accurate natural color, no chromatic aberration, no color banding",
-  },
-  {
-    id: "anatomy",
-    label: "Anatomy",
-    hint: "Well-formed hands & proportions",
-    snippet: "correct anatomy, well-formed hands, natural proportions",
-  },
+// The model-facing snippet text + the default selection are the SINGLE SOURCE
+// OF TRUTH in constraintSnippets.json (also read by backend/constraints.py, so
+// the web UI and the headless CLI can't drift). Only the UI label/hint live
+// here.
+const SNIPPETS: Record<string, string> = snippetData.categories
+
+const CATEGORY_META: { id: string; label: string; hint: string }[] = [
+  { id: "sharpness",   label: "Sharpness",    hint: "Crisp detail, no motion blur" },
+  { id: "noise",       label: "Clean",        hint: "No grain / sensor noise" },
+  { id: "compression", label: "No artifacts", hint: "No JPEG / compression blocking" },
+  { id: "color",       label: "Color",        hint: "Accurate color, no fringing/banding" },
+  { id: "anatomy",     label: "Anatomy",      hint: "Well-formed hands & proportions" },
 ]
 
+export const CONSTRAINT_CATEGORIES: ConstraintCategory[] = CATEGORY_META.map((m) => ({
+  ...m,
+  snippet: SNIPPETS[m.id] ?? "",
+}))
+
 /** Categories enabled by default when the user first turns suppression on. */
-export const DEFAULT_CONSTRAINT_IDS = ["sharpness", "noise", "compression", "color"]
+export const DEFAULT_CONSTRAINT_IDS: string[] = snippetData.defaults
 
 /**
  * Build the comma-separated constraint clause from a set of category ids plus an

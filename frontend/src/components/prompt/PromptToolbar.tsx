@@ -10,7 +10,6 @@ import { usePromptStore } from "@/stores/promptStore"
 import { useSettingsStore } from "@/stores/settingsStore"
 import { PROMPT_TEMPLATES, TEMPLATE_CATEGORIES, type PromptTemplate } from "@/lib/promptTemplates"
 import { buildScene, parseScene, downloadScene } from "@/lib/scenePreset"
-import { DEFAULT_CONSTRAINT_IDS } from "@/lib/constraintPresets"
 import type { AnyElement } from "@/types/caption"
 
 /** Assign fresh client ids to template/scene elements so they never collide. */
@@ -109,6 +108,7 @@ export function PromptToolbar() {
         megapixels: s.megapixels, ratioLabel: s.ratioLabel,
         customCfg: s.customCfg, cfg: s.cfg, cfgOverride: s.cfgOverride,
         cfgOverrideStart: s.cfgOverrideStart,
+        fixedSeed: s.fixedSeed, seed: s.seed,
       },
       {
         artifactSuppression: s.artifactSuppression,
@@ -144,8 +144,12 @@ export function PromptToolbar() {
         ...(typeof g.cfg === "number" ? { cfg: g.cfg } : {}),
         ...(typeof g.cfgOverride === "number" ? { cfgOverride: g.cfgOverride } : {}),
         ...(typeof g.cfgOverrideStart === "number" ? { cfgOverrideStart: g.cfgOverrideStart } : {}),
+        ...(typeof g.fixedSeed === "boolean" ? { fixedSeed: g.fixedSeed } : {}),
+        ...(typeof g.seed === "number" ? { seed: g.seed } : {}),
         ...(typeof c.artifactSuppression === "boolean" ? { artifactSuppression: c.artifactSuppression } : {}),
-        artifactCategoryIds: Array.isArray(c.artifactCategoryIds) ? c.artifactCategoryIds : [...DEFAULT_CONSTRAINT_IDS],
+        // Only overwrite the category selection when the scene actually carries
+        // one — a legacy/partial scene must not silently reset it to defaults.
+        ...(Array.isArray(c.artifactCategoryIds) ? { artifactCategoryIds: c.artifactCategoryIds } : {}),
         ...(typeof c.artifactCustom === "string" ? { artifactCustom: c.artifactCustom } : {}),
       })
       toast.success("Scene loaded")

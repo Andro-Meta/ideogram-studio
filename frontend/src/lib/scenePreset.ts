@@ -11,14 +11,17 @@
  *     "savedAt": "<ISO>",
  *     "prompt": PromptState,
  *     "generation": { width, height, samplerPreset, megapixels, ratioLabel,
- *                     customCfg, cfg, cfgOverride, cfgOverrideStart },
+ *                     customCfg, cfg, cfgOverride, cfgOverrideStart,
+ *                     fixedSeed, seed },
  *     "constraints": { artifactSuppression, artifactCategoryIds, artifactCustom }
  *   }
  *
  * Pure module (no React) so it can be unit-tested and reused.
  */
-import type { PromptState, SamplerPreset } from "@/types/caption"
+import type { PromptState, SamplerPreset, AnyElement } from "@/types/caption"
 import { defaultPromptState } from "@/types/caption"
+import type { BBox } from "@/lib/bbox"
+import { uid } from "@/lib/uid"
 
 export const SCENE_FORMAT = "ideogram-studio-scene"
 export const SCENE_VERSION = 1
@@ -33,6 +36,37 @@ export interface SceneGeneration {
   cfg: number
   cfgOverride: number
   cfgOverrideStart: number
+  fixedSeed: boolean
+  seed: number
+}
+
+/**
+ * Coerce one untrusted element from an uploaded scene into a valid AnyElement.
+ * Hand-edited / corrupt files can carry missing or wrong-typed fields; without
+ * this, an element with no `desc` crashes buildCaption (`el.desc.trim()`).
+ * Returns null for anything that isn't an object so the caller can drop it.
+ */
+function sanitizeElement(raw: unknown): AnyElement | null {
+  if (!raw || typeof raw !== "object") return null
+  const e = raw as Record<string, unknown>
+  const desc = typeof e.desc === "string" ? e.desc : ""
+  const color_palette = Array.isArray(e.color_palette)
+    ? e.color_palette.filter((c): c is string => typeof c === "string")
+    : []
+  const id = typeof e.id === "string" && e.id ? e.id : uid()
+
+  // Keep bbox only when it's a well-formed numeric {ymin,xmin,ymax,xmax}.
+  let bbox: BBox | undefined
+  const b = e.bbox as Record<string, unknown> | null | undefined
+  if (b && typeof b === "object" &&
+      ["ymin", "xmin", "ymax", "xmax"].every((k) => typeof b[k] === "number")) {
+    bbox = { ymin: b.ymin as number, xmin: b.xmin as number, ymax: b.ymax as number, xmax: b.xmax as number }
+  }
+
+  if (e.type === "text") {
+    return { id, type: "text", text: typeof e.text === "string" ? e.text : "", desc, bbox, color_palette }
+  }
+  return { id, type: "obj", desc, bbox, color_palette }
 }
 
 export interface SceneConstraints {
@@ -94,7 +128,10 @@ export function parseScene(text: string): ScenePreset {
     high_level_description: prompt.high_level_description ?? base.high_level_description,
     style_description: { ...base.style_description, ...(prompt.style_description ?? {}) },
     background: prompt.background ?? base.background,
-    elements: Array.isArray(prompt.elements) ? prompt.elements : base.elements,
+    // Sanitize each element so a malformed/hand-edited file can't crash buildCaption.
+    elements: Array.isArray(prompt.elements)
+      ? prompt.elements.map(sanitizeElement).filter((el): el is AnyElement => el !== null)
+      : base.elements,
   }
   return {
     format: SCENE_FORMAT,

@@ -92,7 +92,14 @@ def cmd_caption(args: argparse.Namespace) -> None:
     caption_json, warnings = build_caption(state)
 
     if args.constraints is not None or args.custom:
-        ids = [s.strip() for s in (args.constraints or "").split(",") if s.strip()] or None
+        # When --constraints is omitted, use NO categories (empty list), not
+        # None — None makes build_constraint_clause fall back to ALL defaults,
+        # which would diverge from the UI (custom-text-only adds only that text).
+        ids = (
+            [s.strip() for s in args.constraints.split(",") if s.strip()]
+            if args.constraints is not None
+            else []
+        )
         clause = build_constraint_clause(ids, args.custom or "")
         caption_json = apply_constraints_to_caption(caption_json, clause)
 
@@ -170,6 +177,7 @@ def cmd_generate(args: argparse.Namespace) -> None:
         raise SystemExit("No image returned.")
 
     out_path = Path(args.out)
+    out_path.parent.mkdir(parents=True, exist_ok=True)  # don't lose the render to a missing dir
     out_path.write_bytes(_get_bytes(host, image_url))
     print(str(out_path.resolve()))
 
@@ -211,7 +219,7 @@ def build_parser() -> argparse.ArgumentParser:
                    choices=["V4_TURBO_12", "V4_DEFAULT_20", "V4_QUALITY_48"])
     g.add_argument("--seed", type=int, default=None)
     g.add_argument("--model-variant", dest="model_variant", default="nf4d",
-                   choices=["fp8", "nf4", "nf4d", "bf16"])
+                   choices=["fp8", "nf4", "nf4d", "bf16", "gguf-q4k"])
     g.add_argument("--cfg", type=float, default=None,
                    help="Main CFG; omit to use the sampler preset's schedule.")
     g.add_argument("--cfg-override", dest="cfg_override", type=float, default=2.0)

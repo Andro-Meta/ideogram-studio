@@ -1,0 +1,11 @@
+{
+  "_comment": "Single source of truth for artifact-suppression constraint snippets (the model-facing text) + the default selection. Imported by frontend/src/lib/constraintPresets.ts AND read by backend/constraints.py so the web UI and the headless CLI can never drift. UI-only metadata (label/hint) lives in constraintPresets.ts.",
+  "categories": {
+    "sharpness": "sharp focus, crisp fine detail, no motion blur",
+    "noise": "clean signal, no grain, no sensor noise",
+    "compression": "high fidelity, no compression artifacts, no jpeg blocking",
+    "color": "accurate natural color, no chromatic aberration, no color banding",
+    "anatomy": "correct anatomy, well-formed hands, natural proportions"
+  },
+  "defaults": ["sharpness", "noise", "compression", "color"]
+}
