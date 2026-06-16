@@ -1,6 +1,6 @@
 import { useRef, useState, useEffect, type PointerEvent as ReactPointerEvent } from "react"
 import {
-  LayoutGrid, MapPin, MousePointer2, Square, Circle, Lasso, Type, Shapes, Ban,
+  LayoutGrid, MapPin, MousePointer2, Square, Type, Shapes, Ban,
   AlertTriangle,
 } from "lucide-react"
 import { BBoxRect } from "./BBoxRect"
@@ -10,12 +10,12 @@ import { useGenerationStore } from "@/stores/generationStore"
 import { pixelToNorm, normToPixel, clampBBox, type BBox } from "@/lib/bbox"
 import { ColorPicker } from "@/components/palette/ColorPicker"
 
-// Draw tools. "move" is the default — existing pin/drag/resize behaviour.
-// box/ellipse/lasso are opt-in: they let you sketch a region directly on the
-// frame (matching KJNodes' freehand prompt builder). The model only consumes a
-// bounding box, so ellipse + lasso simply auto-fit a box to the drawn shape —
-// the shape itself is just visual guidance while you draw.
-type Tool = "move" | "box" | "ellipse" | "lasso"
+// Draw tools. "move" is the default — pin/drag/resize existing boxes. "box"
+// lets you draw a new region directly on the frame. (There's no ellipse/lasso:
+// Ideogram 4's JSON only accepts axis-aligned bounding boxes, so any other
+// shape would just collapse to its box anyway — see the image editor for real
+// freeform masks, where the shape is actually used.)
+type Tool = "move" | "box"
 
 interface Pt { x: number; y: number }
 
@@ -105,12 +105,7 @@ export function BBoxCanvas() {
   function onPointerMove(e: ReactPointerEvent) {
     if (!draft) return
     const p = localPoint(e)
-    setDraft((prev) => {
-      if (!prev) return prev
-      // box/ellipse only need start + current; lasso accumulates the path.
-      if (tool === "lasso") return [...prev, p]
-      return [prev[0], p]
-    })
+    setDraft((prev) => (prev ? [prev[0], p] : prev))
   }
 
   function onPointerUp(e: ReactPointerEvent) {
@@ -138,13 +133,11 @@ export function BBoxCanvas() {
 
   // ---- live draft geometry (in px, for the SVG overlay) ----
   let draftRect: { x: number; y: number; w: number; h: number } | null = null
-  let draftPath = ""
   if (draft && draft.length > 0) {
     const xs = draft.map((p) => p.x)
     const ys = draft.map((p) => p.y)
     const x = Math.min(...xs), y = Math.min(...ys)
     draftRect = { x, y, w: Math.max(...xs) - x, h: Math.max(...ys) - y }
-    if (tool === "lasso") draftPath = draft.map((p) => `${p.x},${p.y}`).join(" ")
   }
   const draftStroke = color ?? "#a78bfa" // violet-400 default
 
@@ -159,12 +152,6 @@ export function BBoxCanvas() {
           </ToolBtn>
           <ToolBtn active={tool === "box"} onClick={() => setTool("box")} title="Draw a box region">
             <Square className="h-3.5 w-3.5" />
-          </ToolBtn>
-          <ToolBtn active={tool === "ellipse"} onClick={() => setTool("ellipse")} title="Draw an ellipse (auto-fits a box)">
-            <Circle className="h-3.5 w-3.5" />
-          </ToolBtn>
-          <ToolBtn active={tool === "lasso"} onClick={() => setTool("lasso")} title="Lasso a region (auto-fits a box)">
-            <Lasso className="h-3.5 w-3.5" />
           </ToolBtn>
         </div>
 
@@ -347,52 +334,16 @@ export function BBoxCanvas() {
           >
             {draft && draftRect && (
               <svg className="absolute inset-0 w-full h-full overflow-visible">
-                {tool === "ellipse" ? (
-                  <ellipse
-                    cx={draftRect.x + draftRect.w / 2}
-                    cy={draftRect.y + draftRect.h / 2}
-                    rx={draftRect.w / 2}
-                    ry={draftRect.h / 2}
-                    fill={draftStroke}
-                    fillOpacity={0.12}
-                    stroke={draftStroke}
-                    strokeWidth={1.5}
-                  />
-                ) : tool === "lasso" ? (
-                  <polyline
-                    points={draftPath}
-                    fill={draftStroke}
-                    fillOpacity={0.12}
-                    stroke={draftStroke}
-                    strokeWidth={1.5}
-                    strokeLinejoin="round"
-                  />
-                ) : (
-                  <rect
-                    x={draftRect.x}
-                    y={draftRect.y}
-                    width={draftRect.w}
-                    height={draftRect.h}
-                    fill={draftStroke}
-                    fillOpacity={0.12}
-                    stroke={draftStroke}
-                    strokeWidth={1.5}
-                  />
-                )}
-                {/* For ellipse/lasso, also show the box that will actually be sent */}
-                {tool !== "box" && (
-                  <rect
-                    x={draftRect.x}
-                    y={draftRect.y}
-                    width={draftRect.w}
-                    height={draftRect.h}
-                    fill="none"
-                    stroke={draftStroke}
-                    strokeWidth={1}
-                    strokeDasharray="4 3"
-                    opacity={0.5}
-                  />
-                )}
+                <rect
+                  x={draftRect.x}
+                  y={draftRect.y}
+                  width={draftRect.w}
+                  height={draftRect.h}
+                  fill={draftStroke}
+                  fillOpacity={0.12}
+                  stroke={draftStroke}
+                  strokeWidth={1.5}
+                />
               </svg>
             )}
           </div>
@@ -407,8 +358,8 @@ export function BBoxCanvas() {
                   Optional layout control.<br />
                   Add an <span className="text-zinc-300">object</span> or{" "}
                   <span className="text-zinc-300">text</span> element below, then
-                  pin it here — or pick a <span className="text-zinc-300">draw tool</span>{" "}
-                  above and sketch a region right on the frame.
+                  pin it here — or pick the <span className="text-zinc-300">Box tool</span>{" "}
+                  above and draw a region right on the frame.
                 </p>
               ) : (
                 <p className="text-xs text-zinc-500 text-center leading-relaxed inline-flex flex-wrap items-center justify-center gap-1">
@@ -424,10 +375,9 @@ export function BBoxCanvas() {
           {drawing && !draft && !isGenerating && (
             <div className="absolute inset-0 flex items-center justify-center px-6 pointer-events-none z-10">
               <p className="text-xs text-zinc-500 text-center leading-relaxed">
-                Drag to sketch a{" "}
+                Drag to draw a{" "}
                 <span className="text-zinc-300">{newType === "text" ? "text" : "object"}</span>{" "}
-                region. {tool !== "box" && "It snaps to a bounding box. "}
-                Switch to <MousePointer2 className="h-3 w-3 inline" /> to nudge or resize.
+                box. Switch to <MousePointer2 className="h-3 w-3 inline" /> to nudge or resize.
               </p>
             </div>
           )}
