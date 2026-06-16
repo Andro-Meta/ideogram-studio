@@ -174,7 +174,7 @@ export function BBoxCanvas() {
                 type="button"
                 onClick={() => setColor(null)}
                 title="No color"
-                className={`h-5 w-5 rounded-full border flex items-center justify-center ${
+                className={`h-6 w-6 rounded-md border flex items-center justify-center ${
                   color === null ? "border-violet-400" : "border-zinc-600"
                 }`}
               >
@@ -184,7 +184,7 @@ export function BBoxCanvas() {
                 type="button"
                 onClick={() => setPickerOpen((v) => !v)}
                 title={color ?? "Pick a color"}
-                className={`h-5 w-5 rounded-full border ${
+                className={`h-6 w-6 rounded-md border ${
                   color ? "border-white ring-1 ring-violet-400" : "border-zinc-500"
                 }`}
                 style={
