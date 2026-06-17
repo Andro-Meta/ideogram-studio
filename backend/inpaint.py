@@ -322,6 +322,26 @@ def _mask_bbox(mask_L: Image.Image, thresh: int = 8) -> tuple[int, int, int, int
     return int(xs.min()), int(ys.min()), int(xs.max()) + 1, int(ys.max()) + 1
 
 
+def mask_bbox_norm(mask: Image.Image, thresh: int = 8) -> list[int] | None:
+    """The masked region as an Ideogram-4 element bbox: [ymin, xmin, ymax, xmax]
+    normalized to 0–1000. None if the mask is empty. This tells the model WHERE to
+    place the requested content — Ideogram's strongest localization signal, which a
+    bare prose instruction with empty `elements` lacks (the 'fill added nothing'
+    failure: the masked region just continued the background)."""
+    bbox = _mask_bbox(mask, thresh)
+    if bbox is None:
+        return None
+    x0, y0, x1, y1 = bbox
+    w, h = mask.size
+    if w <= 0 or h <= 0:
+        return None
+    nx0 = max(0, min(1000, round(x0 / w * 1000)))
+    ny0 = max(0, min(1000, round(y0 / h * 1000)))
+    nx1 = max(nx0, min(1000, round(x1 / w * 1000)))
+    ny1 = max(ny0, min(1000, round(y1 / h * 1000)))
+    return [ny0, nx0, ny1, nx1]
+
+
 def _expand_bbox(
     bbox: tuple[int, int, int, int], w: int, h: int, frac: float
 ) -> tuple[int, int, int, int]:

@@ -2,6 +2,7 @@ import { create } from "zustand"
 import { persist } from "zustand/middleware"
 import type { ModelVariant, SamplerPreset } from "@/types/caption"
 import { DEFAULT_CONSTRAINT_IDS, buildConstraintClause } from "@/lib/constraintPresets"
+import { CFG_PRESETS, DEFAULT_CFG_PRESET } from "@/lib/cfgPresets"
 
 export const MIN_BATCH = 1
 export const MAX_BATCH = 12
@@ -28,9 +29,12 @@ interface SettingsStore {
   batchCount: number
   /** Layout canvas is opt-in — most generations never pin elements. */
   canvasOpen: boolean
-  /** Custom CFG curve. On by default with community-recommended values: the
-   *  official CFG (7) is too high and burns/splotches photos. When off, the
-   *  sampler preset's built-in schedule is used unchanged. */
+  /** Named CFG preset currently selected (id from cfgPresets), e.g.
+   *  "recommended" | "soft" | "sharp" | "preset" | "custom". Drives customCfg +
+   *  the cfg/override/start values; "custom" keeps the slider values. */
+  cfgPreset: string
+  /** Custom CFG curve. On by default with the official dual-CFG values (7 → 3).
+   *  When off, the sampler preset's built-in schedule is used unchanged. */
   customCfg: boolean
   /** Main guidance scale for the first part of the run. */
   cfg: number
@@ -61,6 +65,9 @@ interface SettingsStore {
   toggleArtifactCategory: (id: string) => void
   setArtifactCustom: (v: string) => void
   setModelVariant: (v: ModelVariant) => void
+  /** Select a CFG preset by id — applies its customCfg + values (or, for
+   *  "custom", just switches the mode and keeps the current slider values). */
+  setCfgPreset: (id: string) => void
   setCustomCfg: (v: boolean) => void
   setCfg: (v: number) => void
   setCfgOverride: (v: number) => void
@@ -87,12 +94,13 @@ export const useSettingsStore = create<SettingsStore>()(
       seed: 42,
       batchCount: 4,
       canvasOpen: false,
-      // Ship the community-recommended defaults ON: CFG 3.5 dropping to 2.0 for
-      // the last 30% of steps. Users can turn this off to use the raw preset
-      // (CFG 7) or tune the values.
+      // Default to the official "Recommended" dual-CFG: 7 → 3 at 70% (smooths
+      // the result). Pick "Soft" (3.5 → 2), "Sampler default", or "Custom" in
+      // the CFG control.
+      cfgPreset: DEFAULT_CFG_PRESET,
       customCfg: true,
-      cfg: 3.5,
-      cfgOverride: 2.0,
+      cfg: 7,
+      cfgOverride: 3,
       cfgOverrideStart: 0.7,
 
       // Resolution: default 1:1 at ~1 MP (1024²). The picker recomputes W/H from
@@ -117,10 +125,26 @@ export const useSettingsStore = create<SettingsStore>()(
         })),
       setArtifactCustom: (v) => set({ artifactCustom: v }),
       setModelVariant: (v) => set({ modelVariant: v }),
-      setCustomCfg: (v) => set({ customCfg: v }),
-      setCfg: (v) => set({ cfg: clampCfg(v) }),
-      setCfgOverride: (v) => set({ cfgOverride: clampCfg(v) }),
-      setCfgOverrideStart: (v) => set({ cfgOverrideStart: Math.max(0, Math.min(1, v)) }),
+      setCfgPreset: (id) => {
+        const p = CFG_PRESETS.find((x) => x.id === id)
+        if (!p) return
+        if (id === "custom") {
+          set({ cfgPreset: "custom", customCfg: true })
+          return
+        }
+        set({
+          cfgPreset: id,
+          customCfg: p.customCfg,
+          ...(p.cfg !== undefined
+            ? { cfg: clampCfg(p.cfg), cfgOverride: clampCfg(p.cfgOverride ?? p.cfg), cfgOverrideStart: p.cfgOverrideStart ?? 0.7 }
+            : {}),
+        })
+      },
+      // Manual slider edits switch the active preset to "custom".
+      setCustomCfg: (v) => set({ customCfg: v, cfgPreset: v ? "custom" : "preset" }),
+      setCfg: (v) => set({ cfg: clampCfg(v), cfgPreset: "custom", customCfg: true }),
+      setCfgOverride: (v) => set({ cfgOverride: clampCfg(v), cfgPreset: "custom", customCfg: true }),
+      setCfgOverrideStart: (v) => set({ cfgOverrideStart: Math.max(0, Math.min(1, v)), cfgPreset: "custom", customCfg: true }),
       setCanvasOpen: (v) => set({ canvasOpen: v }),
       setSamplerPreset: (v) => set({ samplerPreset: v }),
       setResolution: (w, h) => set({ width: w, height: h }),
@@ -132,7 +156,7 @@ export const useSettingsStore = create<SettingsStore>()(
     }),
     {
       name: "ideogram-studio-settings",
-      version: 4,
+      version: 5,
       migrate: (persisted, version) => {
         const state = persisted as Partial<SettingsStore> & {
           variationCount?: number
@@ -163,6 +187,15 @@ export const useSettingsStore = create<SettingsStore>()(
           state.artifactSuppression = state.artifactSuppression ?? false
           state.artifactCategoryIds = state.artifactCategoryIds ?? [...DEFAULT_CONSTRAINT_IDS]
           state.artifactCustom = state.artifactCustom ?? ""
+        }
+        // v5 added CFG presets and made the official "Recommended" 7 → 3 the
+        // default (the newer community/official recommendation).
+        if (version < 5) {
+          state.cfgPreset = DEFAULT_CFG_PRESET
+          state.customCfg = true
+          state.cfg = 7
+          state.cfgOverride = 3
+          state.cfgOverrideStart = 0.7
         }
         return state as SettingsStore
       },

@@ -1298,13 +1298,10 @@ async def inpaint_endpoint(request: Request, body: InpaintRequest):
         height=image.height, width=image.width,
         sampler_preset=body.sampler_preset, seed=body.seed,
         raise_on_caption_issues=False,
-        # Default edits to the official "two CFG" curve (ComfyUI CFG-Override node):
-        # 7.0 for the first 70% of steps, then 3.0 for the last 30% to smooth the
-        # result. The bare preset drops only for the last ~10%, which over-cooks
-        # edited regions. The user can still override per-request.
-        cfg=body.cfg if body.cfg is not None else 7.0,
-        cfg_override=body.cfg_override if body.cfg_override is not None else 3.0,
-        cfg_override_start=body.cfg_override_start if body.cfg_override_start is not None else 0.7,
+        # CFG is frontend-driven: the editor sends the user's chosen CFG preset
+        # (default "Recommended" 7 → 3 @ 0.7). None falls back to the sampler
+        # preset's built-in schedule.
+        cfg=body.cfg, cfg_override=body.cfg_override, cfg_override_start=body.cfg_override_start,
     )
 
     # Build the edit caption. The masked region drifts away from the larger
@@ -1324,6 +1321,10 @@ async def inpaint_endpoint(request: Request, body: InpaintRequest):
     # surroundings to preserve — don't bolt on the "blend with surroundings"
     # clause there (finding #5).
     preserve = _inp.mask_coverage(mask) < 0.9
+    # For a localized fill, anchor the requested content to the masked region so
+    # the model PLACES it there instead of just continuing the background (the
+    # 'fill added nothing' failure). Whole-image regen needs no box.
+    element_bbox = _inp.mask_bbox_norm(mask) if preserve else None
 
     # Ground the caption in the source image. Skip when the prompt is ALREADY a
     # full caption — build_edit_caption returns it verbatim, so describe would be
@@ -1354,9 +1355,9 @@ async def inpaint_endpoint(request: Request, body: InpaintRequest):
             fill_prompt = await mp.expand(base, image.width, image.height)
         except Exception as exc:
             logger.warning("Inpaint prompt expansion failed (using grounded caption): %s", exc)
-            fill_prompt = build_edit_caption(body.prompt, scene_desc, preserve=preserve)
+            fill_prompt = build_edit_caption(body.prompt, scene_desc, preserve=preserve, element_bbox=element_bbox)
     else:
-        fill_prompt = build_edit_caption(body.prompt, scene_desc, preserve=preserve)
+        fill_prompt = build_edit_caption(body.prompt, scene_desc, preserve=preserve, element_bbox=element_bbox)
 
     def _run():
         return pm.inpaint(image, mask, fill_prompt, settings, body.strength)

@@ -129,6 +129,7 @@ def build_edit_caption(
     scene_desc: str | None = None,
     *,
     preserve: bool = True,
+    element_bbox: list[int] | None = None,
 ) -> str:
     """Deterministically build a minified Ideogram-4 JSON caption for an edit —
     WITHOUT an LLM rewrite.
@@ -142,6 +143,12 @@ def build_edit_caption(
     `instruction` is what to put in the masked region; `scene_desc` is a grounded
     description of the source image (from describe_image) used as the background
     so the fill harmonizes with its surroundings.
+
+    `element_bbox` ([ymin, xmin, ymax, xmax], 0–1000) is the masked region. When
+    given, the instruction is ALSO emitted as a bounding-box element so the model
+    renders the requested content at that location — Ideogram is bbox-native, and
+    a bare prose instruction with empty `elements` tends to just continue the
+    background (the 'fill added nothing' failure).
     """
     instruction = (instruction or "").strip()
     # If the caller already handed us a full caption, respect it verbatim.
@@ -153,11 +160,21 @@ def build_edit_caption(
         hld = f"{hld}. {_EDIT_PRESERVE_CLAUSE}." if hld else f"{_EDIT_PRESERVE_CLAUSE}."
 
     background = (scene_desc or "").strip() or "Consistent with the surrounding image."
+    elements: list[dict] = []
+    # Anchor the requested content to the masked region. Only when we have both an
+    # instruction and a box — a whole-image regen (no box) needs no element, and an
+    # empty instruction has nothing to place.
+    if element_bbox and instruction:
+        elements.append({
+            "type": "obj",
+            "bbox": [int(v) for v in element_bbox[:4]],
+            "desc": instruction,
+        })
     caption = {
         "high_level_description": hld,
         "compositional_deconstruction": {
             "background": background,
-            "elements": [],
+            "elements": elements,
         },
     }
     return json.dumps(caption, separators=(",", ":"), ensure_ascii=False)

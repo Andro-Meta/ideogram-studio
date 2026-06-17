@@ -38,8 +38,8 @@ async function callInpaint(args: InpaintArgs): Promise<EditResponse> {
       source_job_id: args.sourceJobId,
       ground: args.ground ?? true,
       magic_prompt: args.magicPrompt ?? false,
-      // Honour the user's custom CFG curve (e.g. the default 3.5→2.0) so AI Fill
-      // doesn't silently fall back to the burn-prone preset CFG 7.
+      // Honour the user's chosen CFG preset (default "Recommended" 7→3) so AI
+      // Fill matches the Generate tab instead of the sampler's built-in schedule.
       ...cfgRequestFields(),
     }),
   })

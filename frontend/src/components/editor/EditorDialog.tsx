@@ -15,6 +15,7 @@ import { useInpaint } from "@/hooks/useInpaint"
 import { useExtend } from "@/hooks/useExtend"
 import { useDescribeImage } from "@/hooks/useDescribeImage"
 import { useModelStatus } from "@/hooks/useModelStatus"
+import { CfgPresetPicker } from "@/components/controls/CfgPresetPicker"
 import { useEditorEngine } from "./useEditorEngine"
 import { EditorStage } from "./EditorStage"
 import type { Adjustments, ToolId } from "./editorTypes"
@@ -374,6 +375,14 @@ export function EditorDialog({ open, onClose, jobId, imageUrl }: Props) {
                       className="accent-violet-500" />
                     Magic Prompt (rewrite my instruction)
                   </label>
+                  <div className="space-y-1">
+                    <p className="text-[11px] text-zinc-400">Guidance (CFG)</p>
+                    <CfgPresetPicker />
+                    <p className="text-[10px] text-zinc-600 leading-snug">
+                      Applies to both Fill and Extend. Recommended (7 → 3) is the official curve;
+                      set it on the Generate tab for finer control.
+                    </p>
+                  </div>
                   <Button
                     className="w-full bg-violet-600 hover:bg-violet-500 text-white gap-2 disabled:opacity-40"
                     disabled={!fillPrompt.trim() || inpaint.isPending || !engine.base}
