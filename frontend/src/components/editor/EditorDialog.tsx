@@ -12,6 +12,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
 import { useSaveEdit } from "@/hooks/useSaveEdit"
 import { useInpaint } from "@/hooks/useInpaint"
+import { useInsert } from "@/hooks/useInsert"
 import { useExtend } from "@/hooks/useExtend"
 import { useDescribeImage } from "@/hooks/useDescribeImage"
 import { useModelStatus } from "@/hooks/useModelStatus"
@@ -59,6 +60,7 @@ export function EditorDialog({ open, onClose, jobId, imageUrl }: Props) {
   const engine = useEditorEngine(liveUrl, open)
   const save = useSaveEdit()
   const inpaint = useInpaint()
+  const insert = useInsert()
   const extend = useExtend()
   const describe = useDescribeImage()
   const { data: modelStatus } = useModelStatus()
@@ -73,6 +75,11 @@ export function EditorDialog({ open, onClose, jobId, imageUrl }: Props) {
   const [zoom, setZoom] = useState(1)
   const [fillPrompt, setFillPrompt] = useState("")
   const [fillStrength, setFillStrength] = useState(0.6)
+  const [insertBlend, setInsertBlend] = useState(0.45)
+  // Which AI edit tool is active. Each does a different job (see the tab copy):
+  // fill = change/restyle/remove existing content; insert = add a NEW object;
+  // extend = outpaint to a new ratio; reference = experimental LoRA edit.
+  const [editMode, setEditMode] = useState<"fill" | "insert" | "extend" | "reference">("fill")
   // Off by default — Ideogram's own guidance is not to let Magic Prompt rewrite
   // an edit instruction. When off, the backend builds a grounded JSON caption.
   const [magicPrompt, setMagicPrompt] = useState(false)
@@ -125,7 +132,35 @@ export function EditorDialog({ open, onClose, jobId, imageUrl }: Props) {
     }
   }
 
-  const busy = inpaint.isPending || extend.isPending
+  const handleInsert = async () => {
+    if (!fillPrompt.trim() || insert.isPending || !engine.base) return
+    // Insert REQUIRES a selection — it places the object inside that region.
+    if (!engine.selection) {
+      toast.error("Select where the object should go first (draw a region).")
+      return
+    }
+    try {
+      const blob = await engine.flatten()
+      insert.mutate(
+        { imageBlob: blob, maskCanvas: engine.selection, prompt: fillPrompt.trim(),
+          blend: insertBlend, sourceJobId: jobId },
+        {
+          onSuccess: (res) => {
+            toast.success("Object inserted")
+            if (res.grounded === false) {
+              toast.warning("Insert wasn't grounded — add an OpenRouter key in Settings so the object matches the scene's lighting.")
+            }
+            setLiveUrl(`${res.image_url}?t=${res.job_id}`)
+          },
+        },
+      )
+    } catch (err) {
+      console.error(err)
+      toast.error("Could not prepare the image")
+    }
+  }
+
+  const busy = inpaint.isPending || insert.isPending || extend.isPending
   const handleExtend = async (targetRatio: string) => {
     if (busy || !engine.base) return
     try {
@@ -326,83 +361,166 @@ export function EditorDialog({ open, onClose, jobId, imageUrl }: Props) {
                 fmt={(v) => `${v}px`} onChange={setFeather} />
             </div>
 
-            {/* AI Edit: Magic Fill (with a selection) or Remix (whole image) */}
+            {/* AI Edit — tabbed: Fill / Insert / Extend / Reference. Each is a
+                different tool because the base model is text-to-image only, so no
+                single mechanism does everything well (see each tab's copy). */}
             <div className="p-3 border-b border-zinc-800 space-y-2">
               <p className="text-[10px] text-zinc-500 uppercase tracking-wider flex items-center gap-1.5">
                 <Sparkles className="h-3 w-3 text-violet-400" />
                 AI Edit
-                <span className="ml-auto normal-case tracking-normal text-zinc-600">
-                  {engine.hasSelection ? "Magic Fill · selection" : "Remix · whole image"}
-                </span>
               </p>
               {canInpaint ? (
                 <>
-                  <div className="flex items-center justify-between">
-                    <span className="text-[11px] text-zinc-500">Edit prompt</span>
-                    <button
-                      type="button"
-                      onClick={handleSuggestPrompt}
-                      disabled={describe.isPending || !engine.base}
-                      className="text-[11px] text-violet-400 hover:text-violet-300 disabled:opacity-40 flex items-center gap-1"
-                      title="Describe the current image to seed a prompt you can edit"
-                    >
-                      {describe.isPending
-                        ? <Loader2 className="h-3 w-3 animate-spin" />
-                        : <Wand2 className="h-3 w-3" />}
-                      Suggest from image
-                    </button>
+                  {/* Sub-tabs */}
+                  <div className="grid grid-cols-4 gap-1">
+                    {([["fill", "Fill"], ["insert", "Insert"], ["extend", "Extend"], ["reference", "Reference"]] as const).map(([id, label]) => (
+                      <button
+                        key={id} type="button" onClick={() => setEditMode(id)}
+                        className={cn(
+                          "rounded-md border px-1 py-1 text-[10px] font-medium transition-all",
+                          editMode === id
+                            ? "border-violet-500 bg-violet-500/10 text-violet-300"
+                            : "border-zinc-700 bg-zinc-800/60 text-zinc-400 hover:border-zinc-500 hover:text-zinc-200",
+                        )}
+                      >
+                        {label}
+                      </button>
+                    ))}
                   </div>
-                  <Textarea
-                    value={fillPrompt}
-                    onChange={(e) => setFillPrompt(e.target.value)}
-                    placeholder={engine.hasSelection
-                      ? "Describe what to put in the selected area…"
-                      : "Describe how to change the whole image…"}
-                    rows={3}
-                    disabled={inpaint.isPending}
-                    className="bg-zinc-800 border-zinc-700 text-zinc-100 text-sm resize-none"
-                  />
-                  <LabeledSlider
-                    label="Change amount"
-                    value={fillStrength}
-                    min={0.2} max={1} step={0.05}
-                    fmt={(v) => v >= 0.95 ? "full regen" : `${Math.round(v * 100)}%`}
-                    onChange={setFillStrength}
-                  />
-                  <label className="flex items-center gap-2 text-xs text-zinc-300 cursor-pointer">
-                    <input type="checkbox" checked={magicPrompt}
-                      onChange={(e) => setMagicPrompt(e.target.checked)}
-                      className="accent-violet-500" />
-                    Magic Prompt (rewrite my instruction)
-                  </label>
-                  <div className="space-y-1">
-                    <p className="text-[11px] text-zinc-400">Guidance (CFG)</p>
-                    <CfgPresetPicker />
-                    <p className="text-[10px] text-zinc-600 leading-snug">
-                      Applies to both Fill and Extend. Recommended (7 → 3) is the official curve;
-                      set it on the Generate tab for finer control.
-                    </p>
-                  </div>
-                  <Button
-                    className="w-full bg-violet-600 hover:bg-violet-500 text-white gap-2 disabled:opacity-40"
-                    disabled={!fillPrompt.trim() || inpaint.isPending || !engine.base}
-                    onClick={handleInpaint}
-                    title={engine.hasSelection ? "Regenerate the selected area" : "Remix the whole image from your prompt"}
-                  >
-                    {inpaint.isPending
-                      ? <><Loader2 className="h-4 w-4 animate-spin" /> Working… (~30-60s)</>
-                      : <><Sparkles className="h-4 w-4" /> {engine.hasSelection ? "Generate Fill" : "Remix Whole Image"}</>}
-                  </Button>
-                  <p className="text-[11px] text-zinc-600 leading-relaxed">
-                    {engine.hasSelection
-                      ? "Magic Fill: only the selection changes; the rest is kept exactly."
-                      : "Remix: no selection, so the whole image is reimagined from your prompt — select an area first if you only want to change part of it."}
-                    {" "}Change amount: low keeps the original composition/lighting (subtle edit),
-                    high reinvents freely. The edit is run at the model's native resolution and the
-                    prompt is automatically grounded in your image so the fill matches the surrounding
-                    lighting and style. Magic Prompt is off by default (it can drift the edit); turn it
-                    on to let the model expand a terse instruction.
+
+                  {/* What this tool is for */}
+                  <p className="text-[10px] text-zinc-500 leading-snug">
+                    {editMode === "fill" && "Change or restyle what's already in the selection, or remove something (fills with the surroundings). Best for editing existing content — not adding brand-new objects."}
+                    {editMode === "insert" && "Add a NEW object into the selection (a dog, a tree, a car). Generates the object and blends it in. Best when the thing isn't there yet."}
+                    {editMode === "extend" && "Grow the canvas to a new aspect ratio and continue the scene outward. Your original stays exact."}
+                    {editMode === "reference" && "Experimental: bbox-guided edit via a community inpaint LoRA. Needs extra model setup and is imprecise — not wired up yet."}
                   </p>
+
+                  {/* Shared prompt (Fill / Insert; optional continuation for Extend) */}
+                  {editMode !== "reference" && (
+                    <>
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] text-zinc-500">
+                          {editMode === "extend" ? "Continuation prompt (optional)" : editMode === "insert" ? "What to add" : "Edit prompt"}
+                        </span>
+                        <button
+                          type="button" onClick={handleSuggestPrompt}
+                          disabled={describe.isPending || !engine.base}
+                          className="text-[11px] text-violet-400 hover:text-violet-300 disabled:opacity-40 flex items-center gap-1"
+                          title="Describe the current image to seed a prompt you can edit"
+                        >
+                          {describe.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Wand2 className="h-3 w-3" />}
+                          Suggest from image
+                        </button>
+                      </div>
+                      <Textarea
+                        value={fillPrompt}
+                        onChange={(e) => setFillPrompt(e.target.value)}
+                        placeholder={
+                          editMode === "insert" ? "Describe the object to add (e.g. a golden retriever sitting)…"
+                          : editMode === "extend" ? "Optional: what the new area should contain…"
+                          : engine.hasSelection ? "Describe how to change the selected area…"
+                          : "Describe how to change the whole image…"}
+                        rows={3} disabled={busy}
+                        className="bg-zinc-800 border-zinc-700 text-zinc-100 text-sm resize-none"
+                      />
+                    </>
+                  )}
+
+                  {/* FILL */}
+                  {editMode === "fill" && (
+                    <>
+                      <LabeledSlider
+                        label="Change amount" value={fillStrength}
+                        min={0.2} max={1} step={0.05}
+                        fmt={(v) => v >= 0.95 ? "full regen" : `${Math.round(v * 100)}%`}
+                        onChange={setFillStrength}
+                      />
+                      <label className="flex items-center gap-2 text-xs text-zinc-300 cursor-pointer">
+                        <input type="checkbox" checked={magicPrompt}
+                          onChange={(e) => setMagicPrompt(e.target.checked)} className="accent-violet-500" />
+                        Magic Prompt (rewrite my instruction)
+                      </label>
+                      <div className="space-y-1">
+                        <p className="text-[11px] text-zinc-400">Guidance (CFG)</p>
+                        <CfgPresetPicker />
+                      </div>
+                      <Button
+                        className="w-full bg-violet-600 hover:bg-violet-500 text-white gap-2 disabled:opacity-40"
+                        disabled={!fillPrompt.trim() || busy || !engine.base}
+                        onClick={handleInpaint}
+                        title={engine.hasSelection ? "Regenerate the selected area" : "Remix the whole image from your prompt"}
+                      >
+                        {inpaint.isPending
+                          ? <><Loader2 className="h-4 w-4 animate-spin" /> Working… (~30-60s)</>
+                          : <><Sparkles className="h-4 w-4" /> {engine.hasSelection ? "Generate Fill" : "Remix Whole Image"}</>}
+                      </Button>
+                      <p className="text-[11px] text-zinc-600 leading-relaxed">
+                        {engine.hasSelection
+                          ? "Only the selection changes; the rest is kept exactly. Low change amount = subtle edit; high = reinvents freely."
+                          : "No selection → the whole image is reimagined. Select an area to change only part of it."}
+                      </p>
+                    </>
+                  )}
+
+                  {/* INSERT */}
+                  {editMode === "insert" && (
+                    <>
+                      <LabeledSlider
+                        label="Blend into scene" value={insertBlend}
+                        min={0.3} max={0.7} step={0.05}
+                        fmt={(v) => `${Math.round(v * 100)}%`}
+                        onChange={setInsertBlend}
+                      />
+                      <Button
+                        className="w-full bg-violet-600 hover:bg-violet-500 text-white gap-2 disabled:opacity-40"
+                        disabled={!fillPrompt.trim() || busy || !engine.base || !engine.hasSelection}
+                        onClick={handleInsert}
+                        title={engine.hasSelection ? "Generate the object and place it in the selection" : "Select where the object should go first"}
+                      >
+                        {insert.isPending
+                          ? <><Loader2 className="h-4 w-4 animate-spin" /> Working… (~1-2 min)</>
+                          : <><Sparkles className="h-4 w-4" /> Insert Object</>}
+                      </Button>
+                      <p className="text-[11px] text-zinc-600 leading-relaxed">
+                        {engine.hasSelection
+                          ? "The object is generated, cut out, dropped into the selection (resting on the ground), then refined to match the scene's light. Higher blend reworks it more to fit."
+                          : "Draw a selection where the object should go — Insert needs a place to put it."}
+                      </p>
+                    </>
+                  )}
+
+                  {/* EXTEND */}
+                  {editMode === "extend" && (
+                    <>
+                      <div className="grid grid-cols-3 gap-1.5">
+                        {["16:9", "9:16", "4:3", "3:4", "3:2", "2:3"].map((r) => (
+                          <Button
+                            key={r} size="sm" variant="outline"
+                            className="h-7 text-[11px] border-zinc-700 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 disabled:opacity-40"
+                            disabled={busy} onClick={() => handleExtend(r)}
+                          >
+                            {extend.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : r}
+                          </Button>
+                        ))}
+                      </div>
+                      <p className="text-[11px] text-zinc-600 leading-relaxed">
+                        Pick a ratio to grow the canvas; the new area continues the scene. Uses your
+                        continuation prompt if you typed one, otherwise just extends naturally.
+                      </p>
+                    </>
+                  )}
+
+                  {/* REFERENCE (experimental, not wired) */}
+                  {editMode === "reference" && (
+                    <p className="text-[11px] text-zinc-600 leading-relaxed">
+                      The proper bbox-guided edit path needs a community inpaint LoRA
+                      (<span className="text-zinc-400">BitPoet/Ideogram4-Inpaint-LoRA</span>) plus
+                      reference-latent support in the pipeline. It's experimental and the author warns
+                      it's imprecise. Not enabled yet — use <span className="text-zinc-400">Insert</span> to
+                      add objects or <span className="text-zinc-400">Fill</span> to change existing content.
+                    </p>
+                  )}
                 </>
               ) : (
                 <p className="text-[11px] text-zinc-600 leading-relaxed">
@@ -411,34 +529,6 @@ export function EditorDialog({ open, onClose, jobId, imageUrl }: Props) {
                 </p>
               )}
             </div>
-
-            {/* Extend / Reframe (outpaint) */}
-            {canInpaint && (
-              <div className="p-3 border-b border-zinc-800 space-y-2">
-                <p className="text-[10px] text-zinc-500 uppercase tracking-wider flex items-center gap-1.5">
-                  <Sparkles className="h-3 w-3 text-violet-400" />
-                  Extend / Reframe
-                </p>
-                <div className="grid grid-cols-3 gap-1.5">
-                  {["16:9", "9:16", "4:3", "3:4", "3:2", "2:3"].map((r) => (
-                    <Button
-                      key={r}
-                      size="sm" variant="outline"
-                      className="h-7 text-[11px] border-zinc-700 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 disabled:opacity-40"
-                      disabled={busy}
-                      onClick={() => handleExtend(r)}
-                    >
-                      {extend.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : r}
-                    </Button>
-                  ))}
-                </div>
-                <p className="text-[11px] text-zinc-600 leading-relaxed">
-                  Grows the canvas to that ratio and paints the new area by continuing the scene
-                  (your original stays exact). Uses the AI Edit prompt above if you've typed one,
-                  otherwise just continues naturally.
-                </p>
-              </div>
-            )}
 
             {/* Layers */}
             <div className="p-3 border-b border-zinc-800 space-y-2">

@@ -1321,10 +1321,6 @@ async def inpaint_endpoint(request: Request, body: InpaintRequest):
     # surroundings to preserve — don't bolt on the "blend with surroundings"
     # clause there (finding #5).
     preserve = _inp.mask_coverage(mask) < 0.9
-    # For a localized fill, anchor the requested content to the masked region so
-    # the model PLACES it there instead of just continuing the background (the
-    # 'fill added nothing' failure). Whole-image regen needs no box.
-    element_bbox = _inp.mask_bbox_norm(mask) if preserve else None
 
     # Ground the caption in the source image. Skip when the prompt is ALREADY a
     # full caption — build_edit_caption returns it verbatim, so describe would be
@@ -1355,9 +1351,9 @@ async def inpaint_endpoint(request: Request, body: InpaintRequest):
             fill_prompt = await mp.expand(base, image.width, image.height)
         except Exception as exc:
             logger.warning("Inpaint prompt expansion failed (using grounded caption): %s", exc)
-            fill_prompt = build_edit_caption(body.prompt, scene_desc, preserve=preserve, element_bbox=element_bbox)
+            fill_prompt = build_edit_caption(body.prompt, scene_desc, preserve=preserve)
     else:
-        fill_prompt = build_edit_caption(body.prompt, scene_desc, preserve=preserve, element_bbox=element_bbox)
+        fill_prompt = build_edit_caption(body.prompt, scene_desc, preserve=preserve)
 
     def _run():
         return pm.inpaint(image, mask, fill_prompt, settings, body.strength)
@@ -1381,6 +1377,130 @@ async def inpaint_endpoint(request: Request, body: InpaintRequest):
     else:
         await gallery_service.insert_imported(db, new_id=new_id, image_path=out_name, width=w, height=h, label="AI region fill")
     logger.info("Inpaint -> %s (%dx%d) seed=%d grounded=%s", new_id, w, h, actual_seed, grounded)
+    return EditResponse(
+        job_id=new_id, image_url=f"/outputs/{out_name}", width=w, height=h,
+        seed=actual_seed, duration_ms=duration_ms, grounded=grounded,
+    )
+
+
+@app.post("/api/edit/insert", response_model=EditResponse)
+async def insert_object_endpoint(request: Request, body: InpaintRequest):
+    """Insert a NEW object into the masked region (the 'add a dog' case).
+
+    The base model is text-to-image only and has no inpaint training, so a plain
+    RePaint fill of an empty hole just continues the surroundings — it can't
+    synthesize a distinct new object. Instead we play to the model's strength:
+    GENERATE the object with the t2i pipeline (grounded to the scene so the
+    lighting/style match), composite it into the masked region, then RePaint at a
+    low strength to harmonize the seam. This reliably places real objects."""
+    import uuid as _uuid
+
+    pm: PipelineManager = request.app.state.pipeline
+    if pm.status != "ready":
+        raise HTTPException(409, "Load a model first (the editor needs the model in memory).")
+    if not pm.supports_inpaint:
+        raise HTTPException(
+            409,
+            f"Insert needs a diffusers model. The {pm.variant or 'current'} variant can't edit "
+            "— switch to NF4·D or BF16 and reload.",
+        )
+
+    loop = asyncio.get_running_loop()
+    try:
+        image = await loop.run_in_executor(None, lambda: _decode_b64_to_pil(body.image_b64, "RGB"))
+        mask = await loop.run_in_executor(None, lambda: _decode_b64_to_pil(body.mask_b64, "L"))
+    except Exception as exc:
+        raise HTTPException(400, f"Invalid image data: {exc}") from exc
+    if mask.size != image.size:
+        mask = mask.resize(image.size, Image.LANCZOS)
+
+    t0 = time.monotonic()
+    from magic_prompt_service import build_edit_caption, describe_image as _describe, is_ideogram_caption
+    import inpaint as _inp
+
+    if _inp._mask_bbox(mask) is None:
+        raise HTTPException(400, "Select a region first — Insert needs a place to put the object.")
+
+    prompt_is_caption = is_ideogram_caption(body.prompt)
+    # Ground the object so the GENERATED tile matches the scene's lighting/palette.
+    scene_desc: str | None = None
+    grounded: bool | None = None
+    if body.ground and not prompt_is_caption:
+        if app_settings.openrouter_api_key:
+            try:
+                scene_desc = await asyncio.to_thread(
+                    _describe, body.image_b64, app_settings.openrouter_api_key, attempts=2
+                )
+                grounded = bool(scene_desc and scene_desc.strip())
+            except Exception as exc:
+                logger.warning("Insert grounding (describe) failed: %s", exc)
+                grounded = False
+        else:
+            grounded = False
+
+    # Generate the object ISOLATED on a plain backdrop so we can matte it to a
+    # clean cutout — pasting a full generated SCENE would leave a rectangular
+    # picture-in-picture. The grounded refine caption then blends it into the real
+    # scene (lighting + contact shadow).
+    if prompt_is_caption:
+        gen_caption = body.prompt
+        blend_caption = body.prompt
+    else:
+        gen_caption = build_edit_caption(
+            f"{body.prompt}, full body, the complete subject centered in frame",
+            "a plain seamless light-grey studio backdrop, the subject fully isolated, even soft lighting",
+            preserve=False,
+        )
+        blend_caption = build_edit_caption(body.prompt, scene_desc, preserve=True)
+    tile_w, tile_h = _inp.insert_tile_size(mask)
+    # Refine keeps the pasted cutout's structure (low strength) while blending the
+    # seam/shadow; full RePaint strength would regenerate the object away again.
+    refine_strength = max(0.3, min(0.7, body.strength if body.strength else 0.5))
+
+    gen_settings = GenerationSettings(
+        height=tile_h, width=tile_w, sampler_preset=body.sampler_preset,
+        seed=body.seed, raise_on_caption_issues=False,
+    )
+
+    def _run():
+        import layers as _layers
+        # 1) generate the object on a plain backdrop (model's t2i strength)
+        tile, gen_seed = pm.generate(gen_caption, gen_settings)
+        # 2) matte to an RGBA cutout (rembg/isnet) so only the object composites
+        try:
+            cutout = _layers._cutout(tile)
+        except Exception as exc:
+            logger.warning("Insert matting failed (%s); using full tile", exc)
+            cutout = tile
+        # 3) drop the cutout into the masked region as a seed
+        seeded = _inp.composite_object_seed(image, cutout, mask)
+        # 4) RePaint-refine to harmonize lighting + add a contact shadow
+        refine_settings = GenerationSettings(
+            height=image.height, width=image.width, sampler_preset=body.sampler_preset,
+            seed=gen_seed, raise_on_caption_issues=False,
+        )
+        out = pm.inpaint(seeded, mask, blend_caption, refine_settings, refine_strength)
+        return out[0], gen_seed
+
+    try:
+        out_img, actual_seed = await loop.run_in_executor(_inference_executor, _run)
+    except Exception as exc:
+        logger.exception("Insert failed")
+        raise HTTPException(500, f"Object insert failed: {exc}") from exc
+    duration_ms = int((time.monotonic() - t0) * 1000)
+
+    db = request.app.state.db
+    new_id = str(_uuid.uuid4())
+    out_name = f"{new_id}.png"
+    out_img.convert("RGB").save(str(OUTPUTS_DIR / out_name), format="PNG")
+    w, h = out_img.size
+
+    source = await gallery_service.get_job(db, body.source_job_id) if body.source_job_id else None
+    if source and source.get("image_path"):
+        await gallery_service.insert_derived(db, source=source, new_id=new_id, image_path=out_name, width=w, height=h)
+    else:
+        await gallery_service.insert_imported(db, new_id=new_id, image_path=out_name, width=w, height=h, label="AI object insert")
+    logger.info("Insert -> %s (%dx%d) seed=%d grounded=%s", new_id, w, h, actual_seed, grounded)
     return EditResponse(
         job_id=new_id, image_url=f"/outputs/{out_name}", width=w, height=h,
         seed=actual_seed, duration_ms=duration_ms, grounded=grounded,

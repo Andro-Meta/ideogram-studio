@@ -171,6 +171,53 @@ def _mask_to_tokens(mask_img: Image.Image, grid_h: int, grid_w: int):
     return t
 
 
+def composite_object_seed(
+    base: Image.Image, tile: Image.Image, mask: Image.Image, thresh: int = 8
+) -> Image.Image:
+    """Composite a generated object `tile` into the masked region of `base` — the
+    SEED for a generate-then-refine insert.
+
+    The base text-to-image model can't synthesize a distinct new object into an
+    empty hole via RePaint (no inpaint training — it just continues the
+    surroundings). So we generate the object separately (the model's actual
+    strength) and drop it in here; a low-strength RePaint refine then harmonizes
+    the seam, lighting and contact shadow with the surroundings.
+
+    An RGBA `tile` (a matted cutout) is fit INSIDE the mask bbox preserving aspect
+    and bottom-aligned (objects rest on the ground), pasted through its alpha — so
+    only the object lands in the scene, not a rectangular mini-scene. A plain RGB
+    tile falls back to filling the bbox. Returns a new RGB image."""
+    base = base.convert("RGB")
+    bbox = _mask_bbox(mask.convert("L"), thresh)
+    if bbox is None:
+        return base.copy()
+    x0, y0, x1, y1 = bbox
+    bw, bh = x1 - x0, y1 - y0
+    out = base.copy()
+    if tile.mode == "RGBA":
+        tw, th = tile.size
+        scale = min(bw / max(1, tw), bh / max(1, th))           # contain
+        nw, nh = max(1, int(tw * scale)), max(1, int(th * scale))
+        t = tile.resize((nw, nh), Image.LANCZOS)
+        px = x0 + (bw - nw) // 2                                 # horizontally centered
+        py = y1 - nh                                            # bottom-aligned (on the ground)
+        out.paste(t, (px, py), t)
+    else:
+        t = tile.convert("RGB").resize((max(1, bw), max(1, bh)), Image.LANCZOS)
+        out.paste(t, (x0, y0))
+    return out
+
+
+def insert_tile_size(mask: Image.Image, unit: int = 16, thresh: int = 8) -> tuple[int, int]:
+    """Working generation size for an Insert object tile: the mask bbox aspect at
+    the edit pixel budget, snapped to `unit` and clamped to [256, 2048]."""
+    bbox = _mask_bbox(mask.convert("L"), thresh)
+    if bbox is None:
+        return 1024, 1024
+    x0, y0, x1, y1 = bbox
+    return _aspect_preserving_size(max(1, x1 - x0), max(1, y1 - y0), unit)
+
+
 def build_outpaint(image: Image.Image, target_w: int, target_h: int):
     """Place `image` centered on a target_w×target_h canvas and return
     (padded_image, mask) for outpainting. The new border is edge-replicated

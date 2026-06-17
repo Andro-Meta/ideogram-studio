@@ -114,14 +114,52 @@ def describe_image(image_b64: str, api_key: str | None, *, attempts: int = 3) ->
     )
 
 
-# Appended to an edit's high_level_description so the masked region is steered to
-# blend with its surroundings. Ideogram exposes no feather/blend parameter — the
-# only documented consistency lever is describing/keeping the surrounding context
+# Folded into an edit's BACKGROUND (not the headline) so the new content blends
+# with its surroundings. Ideogram exposes no feather/blend parameter — the only
+# documented consistency lever is describing the surrounding context
 # (docs/IMAGE_EDITING_REPORT_2026-06-16.md §6.1, §6.5).
-_EDIT_PRESERVE_CLAUSE = (
+_EDIT_MATCH_CLAUSE = (
     "Match the existing lighting, colour palette, perspective, focus and art "
-    "style of the surrounding image, and blend seamlessly with it"
+    "style of the surrounding image so the new content blends in seamlessly."
 )
+
+# Neutral photographic style for edits. The Banodoco/Kijai finding is that the
+# model is SENSITIVE to style_description being present and filled in — a thin
+# caption (no style) drifts out of distribution and the masked region either just
+# continues the background or collapses to an "image blocked" placeholder. A
+# concrete-but-generic style beats an empty one.
+_EDIT_DEFAULT_STYLE = {
+    "mode": "photo",
+    "aesthetics": "natural, candid, true to life",
+    "lighting": "consistent with the surrounding image",
+    "photo": "standard lens, natural depth of field",
+    "medium": "photograph",
+    "color_palette": [],
+}
+
+# Keywords that mean the source is NOT a photo — switch the edit style to match so
+# an inserted object isn't rendered photographically into an illustration.
+_ILLUSTRATION_KW = (
+    "illustration", "painting", "drawing", "anime", "cartoon", "sketch",
+    "render", "digital art", "watercolour", "watercolor", "comic", "vector",
+    "3d render", "concept art", "pixel art", "oil painting",
+)
+
+
+def _infer_edit_style(scene_desc: str | None) -> dict:
+    """Pick a style_description for the edit from the grounded scene description —
+    illustration vs photograph — so the inserted content matches the medium."""
+    s = (scene_desc or "").lower()
+    if any(k in s for k in _ILLUSTRATION_KW):
+        return {
+            "mode": "illustration",
+            "aesthetics": "consistent with the source artwork",
+            "lighting": "consistent with the surrounding image",
+            "art_style": "matching the existing illustration style of the image",
+            "medium": "illustration",
+            "color_palette": [],
+        }
+    return dict(_EDIT_DEFAULT_STYLE)
 
 
 def build_edit_caption(
@@ -130,54 +168,62 @@ def build_edit_caption(
     *,
     preserve: bool = True,
     element_bbox: list[int] | None = None,
+    style: dict | None = None,
 ) -> str:
-    """Deterministically build a minified Ideogram-4 JSON caption for an edit —
-    WITHOUT an LLM rewrite.
+    """Deterministically build a SCHEMA-COMPLETE Ideogram-4 JSON caption for an
+    edit — WITHOUT an LLM rewrite.
 
-    This is the `json_prompt` path: a structured caption is consumed by the
-    diffusion model directly and magic-prompt is bypassed, so the user's actual
-    intent and the real scene context survive (vs. Magic Prompt inventing a fresh
-    'neutral background' scene, the documented cause of edited regions not
-    matching the larger image — see report §6.2/§6.3).
+    Follows the model's own prompt-enhancer rules (diffusers
+    ideogram4/prompt_enhancer.py): the caption carries a high_level_description, a
+    filled-in style_description, and a compositional_deconstruction whose
+    `elements` has at least one entry — the requested subject as an `obj` (the
+    enhancer is explicit that "naming it only in high_level_description or
+    background is NOT enough", and the schema requires `elements` min_length=1).
+    A thin caption (no style, empty elements) is the documented cause of an edit
+    that adds nothing or collapses to an "image blocked" placeholder.
 
     `instruction` is what to put in the masked region; `scene_desc` is a grounded
-    description of the source image (from describe_image) used as the background
-    so the fill harmonizes with its surroundings.
-
-    `element_bbox` ([ymin, xmin, ymax, xmax], 0–1000) is the masked region. When
-    given, the instruction is ALSO emitted as a bounding-box element so the model
-    renders the requested content at that location — Ideogram is bbox-native, and
-    a bare prose instruction with empty `elements` tends to just continue the
-    background (the 'fill added nothing' failure).
+    description of the source image (from describe_image) used as the BACKGROUND
+    (the scene shell) so the fill harmonizes with its surroundings. `element_bbox`
+    ([ymin, xmin, ymax, xmax], 0–1000) anchors the subject to the masked region.
     """
+    from caption import build_caption  # local import avoids an import cycle
+
     instruction = (instruction or "").strip()
     # If the caller already handed us a full caption, respect it verbatim.
     if is_ideogram_caption(instruction):
         return minify_caption(instruction)
 
-    hld = instruction
-    if preserve:
-        hld = f"{hld}. {_EDIT_PRESERVE_CLAUSE}." if hld else f"{_EDIT_PRESERVE_CLAUSE}."
+    subject = instruction or "the requested content"
 
-    background = (scene_desc or "").strip() or "Consistent with the surrounding image."
-    elements: list[dict] = []
-    # Anchor the requested content to the masked region. Only when we have both an
-    # instruction and a box — a whole-image regen (no box) needs no element, and an
-    # empty instruction has nothing to place.
-    if element_bbox and instruction:
-        elements.append({
-            "type": "obj",
-            "bbox": [int(v) for v in element_bbox[:4]],
-            "desc": instruction,
-        })
-    caption = {
-        "high_level_description": hld,
-        "compositional_deconstruction": {
-            "background": background,
-            "elements": elements,
-        },
+    # BACKGROUND = the grounded scene shell. Must be concrete and never empty/white
+    # (enhancer Rule 3). The "match the surroundings" guidance lives HERE, not in
+    # the headline, so it steers blending without diluting the subject.
+    background = (scene_desc or "").strip()
+    if preserve:
+        if background:
+            if background[-1] not in ".!?":
+                background += "."
+            background = f"{background} {_EDIT_MATCH_CLAUSE}"
+        else:
+            background = _EDIT_MATCH_CLAUSE
+    elif not background:
+        background = "A clean, simple background consistent with the requested scene."
+
+    # The requested subject MUST be an element (schema min_length=1; Rule 1). The
+    # bbox anchors it to the masked region (Ideogram is bbox-native).
+    element: dict = {"type": "obj", "desc": subject}
+    if element_bbox:
+        element["bbox"] = [int(v) for v in element_bbox[:4]]
+
+    state = {
+        "high_level_description": subject,
+        "style_description": style or _infer_edit_style(scene_desc),
+        "background": background,
+        "elements": [element],
     }
-    return json.dumps(caption, separators=(",", ":"), ensure_ascii=False)
+    caption_json, _warnings = build_caption(state)
+    return caption_json
 
 
 def coerce_free_model(model: str, free_only: bool) -> str:
