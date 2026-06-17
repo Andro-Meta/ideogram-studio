@@ -336,4 +336,16 @@ def inpaint_image(
     if crop:
         bbox = _mask_bbox(mask_L)
         if bbox is not None:
-            bw, bh = bbox[2] - bbox[0], bbo
+            bw, bh = bbox[2] - bbox[0], bbox[3] - bbox[1]
+            # Only crop when the masked region is meaningfully smaller than the
+            # whole frame — otherwise full-image context is worth more.
+            if bw * bh < min_crop_frac * ow * oh:
+                cx0, cy0, cx1, cy1 = _expand_bbox(bbox, ow, oh, context_frac)
+                crop_img = image.crop((cx0, cy0, cx1, cy1))
+                crop_mask = mask_L.crop((cx0, cy0, cx1, cy1))
+                filled = inpaint_region(pipe, crop_img, crop_mask, prompt, **kwargs)
+                out = image.copy()
+                out.paste(filled.convert("RGB"), (cx0, cy0))
+                return out
+
+    return inpaint_region(pipe, image, mask_L, prompt, **kwargs)
