@@ -614,12 +614,16 @@ class BF16Pipeline(InferencePipeline):
         gen_w, gen_h = _inp.edit_resolution(image.width, image.height, unit)
 
         preset = self.PRESETS[settings.sampler_preset]
+        num_steps = preset["num_inference_steps"]
         actual_seed = self._resolve_seed(settings.seed)
         generator = torch.Generator("cuda").manual_seed(actual_seed)
-        schedule = _resolve_guidance_schedule(
-            preset["guidance_schedule"], preset["num_inference_steps"], settings,
-            forward=self.GUIDANCE_FORWARD,
-        )
+        # The BitPoet inpaint LoRA's reference workflow runs a CONSTANT low CFG
+        # (~3.0), mu 0.5, std 1.75 — NOT the base 7→3 curve. High guidance pushes
+        # the output off the reference (exposure drift, a visible composite seam,
+        # and a weaker edit), so honour the LoRA's settings here.
+        ref_cfg = float(settings.cfg) if settings.cfg is not None else 3.0
+        schedule = [ref_cfg] * num_steps
+        ref_mu, ref_std = 0.5, 1.75
 
         loaded_here = adapter_name not in self._loras
         if loaded_here:
@@ -636,9 +640,9 @@ class BF16Pipeline(InferencePipeline):
             with _ref.reference_conditioning(self._pipe, image, gen_w, gen_h):
                 result = self._pipe(
                     prompt=prompt_json, height=gen_h, width=gen_w,
-                    num_inference_steps=preset["num_inference_steps"],
+                    num_inference_steps=num_steps,
                     guidance_scale=None, guidance_schedule=schedule,
-                    mu=preset["mu"], std=preset["std"], prompt_upsampling=False,
+                    mu=ref_mu, std=ref_std, prompt_upsampling=False,
                     generator=generator, output_type="pil", return_dict=True,
                     callback_on_step_end=_on_step,
                     callback_on_step_end_tensor_inputs=["latents"],
