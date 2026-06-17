@@ -193,6 +193,9 @@ export interface EditResponse {
    *  null for non-diffusion edits (flatten-save, import). */
   seed?: number | null
   duration_ms?: number | null
+  /** Whether the edit caption was actually grounded in the source image.
+   *  false = requested but skipped (no OpenRouter key) or failed; null = N/A. */
+  grounded?: boolean | null
 }
 
 // ── Logs ─────────────────────────────────────────────────────────────────────

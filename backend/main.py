@@ -1310,19 +1310,37 @@ async def inpaint_endpoint(request: Request, body: InpaintRequest):
     # Time from here — BEFORE the describe/expand round-trips — so the reported
     # duration matches the user's real wait.
     t0 = time.monotonic()
-    from magic_prompt_service import build_edit_caption, describe_image as _describe
+    from magic_prompt_service import build_edit_caption, describe_image as _describe, is_ideogram_caption
+    import inpaint as _inp
 
+    prompt_is_caption = is_ideogram_caption(body.prompt)
+    # Whole-image regen (mask covers ~the whole frame, e.g. Remix) has no
+    # surroundings to preserve — don't bolt on the "blend with surroundings"
+    # clause there (finding #5).
+    preserve = _inp.mask_coverage(mask) < 0.9
+
+    # Ground the caption in the source image. Skip when the prompt is ALREADY a
+    # full caption — build_edit_caption returns it verbatim, so describe would be
+    # wasted (finding #4). `grounded` surfaces the real outcome to the UI (#3).
     scene_desc: str | None = None
-    if body.ground and app_settings.openrouter_api_key:
-        try:
-            scene_desc = await asyncio.to_thread(
-                _describe, body.image_b64, app_settings.openrouter_api_key, attempts=2
-            )
-        except Exception as exc:
-            logger.warning("Inpaint grounding (describe) failed: %s", exc)
+    grounded: bool | None = None
+    if body.ground and not prompt_is_caption:
+        if app_settings.openrouter_api_key:
+            try:
+                scene_desc = await asyncio.to_thread(
+                    _describe, body.image_b64, app_settings.openrouter_api_key, attempts=2
+                )
+                grounded = bool(scene_desc and scene_desc.strip())
+            except Exception as exc:
+                logger.warning("Inpaint grounding (describe) failed: %s", exc)
+                grounded = False
+        else:
+            grounded = False  # requested but no OpenRouter key — the UI tells the user
 
     mp: MagicPromptService | None = request.app.state.magic_prompt
-    if body.magic_prompt and mp is not None:
+    # Don't run Magic Prompt over a caption JSON (it would paraphrase the user's
+    # exact layout/text); build_edit_caption returns such input verbatim.
+    if body.magic_prompt and mp is not None and not prompt_is_caption:
         base = body.prompt
         if scene_desc:
             base = f"{body.prompt}. Keep consistent with this scene: {scene_desc}"
@@ -1330,9 +1348,9 @@ async def inpaint_endpoint(request: Request, body: InpaintRequest):
             fill_prompt = await mp.expand(base, image.width, image.height)
         except Exception as exc:
             logger.warning("Inpaint prompt expansion failed (using grounded caption): %s", exc)
-            fill_prompt = build_edit_caption(body.prompt, scene_desc)
+            fill_prompt = build_edit_caption(body.prompt, scene_desc, preserve=preserve)
     else:
-        fill_prompt = build_edit_caption(body.prompt, scene_desc)
+        fill_prompt = build_edit_caption(body.prompt, scene_desc, preserve=preserve)
 
     def _run():
         return pm.inpaint(image, mask, fill_prompt, settings, body.strength)
@@ -1355,10 +1373,10 @@ async def inpaint_endpoint(request: Request, body: InpaintRequest):
         await gallery_service.insert_derived(db, source=source, new_id=new_id, image_path=out_name, width=w, height=h)
     else:
         await gallery_service.insert_imported(db, new_id=new_id, image_path=out_name, width=w, height=h, label="AI region fill")
-    logger.info("Inpaint -> %s (%dx%d) seed=%d", new_id, w, h, actual_seed)
+    logger.info("Inpaint -> %s (%dx%d) seed=%d grounded=%s", new_id, w, h, actual_seed, grounded)
     return EditResponse(
         job_id=new_id, image_url=f"/outputs/{out_name}", width=w, height=h,
-        seed=actual_seed, duration_ms=duration_ms,
+        seed=actual_seed, duration_ms=duration_ms, grounded=grounded,
     )
 
 
@@ -1381,18 +1399,23 @@ async def extend_endpoint(request: Request, body: ExtendRequest):
     except Exception as exc:
         raise HTTPException(400, f"Invalid image data: {exc}") from exc
 
-    # Target canvas that contains the original at the requested ratio. Snap each
-    # side to the pipeline alignment unit (16) up front so the padded canvas is
-    # always valid for the DiT (was relying on inpaint_region to fix it, which
-    # re-introduced the per-axis squash — report finding #6).
+    # Target canvas that contains the original at the requested ratio. Snap the
+    # ANCHOR (kept) side UP to a ×16 multiple that still contains the original,
+    # then derive the grow side from that snapped anchor — so the padded canvas
+    # lands on the requested ratio within ×16 instead of drifting (e.g. 16:9 was
+    # coming back ~1.76:1). ×16 keeps the canvas valid for the DiT.
     tw, th = (int(x) for x in body.target_ratio.split(":"))
     ow, oh = image.size
-    if ow / oh < tw / th:          # need it wider
-        new_w, new_h = round(oh * tw / th), oh
-    else:                          # need it taller
-        new_w, new_h = ow, round(ow * th / tw)
-    new_w = _inpaint._round_to(new_w, 16)
-    new_h = _inpaint._round_to(new_h, 16)
+
+    def _ceil16(v: float) -> int:
+        return -(-int(v) // 16) * 16
+
+    if ow / oh < tw / th:          # target wider → height is the anchor
+        new_h = _ceil16(oh)
+        new_w = max(_ceil16(ow), _inpaint._round_to(new_h * tw / th, 16))
+    else:                          # target taller → width is the anchor
+        new_w = _ceil16(ow)
+        new_h = max(_ceil16(oh), _inpaint._round_to(new_w * th / tw, 16))
     padded, mask = _inpaint.build_outpaint(image, new_w, new_h)
 
     # Time from here — BEFORE the describe round-trip — so the duration reflects
@@ -1404,13 +1427,19 @@ async def extend_endpoint(request: Request, body: ExtendRequest):
         "seamlessly continue and extend the scene"
     )
     scene_desc: str | None = None
-    if body.ground and app_settings.openrouter_api_key:
-        try:
-            scene_desc = await asyncio.to_thread(
-                _describe, body.image_b64, app_settings.openrouter_api_key, attempts=2
-            )
-        except Exception as exc:
-            logger.warning("Extend grounding (describe) failed: %s", exc)
+    grounded: bool | None = None
+    if body.ground:
+        if app_settings.openrouter_api_key:
+            try:
+                scene_desc = await asyncio.to_thread(
+                    _describe, body.image_b64, app_settings.openrouter_api_key, attempts=2
+                )
+                grounded = bool(scene_desc and scene_desc.strip())
+            except Exception as exc:
+                logger.warning("Extend grounding (describe) failed: %s", exc)
+                grounded = False
+        else:
+            grounded = False  # requested but no OpenRouter key — the UI tells the user
     prompt = build_edit_caption(instruction, scene_desc)
 
     settings = GenerationSettings(
@@ -1441,10 +1470,10 @@ async def extend_endpoint(request: Request, body: ExtendRequest):
         await gallery_service.insert_derived(db, source=source, new_id=new_id, image_path=out_name, width=w, height=h)
     else:
         await gallery_service.insert_imported(db, new_id=new_id, image_path=out_name, width=w, height=h, label="Extended")
-    logger.info("Extend -> %s (%dx%d, %s) seed=%d", new_id, w, h, body.target_ratio, actual_seed)
+    logger.info("Extend -> %s (%dx%d, %s) seed=%d grounded=%s", new_id, w, h, body.target_ratio, actual_seed, grounded)
     return EditResponse(
         job_id=new_id, image_url=f"/outputs/{out_name}", width=w, height=h,
-        seed=actual_seed, duration_ms=duration_ms,
+        seed=actual_seed, duration_ms=duration_ms, grounded=grounded,
     )
 
 

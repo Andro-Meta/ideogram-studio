@@ -86,17 +86,32 @@ def _aspect_preserving_size(
             r = _EDIT_MAX_SIDE / longest
             gw, gh = gw * r, gh * r
 
+    # Final per-axis guarantee: a ratio too extreme to satisfy both bounds (>8:1
+    # at this budget) would otherwise leave the short side below 256 and feed the
+    # DiT a degenerate dimension. Clamp each side into [256, 2048] — this caps the
+    # working aspect at 8:1 rather than going sub-floor.
+    gw = min(_EDIT_MAX_SIDE, max(_EDIT_MIN_SIDE, gw))
+    gh = min(_EDIT_MAX_SIDE, max(_EDIT_MIN_SIDE, gh))
     return _round_to(gw, unit), _round_to(gh, unit)
 
 
 def edit_resolution(
-    w: int, h: int, unit: int, *, budget: int = _EDIT_BUDGET, snap_bucket: bool = True
+    w: int, h: int, unit: int, *, budget: int = _EDIT_BUDGET, snap_bucket: bool = False
 ) -> tuple[int, int]:
     """Pick the working resolution for an edit: aspect-preserving ~1 MP, each
-    side a multiple of `unit`, clamped to [256, 2048]. When `snap_bucket` and a
-    native Ideogram edit bucket matches the source aspect within tolerance,
-    return that bucket (so we sample at a trained resolution) — otherwise return
-    the continuous aspect-preserving size."""
+    side a multiple of `unit`, clamped to [256, 2048].
+
+    The result is composited/resized back at the SOURCE resolution, so the
+    working size must match the source aspect or the patch is stretched on the
+    way back. `snap_bucket` is therefore OFF by default: bucket-snapping (to a
+    "trained" native resolution) is only safe when a bucket's aspect matches the
+    source within _BUCKET_ASPECT_TOLERANCE, and even that small mismatch is a
+    visible stretch for a seamless fill, so we prefer the continuous
+    aspect-preserving size. Mirrors the frontend's aspectMatchedResolution /
+    clampAspect (lib/caption.ts) — same ~1 MP budget + [256,2048] policy; edits
+    intentionally preserve the SOURCE aspect (up to the budget's ~8:1 limit)
+    rather than imposing generation's 6:1 user-choice cap, since the source
+    image's shape is fixed and we composite back onto it."""
     if not w or not h:
         return 1024, 1024
     gw, gh = _aspect_preserving_size(w, h, unit, budget)
@@ -284,6 +299,13 @@ def inpaint_region(
     return out
 
 
+def mask_coverage(mask: Image.Image, thresh: int = 8) -> float:
+    """Fraction of the frame marked for regeneration (mask > thresh), 0–1. Used to
+    tell a localized fill from a whole-image regen (remix)."""
+    arr = np.asarray(mask.convert("L"))
+    return float((arr > thresh).mean()) if arr.size else 0.0
+
+
 def _mask_bbox(mask_L: Image.Image, thresh: int = 8) -> tuple[int, int, int, int] | None:
     """Tight bounding box (x0, y0, x1, y1) of the regenerate region (mask > thresh),
     or None if the mask is empty."""
@@ -331,6 +353,11 @@ def inpaint_image(
     """
     image = image.convert("RGB")
     mask_L = mask.convert("L")
+    # The bbox/crop math assumes mask and image share pixel coordinates. A client
+    # could post a differently-sized mask; align it to the image first so the crop
+    # isn't taken from the wrong region.
+    if mask_L.size != image.size:
+        mask_L = mask_L.resize(image.size, Image.LANCZOS)
     ow, oh = image.size
 
     if crop:
@@ -345,7 +372,13 @@ def inpaint_image(
                 crop_mask = mask_L.crop((cx0, cy0, cx1, cy1))
                 filled = inpaint_region(pipe, crop_img, crop_mask, prompt, **kwargs)
                 out = image.copy()
-                out.paste(filled.convert("RGB"), (cx0, cy0))
+                # Paste back through the (feathered) mask so ONLY regenerated
+                # pixels are written — the crop's unmasked margin stays byte-exact
+                # and no rectangular crop-edge seam appears (the lossy VAE/resize
+                # round-trip would otherwise tint the pasted margin).
+                feather = kwargs.get("feather_px", 6)
+                paste_mask = crop_mask.filter(ImageFilter.GaussianBlur(feather)) if feather > 0 else crop_mask
+                out.paste(filled.convert("RGB"), (cx0, cy0), paste_mask)
                 return out
 
     return inpaint_region(pipe, image, mask_L, prompt, **kwargs)

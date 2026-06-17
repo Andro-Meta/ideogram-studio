@@ -73,6 +73,9 @@ async function callRemix(args: RemixArgs): Promise<EditResponse> {
       strength,
       sampler_preset: args.sampler_preset ?? "V4_DEFAULT_20",
       seed: args.seed ?? null,
+      // Remix already passes a full structured caption — no need to ground via a
+      // vision round-trip whose result the backend would discard.
+      ground: false,
       ...(args.cfg !== undefined
         ? { cfg: args.cfg, cfg_override: args.cfg_override, cfg_override_start: args.cfg_override_start }
         : {}),

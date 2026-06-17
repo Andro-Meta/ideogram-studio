@@ -111,6 +111,9 @@ export function EditorDialog({ open, onClose, jobId, imageUrl }: Props) {
         {
           onSuccess: (res) => {
             toast.success(whole ? "Image remixed" : "Region filled")
+            if (res.grounded === false) {
+              toast.warning("Fill wasn't grounded in your image — add an OpenRouter key in Settings for the region to match its surroundings.")
+            }
             setLiveUrl(`${res.image_url}?t=${res.job_id}`)   // reload editor with the result
           },
         },
@@ -131,6 +134,9 @@ export function EditorDialog({ open, onClose, jobId, imageUrl }: Props) {
         {
           onSuccess: (res) => {
             toast.success(`Extended to ${targetRatio}`)
+            if (res.grounded === false) {
+              toast.warning("Extend wasn't grounded in your image — add an OpenRouter key in Settings for the new area to match the scene.")
+            }
             setLiveUrl(`${res.image_url}?t=${res.job_id}`)
           },
         },

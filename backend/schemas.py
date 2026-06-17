@@ -473,6 +473,11 @@ class EditResponse(BaseModel):
     # non-diffusion edits (save flatten, import).
     seed: int | None = None
     duration_ms: int | None = None
+    # Whether the edit caption was actually grounded in the source image
+    # (describe_image ran). False = grounding was requested but skipped (no
+    # OpenRouter key) or failed; None = not requested. Lets the UI tell the user
+    # instead of silently claiming grounding that didn't happen.
+    grounded: bool | None = None
 
 
 class ImportImageRequest(BaseModel):
