@@ -13,6 +13,7 @@ import { cn } from "@/lib/utils"
 import { useSaveEdit } from "@/hooks/useSaveEdit"
 import { useInpaint } from "@/hooks/useInpaint"
 import { useInsert } from "@/hooks/useInsert"
+import { useReferenceEdit } from "@/hooks/useReferenceEdit"
 import { useExtend } from "@/hooks/useExtend"
 import { useDescribeImage } from "@/hooks/useDescribeImage"
 import { useModelStatus } from "@/hooks/useModelStatus"
@@ -61,6 +62,7 @@ export function EditorDialog({ open, onClose, jobId, imageUrl }: Props) {
   const save = useSaveEdit()
   const inpaint = useInpaint()
   const insert = useInsert()
+  const reference = useReferenceEdit()
   const extend = useExtend()
   const describe = useDescribeImage()
   const { data: modelStatus } = useModelStatus()
@@ -160,7 +162,33 @@ export function EditorDialog({ open, onClose, jobId, imageUrl }: Props) {
     }
   }
 
-  const busy = inpaint.isPending || insert.isPending || extend.isPending
+  const handleReference = async () => {
+    if (!fillPrompt.trim() || reference.isPending || !engine.base) return
+    if (!engine.selection) {
+      toast.error("Select the region to edit first (draw a selection).")
+      return
+    }
+    try {
+      const blob = await engine.flatten()
+      reference.mutate(
+        { imageBlob: blob, maskCanvas: engine.selection, prompt: fillPrompt.trim(), sourceJobId: jobId },
+        {
+          onSuccess: (res) => {
+            toast.success("Reference edit applied")
+            if (res.grounded === false) {
+              toast.warning("Edit wasn't grounded — add an OpenRouter key in Settings so it matches the scene.")
+            }
+            setLiveUrl(`${res.image_url}?t=${res.job_id}`)
+          },
+        },
+      )
+    } catch (err) {
+      console.error(err)
+      toast.error("Could not prepare the image")
+    }
+  }
+
+  const busy = inpaint.isPending || insert.isPending || reference.isPending || extend.isPending
   const handleExtend = async (targetRatio: string) => {
     if (busy || !engine.base) return
     try {
@@ -393,15 +421,15 @@ export function EditorDialog({ open, onClose, jobId, imageUrl }: Props) {
                     {editMode === "fill" && "Change or restyle what's already in the selection, or remove something (fills with the surroundings). Best for editing existing content — not adding brand-new objects."}
                     {editMode === "insert" && "Add a NEW object into the selection (a dog, a tree, a car). Generates the object and blends it in. Best when the thing isn't there yet."}
                     {editMode === "extend" && "Outpaint: grow the canvas to a new aspect ratio and continue the scene outward. Your original stays exact."}
-                    {editMode === "reference" && "Experimental: bbox-guided edit via a community inpaint LoRA. Needs extra model setup and is imprecise — not wired up yet."}
+                    {editMode === "reference" && "Precise in-place edit (experimental). Regenerates the frame faithful to the original and changes the selection — the rest stays. Best for altering an existing thing (a dog's breed, a shirt's colour). Uses a community LoRA; results can be rough."}
                   </p>
 
-                  {/* Shared prompt (Fill / Insert; optional continuation for Extend) */}
-                  {editMode !== "reference" && (
+                  {/* Shared prompt (all modes use it; optional continuation for Extend) */}
+                  {(
                     <>
                       <div className="flex items-center justify-between">
                         <span className="text-[11px] text-zinc-500">
-                          {editMode === "extend" ? "Continuation prompt (optional)" : editMode === "insert" ? "What to add" : "Edit prompt"}
+                          {editMode === "extend" ? "Continuation prompt (optional)" : editMode === "insert" ? "What to add" : editMode === "reference" ? "What to change it to" : "Edit prompt"}
                         </span>
                         <button
                           type="button" onClick={handleSuggestPrompt}
@@ -419,6 +447,7 @@ export function EditorDialog({ open, onClose, jobId, imageUrl }: Props) {
                         placeholder={
                           editMode === "insert" ? "Describe the object to add (e.g. a golden retriever sitting)…"
                           : editMode === "extend" ? "Optional: what the new area should contain…"
+                          : editMode === "reference" ? "Describe what the selection should become (e.g. a black border collie)…"
                           : engine.hasSelection ? "Describe how to change the selected area…"
                           : "Describe how to change the whole image…"}
                         rows={3} disabled={busy}
@@ -511,15 +540,25 @@ export function EditorDialog({ open, onClose, jobId, imageUrl }: Props) {
                     </>
                   )}
 
-                  {/* REFERENCE (experimental, not wired) */}
+                  {/* REFERENCE — precise in-place edit via the inpaint LoRA */}
                   {editMode === "reference" && (
-                    <p className="text-[11px] text-zinc-600 leading-relaxed">
-                      The proper bbox-guided edit path needs a community inpaint LoRA
-                      (<span className="text-zinc-400">BitPoet/Ideogram4-Inpaint-LoRA</span>) plus
-                      reference-latent support in the pipeline. It's experimental and the author warns
-                      it's imprecise. Not enabled yet — use <span className="text-zinc-400">Insert</span> to
-                      add objects or <span className="text-zinc-400">Fill</span> to change existing content.
-                    </p>
+                    <>
+                      <Button
+                        className="w-full bg-violet-600 hover:bg-violet-500 text-white gap-2 disabled:opacity-40"
+                        disabled={!fillPrompt.trim() || busy || !engine.base || !engine.hasSelection}
+                        onClick={handleReference}
+                        title={engine.hasSelection ? "Edit the selection in place, keeping the rest faithful" : "Select the region to edit first"}
+                      >
+                        {reference.isPending
+                          ? <><Loader2 className="h-4 w-4 animate-spin" /> Working… (~2-3 min)</>
+                          : <><Sparkles className="h-4 w-4" /> Reference Edit</>}
+                      </Button>
+                      <p className="text-[11px] text-zinc-600 leading-relaxed">
+                        {engine.hasSelection
+                          ? "Regenerates the frame conditioned on your image (via the BitPoet inpaint LoRA) and changes the selection; the rest is kept from the original. Loads the LoRA on demand, so the first run is slower. Experimental — results can be rough."
+                          : "Draw a selection around the thing you want to change — Reference edits that region in place."}
+                      </p>
+                    </>
                   )}
                 </>
               ) : (

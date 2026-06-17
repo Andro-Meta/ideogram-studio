@@ -584,6 +584,84 @@ class BF16Pipeline(InferencePipeline):
         )
         return result.images[0], actual_seed
 
+    def reference_edit(
+        self,
+        image: Image.Image,
+        mask: Image.Image | None,
+        prompt_json: str,
+        settings: GenerationSettings,
+        lora_path: str,
+        adapter_name: str = "ig4_inpaint",
+        step_callback: Callable[[int, int], None] | None = None,
+    ) -> tuple[Image.Image, int]:
+        """Reference-guided in-place edit via the BitPoet inpaint LoRA.
+
+        Regenerates the image conditioned on the ORIGINAL as a reference latent
+        (so it stays faithful except where the prompt/bbox asks for a change),
+        then composites the result inside `mask` so everything outside the
+        selection stays byte-exact. The LoRA is loaded for this call only and
+        removed after, so normal generation is unaffected."""
+        if self._pipe is None:
+            raise RuntimeError("Pipeline not loaded.")
+        if not self.supports_lora:
+            raise RuntimeError("Reference edit needs a diffusers (LoRA-capable) model — switch to NF4·D or BF16.")
+        import torch
+        from PIL import ImageFilter
+        import reference_edit as _ref
+        import inpaint as _inp
+
+        unit = self._pipe.vae_scale_factor * self._pipe.patch_size
+        gen_w, gen_h = _inp.edit_resolution(image.width, image.height, unit)
+
+        preset = self.PRESETS[settings.sampler_preset]
+        actual_seed = self._resolve_seed(settings.seed)
+        generator = torch.Generator("cuda").manual_seed(actual_seed)
+        schedule = _resolve_guidance_schedule(
+            preset["guidance_schedule"], preset["num_inference_steps"], settings,
+            forward=self.GUIDANCE_FORWARD,
+        )
+
+        loaded_here = adapter_name not in self._loras
+        if loaded_here:
+            self._pipe.transformer.load_lora_adapter(lora_path, adapter_name=adapter_name)
+            self._loras[adapter_name] = {"weight": 1.0, "source": lora_path}
+            self._apply_adapters()
+
+        def _on_step(pipe, step_i: int, t, kwargs: dict) -> dict:
+            if step_callback:
+                step_callback(step_i, preset["num_inference_steps"])
+            return {}
+
+        try:
+            with _ref.reference_conditioning(self._pipe, image, gen_w, gen_h):
+                result = self._pipe(
+                    prompt=prompt_json, height=gen_h, width=gen_w,
+                    num_inference_steps=preset["num_inference_steps"],
+                    guidance_scale=None, guidance_schedule=schedule,
+                    mu=preset["mu"], std=preset["std"], prompt_upsampling=False,
+                    generator=generator, output_type="pil", return_dict=True,
+                    callback_on_step_end=_on_step,
+                    callback_on_step_end_tensor_inputs=["latents"],
+                )
+            out = result.images[0].resize((image.width, image.height), Image.LANCZOS)
+            if mask is not None:
+                # Feather generously: the reference edit re-exposes the whole frame
+                # slightly, so a hard mask edge shows a seam. A soft, size-relative
+                # blend hides it while keeping the far surroundings the original.
+                feather = max(12, min(image.width, image.height) // 48)
+                m = mask.convert("L").resize((image.width, image.height), Image.LANCZOS)
+                m = m.filter(ImageFilter.GaussianBlur(feather))
+                out = Image.composite(out.convert("RGB"), image.convert("RGB"), m)
+            return out, actual_seed
+        finally:
+            if loaded_here:
+                self._loras.pop(adapter_name, None)
+                try:
+                    self._pipe.transformer.delete_adapters([adapter_name])
+                except Exception:
+                    pass
+                self._apply_adapters()
+
     def unload(self) -> None:
         if self._pipe is not None:
             import torch
@@ -1079,6 +1157,13 @@ class PipelineManager:
         if self._pipeline is None or self.status != "ready":
             raise RuntimeError("No pipeline loaded. Load a model first.")
         return self._pipeline.inpaint(image, mask, prompt_json, settings, strength, step_callback, budget)
+
+    def reference_edit(self, image, mask, prompt_json, settings, lora_path, step_callback=None):
+        if self._pipeline is None or self.status != "ready":
+            raise RuntimeError("No pipeline loaded. Load a model first.")
+        if not hasattr(self._pipeline, "reference_edit"):
+            raise RuntimeError(f"The {self._variant} variant can't do reference edits — switch to NF4·D or BF16.")
+        return self._pipeline.reference_edit(image, mask, prompt_json, settings, lora_path, step_callback=step_callback)
 
     def _require_lora_pipeline(self) -> InferencePipeline:
         if self._pipeline is None or self.status != "ready":

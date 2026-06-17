@@ -23,6 +23,9 @@ torch>=2.12.0
 transformers>=4.49.0
 safetensors>=0.8.0
 accelerate>=1.13.0
+# LoRA adapters (the LoRA panel + the reference-edit inpaint LoRA) load via
+# diffusers' PEFT backend.
+peft>=0.17.0
 einops>=0.7.0
 sentencepiece
 pillow

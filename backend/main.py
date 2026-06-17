@@ -1507,6 +1507,111 @@ async def insert_object_endpoint(request: Request, body: InpaintRequest):
     )
 
 
+_IG4_INPAINT_LORA = "ido-inpaint-diffusers.safetensors"
+
+
+@app.post("/api/edit/reference", response_model=EditResponse)
+async def reference_edit_endpoint(request: Request, body: InpaintRequest):
+    """Precise in-place edit via the BitPoet reference-latent inpaint LoRA.
+
+    The model regenerates the frame conditioned on the ORIGINAL as a reference
+    latent (so it stays faithful) and the bbox JSON prompt as the edit; the
+    result is composited inside the selection so the rest stays byte-exact."""
+    import uuid as _uuid
+
+    pm: PipelineManager = request.app.state.pipeline
+    if pm.status != "ready":
+        raise HTTPException(409, "Load a model first.")
+    if not pm.supports_lora:
+        raise HTTPException(
+            409,
+            f"Reference edit needs a diffusers model with LoRA support. The {pm.variant or 'current'} "
+            "variant can't — switch to NF4·D or BF16 and reload.",
+        )
+    lora_path = (LORAS_DIR / _IG4_INPAINT_LORA).resolve()
+    if not lora_path.is_file():
+        raise HTTPException(
+            409,
+            "The Ideogram-4 inpaint LoRA isn't installed. Download "
+            "BitPoet/Ideogram4-Inpaint-LoRA (step-4000) into loras/ and run "
+            "`python scripts/remap_inpaint_lora.py loras/IdoInpaint_2_00004000.safetensors "
+            f"loras/{_IG4_INPAINT_LORA}`.",
+        )
+
+    loop = asyncio.get_running_loop()
+    try:
+        image = await loop.run_in_executor(None, lambda: _decode_b64_to_pil(body.image_b64, "RGB"))
+        mask = await loop.run_in_executor(None, lambda: _decode_b64_to_pil(body.mask_b64, "L"))
+    except Exception as exc:
+        raise HTTPException(400, f"Invalid image data: {exc}") from exc
+    if mask.size != image.size:
+        mask = mask.resize(image.size, Image.LANCZOS)
+
+    t0 = time.monotonic()
+    from magic_prompt_service import build_edit_caption, describe_image as _describe, is_ideogram_caption
+    import inpaint as _inp
+
+    prompt_is_caption = is_ideogram_caption(body.prompt)
+    # A near-full mask is a whole-image edit (no composite, no localizing bbox).
+    preserve = _inp.mask_coverage(mask) < 0.9
+    element_bbox = _inp.mask_bbox_norm(mask) if preserve else None
+    composite_mask = mask if preserve else None
+
+    scene_desc: str | None = None
+    grounded: bool | None = None
+    if body.ground and not prompt_is_caption:
+        if app_settings.openrouter_api_key:
+            try:
+                scene_desc = await asyncio.to_thread(
+                    _describe, body.image_b64, app_settings.openrouter_api_key, attempts=2
+                )
+                grounded = bool(scene_desc and scene_desc.strip())
+            except Exception as exc:
+                logger.warning("Reference-edit grounding failed: %s", exc)
+                grounded = False
+        else:
+            grounded = False
+
+    # Full-frame edit (no crop), so the mask bbox is a valid element box.
+    edit_caption = body.prompt if prompt_is_caption else build_edit_caption(
+        body.prompt, scene_desc, preserve=preserve, element_bbox=element_bbox
+    )
+
+    settings = GenerationSettings(
+        height=image.height, width=image.width,
+        sampler_preset=body.sampler_preset, seed=body.seed,
+        raise_on_caption_issues=False,
+        cfg=body.cfg, cfg_override=body.cfg_override, cfg_override_start=body.cfg_override_start,
+    )
+
+    def _run():
+        return pm.reference_edit(image, composite_mask, edit_caption, settings, str(lora_path))
+
+    try:
+        out_img, actual_seed = await loop.run_in_executor(_inference_executor, _run)
+    except Exception as exc:
+        logger.exception("Reference edit failed")
+        raise HTTPException(500, f"Reference edit failed: {exc}") from exc
+    duration_ms = int((time.monotonic() - t0) * 1000)
+
+    db = request.app.state.db
+    new_id = str(_uuid.uuid4())
+    out_name = f"{new_id}.png"
+    out_img.convert("RGB").save(str(OUTPUTS_DIR / out_name), format="PNG")
+    w, h = out_img.size
+
+    source = await gallery_service.get_job(db, body.source_job_id) if body.source_job_id else None
+    if source and source.get("image_path"):
+        await gallery_service.insert_derived(db, source=source, new_id=new_id, image_path=out_name, width=w, height=h)
+    else:
+        await gallery_service.insert_imported(db, new_id=new_id, image_path=out_name, width=w, height=h, label="AI reference edit")
+    logger.info("Reference edit -> %s (%dx%d) seed=%d grounded=%s", new_id, w, h, actual_seed, grounded)
+    return EditResponse(
+        job_id=new_id, image_url=f"/outputs/{out_name}", width=w, height=h,
+        seed=actual_seed, duration_ms=duration_ms, grounded=grounded,
+    )
+
+
 @app.post("/api/edit/extend", response_model=EditResponse)
 async def extend_endpoint(request: Request, body: ExtendRequest):
     """Outpaint / reframe — grow the canvas to a target ratio, fill the new
