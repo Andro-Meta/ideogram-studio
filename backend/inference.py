@@ -330,6 +330,7 @@ class InferencePipeline(ABC):
         settings: GenerationSettings,
         strength: float = 0.75,
         step_callback: Callable[[int, int], None] | None = None,
+        budget: int | None = None,
     ) -> tuple["Image.Image", int]:
         raise RuntimeError(
             "This model variant can't do AI region fill. Switch to NF4·D or BF16 and reload."
@@ -648,6 +649,7 @@ class BF16Pipeline(InferencePipeline):
         settings: GenerationSettings,
         strength: float = 0.75,
         step_callback: Callable[[int, int], None] | None = None,
+        budget: int | None = None,
     ) -> tuple[Image.Image, int]:
         if self._pipe is None:
             raise RuntimeError("Pipeline not loaded.")
@@ -661,12 +663,18 @@ class BF16Pipeline(InferencePipeline):
         )
         # inpaint_image decides crop-and-stitch (localized mask) vs full-image
         # (whole-image remix / extend, whose mask bbox spans the canvas).
+        # `budget` is the working-resolution pixel target: a small inpaint crop
+        # stays light (~1 MP default → detailed fill), but Extend passes the full
+        # padded canvas so the new border is generated at native res, not a soft
+        # ~1 MP downscale that the upscale-back blurs.
+        extra = {"budget": budget} if budget is not None else {}
         out = _inpaint.inpaint_image(
             self._pipe, image, mask, prompt_json,
             num_steps=preset["num_inference_steps"],
             guidance_schedule=schedule,
             mu=preset["mu"], std=preset["std"],
             seed=actual_seed, strength=strength, step_callback=step_callback,
+            **extra,
         )
         return out, actual_seed
 
@@ -1067,10 +1075,10 @@ class PipelineManager:
     def supports_inpaint(self) -> bool:
         return bool(self._pipeline is not None and self._pipeline.supports_inpaint)
 
-    def inpaint(self, image, mask, prompt_json, settings, strength=0.75, step_callback=None):
+    def inpaint(self, image, mask, prompt_json, settings, strength=0.75, step_callback=None, budget=None):
         if self._pipeline is None or self.status != "ready":
             raise RuntimeError("No pipeline loaded. Load a model first.")
-        return self._pipeline.inpaint(image, mask, prompt_json, settings, strength, step_callback)
+        return self._pipeline.inpaint(image, mask, prompt_json, settings, strength, step_callback, budget)
 
     def _require_lora_pipeline(self) -> InferencePipeline:
         if self._pipeline is None or self.status != "ready":

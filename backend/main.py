@@ -1298,7 +1298,13 @@ async def inpaint_endpoint(request: Request, body: InpaintRequest):
         height=image.height, width=image.width,
         sampler_preset=body.sampler_preset, seed=body.seed,
         raise_on_caption_issues=False,
-        cfg=body.cfg, cfg_override=body.cfg_override, cfg_override_start=body.cfg_override_start,
+        # Default edits to the official "two CFG" curve (ComfyUI CFG-Override node):
+        # 7.0 for the first 70% of steps, then 3.0 for the last 30% to smooth the
+        # result. The bare preset drops only for the last ~10%, which over-cooks
+        # edited regions. The user can still override per-request.
+        cfg=body.cfg if body.cfg is not None else 7.0,
+        cfg_override=body.cfg_override if body.cfg_override is not None else 3.0,
+        cfg_override_start=body.cfg_override_start if body.cfg_override_start is not None else 0.7,
     )
 
     # Build the edit caption. The masked region drifts away from the larger
@@ -1445,13 +1451,22 @@ async def extend_endpoint(request: Request, body: ExtendRequest):
     settings = GenerationSettings(
         height=padded.height, width=padded.width,
         sampler_preset=body.sampler_preset, seed=body.seed, raise_on_caption_issues=False,
-        cfg=body.cfg, cfg_override=body.cfg_override, cfg_override_start=body.cfg_override_start,
+        # Official "two CFG" smoothing curve (7 → 3 @ 0.7), same as inpaint.
+        cfg=body.cfg if body.cfg is not None else 7.0,
+        cfg_override=body.cfg_override if body.cfg_override is not None else 3.0,
+        cfg_override_start=body.cfg_override_start if body.cfg_override_start is not None else 0.7,
     )
+
+    # Generate a bit above the default ~1 MP so the new border isn't softened by
+    # upscaling a small result back to the larger canvas — but capped low enough
+    # to stay responsive (attention is O(tokens²): ~2 MP quadruples cost and
+    # times out). edit_resolution also caps each side to 2048.
+    edit_budget = min(padded.width * padded.height, 1_300_000)
 
     def _run():
         # High strength: the new border is freely generated; the edge-replicated
         # init + the pinned original give continuity.
-        return pm.inpaint(padded, mask, prompt, settings, body.strength)
+        return pm.inpaint(padded, mask, prompt, settings, body.strength, budget=edit_budget)
 
     try:
         out_img, actual_seed = await loop.run_in_executor(_inference_executor, _run)

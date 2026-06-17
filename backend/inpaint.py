@@ -183,11 +183,16 @@ def build_outpaint(image: Image.Image, target_w: int, target_h: int):
     top = (target_h - oh) // 2
 
     arr = np.asarray(image.convert("RGB"))
-    padded = np.pad(
-        arr,
-        ((top, target_h - oh - top), (left, target_w - ow - left), (0, 0)),
-        mode="edge",                       # replicate border pixels into the new area
-    )
+    pads = ((top, target_h - oh - top), (left, target_w - ow - left), (0, 0))
+    # Mirror (reflect) the border content into the new area, not edge-replicate.
+    # Edge mode smears the single border row/column into long streaks (the blurry
+    # "reflection" band at an extended edge); reflect gives the model real texture
+    # to continue from. Reflect needs each pad < the source dim, so fall back to
+    # edge for very large reframes.
+    try:
+        padded = np.pad(arr, pads, mode="reflect")
+    except Exception:
+        padded = np.pad(arr, pads, mode="edge")
     padded_img = Image.fromarray(padded)
 
     mask = np.full((target_h, target_w), 255, dtype=np.uint8)
@@ -210,6 +215,7 @@ def inpaint_region(
     strength: float = 0.75,
     feather_px: int = 6,
     step_callback: Callable[[int, int], None] | None = None,
+    budget: int = _EDIT_BUDGET,
 ) -> Image.Image:
     """Regenerate the masked region of `image` from `prompt`, keeping the rest.
 
@@ -233,7 +239,7 @@ def inpaint_region(
     # per-axis `min(2048, …)` clamp that squashed any non-square image and ran
     # the DiT at up to 4 MP). The masked result is composited back at the
     # original resolution below, so unmasked pixels stay byte-exact regardless.
-    gen_w, gen_h = edit_resolution(orig_w, orig_h, unit)
+    gen_w, gen_h = edit_resolution(orig_w, orig_h, unit, budget=budget)
 
     src = image.convert("RGB").resize((gen_w, gen_h), Image.LANCZOS)
     img_t = pipe.image_processor.preprocess(src, height=gen_h, width=gen_w).to(device)
