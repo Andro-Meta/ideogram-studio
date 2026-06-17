@@ -373,7 +373,7 @@ export function EditorDialog({ open, onClose, jobId, imageUrl }: Props) {
                 <>
                   {/* Sub-tabs */}
                   <div className="grid grid-cols-4 gap-1">
-                    {([["fill", "Fill"], ["insert", "Insert"], ["extend", "Extend"], ["reference", "Reference"]] as const).map(([id, label]) => (
+                    {([["fill", "Fill"], ["insert", "Insert"], ["extend", "Outpaint"], ["reference", "Reference"]] as const).map(([id, label]) => (
                       <button
                         key={id} type="button" onClick={() => setEditMode(id)}
                         className={cn(
@@ -392,7 +392,7 @@ export function EditorDialog({ open, onClose, jobId, imageUrl }: Props) {
                   <p className="text-[10px] text-zinc-500 leading-snug">
                     {editMode === "fill" && "Change or restyle what's already in the selection, or remove something (fills with the surroundings). Best for editing existing content — not adding brand-new objects."}
                     {editMode === "insert" && "Add a NEW object into the selection (a dog, a tree, a car). Generates the object and blends it in. Best when the thing isn't there yet."}
-                    {editMode === "extend" && "Grow the canvas to a new aspect ratio and continue the scene outward. Your original stays exact."}
+                    {editMode === "extend" && "Outpaint: grow the canvas to a new aspect ratio and continue the scene outward. Your original stays exact."}
                     {editMode === "reference" && "Experimental: bbox-guided edit via a community inpaint LoRA. Needs extra model setup and is imprecise — not wired up yet."}
                   </p>
 
