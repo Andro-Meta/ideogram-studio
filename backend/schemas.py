@@ -406,6 +406,15 @@ class InpaintRequest(CfgControlsMixin):
     # How much the selection may change (img2img strength). Low = gentle edit
     # that keeps the original structure; 1 = full regeneration.
     strength: float = 0.75
+    # Ground the edit caption in the actual source image (describe it, so the
+    # fill matches the real lighting/palette/style). Default on — this is what
+    # makes a region blend with the larger image (report §6.2/§6.6).
+    ground: bool = True
+    # Run the edit instruction through Magic Prompt (LLM rewrite). Default OFF,
+    # per Ideogram's own guidance for Magic Fill ("recommended not to use Magic
+    # Prompt, as it might alter your optimized prompt"). When off, a grounded
+    # JSON caption is built deterministically (the json_prompt path).
+    magic_prompt: bool = False
 
     @field_validator("strength")
     @classmethod
@@ -435,6 +444,16 @@ class ExtendRequest(CfgControlsMixin):
     prompt: str = ""                   # optional; blank = "continue the scene"
     seed: int | None = None
     source_job_id: str | None = None
+    sampler_preset: Literal["V4_TURBO_12", "V4_DEFAULT_20", "V4_QUALITY_48"] = "V4_DEFAULT_20"
+    # How freely the new border is generated (outpaint wants this high).
+    strength: float = 0.95
+    # Ground the continuation in the source image so the new area matches it.
+    ground: bool = True
+
+    @field_validator("strength")
+    @classmethod
+    def _clamp_strength(cls, v: float) -> float:
+        return max(0.1, min(1.0, v))
 
     @field_validator("image_b64")
     @classmethod

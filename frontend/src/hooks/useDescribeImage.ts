@@ -1,7 +1,7 @@
 import { useMutation } from "@tanstack/react-query"
 import { toast } from "sonner"
 
-function fileToB64(file: File): Promise<string> {
+function fileToB64(file: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const r = new FileReader()
     r.onload = () => resolve(String(r.result).split(",")[1] ?? "")
@@ -10,7 +10,7 @@ function fileToB64(file: File): Promise<string> {
   })
 }
 
-async function describeImage(file: File): Promise<string> {
+async function describeImage(file: Blob): Promise<string> {
   const image_b64 = await fileToB64(file)
   const res = await fetch("/api/describe-image", {
     method: "POST",

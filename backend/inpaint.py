@@ -33,6 +33,87 @@ def _round_to(v: int, multiple: int) -> int:
     return max(multiple, int(round(v / multiple)) * multiple)
 
 
+# Ideogram's editing/inpaint path is V3-era and works at ~1 megapixel matched to
+# the source aspect ratio (see docs/IMAGE_EDITING_REPORT_2026-06-16.md §1, §3).
+# These are the documented ResolutionV3 buckets (~1 MP), all divisible by 16, so
+# the DiT samples at a resolution the edit capability was actually trained on.
+_NATIVE_EDIT_BUCKETS: tuple[tuple[int, int], ...] = (
+    (1024, 1024),
+    (1152, 896), (896, 1152),
+    (1216, 832), (832, 1216),
+    (1248, 832), (832, 1248),
+    (1312, 736), (736, 1312),
+    (1344, 768), (768, 1344),
+    (1408, 704), (704, 1408),
+    (1536, 640), (640, 1536),
+    (1536, 512), (512, 1536),
+)
+
+# Below this many pixels per side the DiT degrades; above ~2048 it OOMs / drifts.
+_EDIT_MIN_SIDE = 256
+_EDIT_MAX_SIDE = 2048
+_EDIT_BUDGET = 1024 * 1024          # ~1 MP working area for edits
+# Snap to a native bucket only when its aspect is within this of the source, so
+# bucketing never reintroduces the aspect distortion we're fixing (the masked
+# result is composited back at the original resolution, so a bucket whose aspect
+# differs from the source would stretch the generated patch on the way back).
+_BUCKET_ASPECT_TOLERANCE = 0.06
+
+
+def _aspect_preserving_size(
+    w: int, h: int, unit: int, budget: int = _EDIT_BUDGET
+) -> tuple[int, int]:
+    """~`budget`-pixel size with the SAME aspect ratio as (w, h), each side
+    snapped to `unit` and within [256, 2048]. Clamps are applied PROPORTIONALLY
+    (rescaling both sides together) so the aspect ratio is preserved even for
+    extreme/ultrawide inputs — the fix for the old per-axis `min(2048, …)` clamp
+    that squashed any non-square image. Max-side cap takes priority over the
+    min-side floor for aspect ratios too extreme to satisfy both."""
+    scale = (budget / float(w * h)) ** 0.5
+    gw, gh = w * scale, h * scale
+
+    longest = max(gw, gh)
+    if longest > _EDIT_MAX_SIDE:                 # shrink both to fit the long side
+        r = _EDIT_MAX_SIDE / longest
+        gw, gh = gw * r, gh * r
+
+    shortest = min(gw, gh)
+    if shortest < _EDIT_MIN_SIDE:                # grow both to lift the short side
+        r = _EDIT_MIN_SIDE / shortest
+        gw, gh = gw * r, gh * r
+        longest = max(gw, gh)
+        if longest > _EDIT_MAX_SIDE:             # extreme ratio: cap wins
+            r = _EDIT_MAX_SIDE / longest
+            gw, gh = gw * r, gh * r
+
+    return _round_to(gw, unit), _round_to(gh, unit)
+
+
+def edit_resolution(
+    w: int, h: int, unit: int, *, budget: int = _EDIT_BUDGET, snap_bucket: bool = True
+) -> tuple[int, int]:
+    """Pick the working resolution for an edit: aspect-preserving ~1 MP, each
+    side a multiple of `unit`, clamped to [256, 2048]. When `snap_bucket` and a
+    native Ideogram edit bucket matches the source aspect within tolerance,
+    return that bucket (so we sample at a trained resolution) — otherwise return
+    the continuous aspect-preserving size."""
+    if not w or not h:
+        return 1024, 1024
+    gw, gh = _aspect_preserving_size(w, h, unit, budget)
+    if snap_bucket:
+        src = w / float(h)
+        best: tuple[float, int, int] | None = None
+        for bw, bh in _NATIVE_EDIT_BUCKETS:
+            if bw % unit or bh % unit:
+                continue
+            err = abs((bw / float(bh)) / src - 1.0)
+            if err <= _BUCKET_ASPECT_TOLERANCE and (best is None or err < best[0]):
+                best = (err, bw, bh)
+        if best is not None:
+            return best[1], best[2]
+    return gw, gh
+
+
 def _encode_to_tokens(pipe, image_tensor):
     """PIL-preprocessed image tensor (B,3,H,W in [-1,1]) → packed token latent
     (B, num_tokens, ae_channels*patch*patch), the exact inverse of the
@@ -133,8 +214,11 @@ def inpaint_region(
     device = pipe._execution_device
     unit = pipe.vae_scale_factor * pipe.patch_size
     orig_w, orig_h = image.size
-    gen_w = min(2048, _round_to(orig_w, unit))
-    gen_h = min(2048, _round_to(orig_h, unit))
+    # Aspect-preserving ~1 MP working size matched to the source ratio (was a
+    # per-axis `min(2048, …)` clamp that squashed any non-square image and ran
+    # the DiT at up to 4 MP). The masked result is composited back at the
+    # original resolution below, so unmasked pixels stay byte-exact regardless.
+    gen_w, gen_h = edit_resolution(orig_w, orig_h, unit)
 
     src = image.convert("RGB").resize((gen_w, gen_h), Image.LANCZOS)
     img_t = pipe.image_processor.preprocess(src, height=gen_h, width=gen_w).to(device)
@@ -198,3 +282,58 @@ def inpaint_region(
         m = m.filter(ImageFilter.GaussianBlur(feather_px))
     out = Image.composite(gen.convert("RGB"), image.convert("RGB"), m)
     return out
+
+
+def _mask_bbox(mask_L: Image.Image, thresh: int = 8) -> tuple[int, int, int, int] | None:
+    """Tight bounding box (x0, y0, x1, y1) of the regenerate region (mask > thresh),
+    or None if the mask is empty."""
+    arr = np.asarray(mask_L.convert("L"))
+    ys, xs = np.where(arr > thresh)
+    if xs.size == 0:
+        return None
+    return int(xs.min()), int(ys.min()), int(xs.max()) + 1, int(ys.max()) + 1
+
+
+def _expand_bbox(
+    bbox: tuple[int, int, int, int], w: int, h: int, frac: float
+) -> tuple[int, int, int, int]:
+    """Grow `bbox` by `frac` of its size on each side (clamped to the image), so
+    the model sees surrounding context — Ideogram's documented substitute for a
+    feather: 'include some unmasked visual references to help the AI understand
+    the context.'"""
+    x0, y0, x1, y1 = bbox
+    ex = int((x1 - x0) * frac)
+    ey = int((y1 - y0) * frac)
+    return max(0, x0 - ex), max(0, y0 - ey), min(w, x1 + ex), min(h, y1 + ey)
+
+
+def inpaint_image(
+    pipe,
+    image: Image.Image,
+    mask: Image.Image,
+    prompt: str,
+    *,
+    crop: bool = True,
+    context_frac: float = 0.6,
+    min_crop_frac: float = 0.5,
+    **kwargs,
+) -> Image.Image:
+    """Edit entry point. For a localized mask on a larger image, crop around the
+    mask (+ a context margin), inpaint that crop at the model's native ~1 MP
+    resolution, then stitch it back into the original at full resolution
+    (ComfyUI 'crop-and-stitch' pattern). For a whole-image / border mask (remix,
+    extend/outpaint) the mask bbox spans the canvas, so this falls back to a
+    full-image inpaint automatically.
+
+    Stitching is seamless because `inpaint_region` already composites unmasked
+    pixels back to the byte-exact source within the crop, so pasting the crop
+    over the original touches only the edited region.
+    """
+    image = image.convert("RGB")
+    mask_L = mask.convert("L")
+    ow, oh = image.size
+
+    if crop:
+        bbox = _mask_bbox(mask_L)
+        if bbox is not None:
+            bw, bh = bbox[2] - bbox[0], bbo

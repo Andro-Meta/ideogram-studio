@@ -1205,10 +1205,12 @@ async def upscale_image_endpoint(request: Request, body: UpscaleRequest):
 
 
 # ── Image editing API ─────────────────────────────────────────────────────────
-# The Ideogram 4 open-weights release is text-to-image only (no inpainting /
-# img2img — Canvas and Magic Fill remain ideogram.ai server-side products).
-# Editing happens in the browser (layered canvas editor, exact WYSIWYG); the
-# server validates the flattened result and stores it as a derived gallery item.
+# Two layers of editing: (1) a browser layered-canvas editor for exact, local
+# pixel edits (save flatten), and (2) real diffusion editing — AI region fill
+# (inpaint) and extend/outpaint — implemented on the local diffusers pipeline via
+# a RePaint-style latent blend (backend/inpaint.py). Edits run at the model's
+# native ~1 MP resolution matched to the source aspect ratio, with the edit
+# caption grounded in the source image. See docs/IMAGE_EDITING_REPORT_2026-06-16.md.
 
 def _decode_and_sanitize_png(image_b64: str) -> tuple[bytes, int, int]:
     """Decode base64 → PIL → re-encoded PNG. Re-encoding strips anything that
@@ -1299,22 +1301,38 @@ async def inpaint_endpoint(request: Request, body: InpaintRequest):
         cfg=body.cfg, cfg_override=body.cfg_override, cfg_override_start=body.cfg_override_start,
     )
 
-    # Structure the prompt into a JSON caption, exactly like the text-to-image
-    # path. Ideogram 4 paints its gray "safety filter" card far more often on a
-    # bare plain-text prompt than on a structured caption — so a raw inpaint
-    # prompt is the most refusal-prone input in the whole app. This brings AI
-    # Fill to parity. (Can't eliminate refusals — they're baked into the
-    # weights — but it minimises them, the same lever we use for generation.)
-    # Time from here — BEFORE prompt-expansion — so the reported duration matches
-    # the user's real wait (mp.expand is an LLM round-trip that can add seconds).
+    # Build the edit caption. The masked region drifts away from the larger
+    # image when the prompt is image-blind (report §6.2/§6.6), so by default we
+    # (1) GROUND the caption in the actual source image (describe it) and
+    # (2) feed a structured JSON caption directly WITHOUT a Magic Prompt rewrite
+    # — Ideogram's own guidance for Magic Fill. Magic Prompt is opt-in.
+    # A structured caption (vs bare text) also minimises the gray "safety" card.
+    # Time from here — BEFORE the describe/expand round-trips — so the reported
+    # duration matches the user's real wait.
     t0 = time.monotonic()
-    fill_prompt = body.prompt
-    mp: MagicPromptService | None = request.app.state.magic_prompt
-    if mp is not None:
+    from magic_prompt_service import build_edit_caption, describe_image as _describe
+
+    scene_desc: str | None = None
+    if body.ground and app_settings.openrouter_api_key:
         try:
-            fill_prompt = await mp.expand(body.prompt, image.width, image.height)
+            scene_desc = await asyncio.to_thread(
+                _describe, body.image_b64, app_settings.openrouter_api_key, attempts=2
+            )
         except Exception as exc:
-            logger.warning("Inpaint prompt structuring failed (using raw text): %s", exc)
+            logger.warning("Inpaint grounding (describe) failed: %s", exc)
+
+    mp: MagicPromptService | None = request.app.state.magic_prompt
+    if body.magic_prompt and mp is not None:
+        base = body.prompt
+        if scene_desc:
+            base = f"{body.prompt}. Keep consistent with this scene: {scene_desc}"
+        try:
+            fill_prompt = await mp.expand(base, image.width, image.height)
+        except Exception as exc:
+            logger.warning("Inpaint prompt expansion failed (using grounded caption): %s", exc)
+            fill_prompt = build_edit_caption(body.prompt, scene_desc)
+    else:
+        fill_prompt = build_edit_caption(body.prompt, scene_desc)
 
     def _run():
         return pm.inpaint(image, mask, fill_prompt, settings, body.strength)
@@ -1363,36 +1381,48 @@ async def extend_endpoint(request: Request, body: ExtendRequest):
     except Exception as exc:
         raise HTTPException(400, f"Invalid image data: {exc}") from exc
 
-    # Target canvas that contains the original at the requested ratio.
+    # Target canvas that contains the original at the requested ratio. Snap each
+    # side to the pipeline alignment unit (16) up front so the padded canvas is
+    # always valid for the DiT (was relying on inpaint_region to fix it, which
+    # re-introduced the per-axis squash — report finding #6).
     tw, th = (int(x) for x in body.target_ratio.split(":"))
     ow, oh = image.size
     if ow / oh < tw / th:          # need it wider
         new_w, new_h = round(oh * tw / th), oh
     else:                          # need it taller
         new_w, new_h = ow, round(ow * th / tw)
+    new_w = _inpaint._round_to(new_w, 16)
+    new_h = _inpaint._round_to(new_h, 16)
     padded, mask = _inpaint.build_outpaint(image, new_w, new_h)
 
-    # Time from here — BEFORE prompt-expansion — so the duration reflects the
-    # real wait (mp.expand below is an LLM round-trip that can add seconds).
+    # Time from here — BEFORE the describe round-trip — so the duration reflects
+    # the real wait.
     t0 = time.monotonic()
-    prompt = body.prompt.strip() or "seamlessly continue and extend the scene, matching the existing style, lighting, perspective, and subject"
-    mp: MagicPromptService | None = request.app.state.magic_prompt
-    if mp is not None:
+    from magic_prompt_service import build_edit_caption, describe_image as _describe
+
+    instruction = body.prompt.strip() or (
+        "seamlessly continue and extend the scene"
+    )
+    scene_desc: str | None = None
+    if body.ground and app_settings.openrouter_api_key:
         try:
-            prompt = await mp.expand(prompt, padded.width, padded.height)
+            scene_desc = await asyncio.to_thread(
+                _describe, body.image_b64, app_settings.openrouter_api_key, attempts=2
+            )
         except Exception as exc:
-            logger.warning("Extend prompt structuring failed (using raw): %s", exc)
+            logger.warning("Extend grounding (describe) failed: %s", exc)
+    prompt = build_edit_caption(instruction, scene_desc)
 
     settings = GenerationSettings(
         height=padded.height, width=padded.width,
-        sampler_preset="V4_DEFAULT_20", seed=body.seed, raise_on_caption_issues=False,
+        sampler_preset=body.sampler_preset, seed=body.seed, raise_on_caption_issues=False,
         cfg=body.cfg, cfg_override=body.cfg_override, cfg_override_start=body.cfg_override_start,
     )
 
     def _run():
         # High strength: the new border is freely generated; the edge-replicated
         # init + the pinned original give continuity.
-        return pm.inpaint(padded, mask, prompt, settings, 0.95)
+        return pm.inpaint(padded, mask, prompt, settings, body.strength)
 
     try:
         out_img, actual_seed = await loop.run_in_executor(_inference_executor, _run)

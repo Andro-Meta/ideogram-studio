@@ -659,7 +659,9 @@ class BF16Pipeline(InferencePipeline):
             preset["guidance_schedule"], preset["num_inference_steps"], settings,
             forward=self.GUIDANCE_FORWARD,
         )
-        out = _inpaint.inpaint_region(
+        # inpaint_image decides crop-and-stitch (localized mask) vs full-image
+        # (whole-image remix / extend, whose mask bbox spans the canvas).
+        out = _inpaint.inpaint_image(
             self._pipe, image, mask, prompt_json,
             num_steps=preset["num_inference_steps"],
             guidance_schedule=schedule,

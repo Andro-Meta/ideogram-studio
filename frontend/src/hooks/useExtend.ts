@@ -8,6 +8,7 @@ export interface ExtendArgs {
   targetRatio: string        // "16:9" | "9:16" | "4:3" | "3:4" | "3:2" | "2:3" | "1:1"
   prompt?: string
   sourceJobId?: string
+  ground?: boolean           // ground the continuation in the source image
 }
 
 function blobToB64(blob: Blob): Promise<string> {
@@ -29,6 +30,7 @@ async function callExtend(args: ExtendArgs): Promise<EditResponse> {
       target_ratio: args.targetRatio,
       prompt: args.prompt ?? "",
       source_job_id: args.sourceJobId,
+      ground: args.ground ?? true,
       // Honour the user's custom CFG curve (same as text-to-image / remix).
       ...cfgRequestFields(),
     }),

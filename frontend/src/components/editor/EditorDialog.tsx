@@ -13,6 +13,7 @@ import { cn } from "@/lib/utils"
 import { useSaveEdit } from "@/hooks/useSaveEdit"
 import { useInpaint } from "@/hooks/useInpaint"
 import { useExtend } from "@/hooks/useExtend"
+import { useDescribeImage } from "@/hooks/useDescribeImage"
 import { useModelStatus } from "@/hooks/useModelStatus"
 import { useEditorEngine } from "./useEditorEngine"
 import { EditorStage } from "./EditorStage"
@@ -58,6 +59,7 @@ export function EditorDialog({ open, onClose, jobId, imageUrl }: Props) {
   const save = useSaveEdit()
   const inpaint = useInpaint()
   const extend = useExtend()
+  const describe = useDescribeImage()
   const { data: modelStatus } = useModelStatus()
   const canInpaint = modelStatus?.status === "ready" && !!modelStatus?.supports_inpaint
 
@@ -70,6 +72,22 @@ export function EditorDialog({ open, onClose, jobId, imageUrl }: Props) {
   const [zoom, setZoom] = useState(1)
   const [fillPrompt, setFillPrompt] = useState("")
   const [fillStrength, setFillStrength] = useState(0.6)
+  // Off by default — Ideogram's own guidance is not to let Magic Prompt rewrite
+  // an edit instruction. When off, the backend builds a grounded JSON caption.
+  const [magicPrompt, setMagicPrompt] = useState(false)
+
+  // Suggest a starting prompt by describing the current image (the same
+  // grounding the backend applies automatically), so the user can edit it.
+  const handleSuggestPrompt = async () => {
+    if (describe.isPending || !engine.base) return
+    try {
+      const blob = await engine.flatten()
+      const prompt = await describe.mutateAsync(blob)
+      if (prompt) setFillPrompt(prompt)
+    } catch (err) {
+      console.error(err)
+    }
+  }
 
   const handleInpaint = async () => {
     if (!fillPrompt.trim() || inpaint.isPending || !engine.base) return
@@ -89,7 +107,7 @@ export function EditorDialog({ open, onClose, jobId, imageUrl }: Props) {
       const blob = await engine.flatten()
       inpaint.mutate(
         { imageBlob: blob, maskCanvas, prompt: fillPrompt.trim(),
-          strength: fillStrength, sourceJobId: jobId },
+          strength: fillStrength, sourceJobId: jobId, magicPrompt },
         {
           onSuccess: (res) => {
             toast.success(whole ? "Image remixed" : "Region filled")
@@ -312,6 +330,21 @@ export function EditorDialog({ open, onClose, jobId, imageUrl }: Props) {
               </p>
               {canInpaint ? (
                 <>
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] text-zinc-500">Edit prompt</span>
+                    <button
+                      type="button"
+                      onClick={handleSuggestPrompt}
+                      disabled={describe.isPending || !engine.base}
+                      className="text-[11px] text-violet-400 hover:text-violet-300 disabled:opacity-40 flex items-center gap-1"
+                      title="Describe the current image to seed a prompt you can edit"
+                    >
+                      {describe.isPending
+                        ? <Loader2 className="h-3 w-3 animate-spin" />
+                        : <Wand2 className="h-3 w-3" />}
+                      Suggest from image
+                    </button>
+                  </div>
                   <Textarea
                     value={fillPrompt}
                     onChange={(e) => setFillPrompt(e.target.value)}
@@ -329,6 +362,12 @@ export function EditorDialog({ open, onClose, jobId, imageUrl }: Props) {
                     fmt={(v) => v >= 0.95 ? "full regen" : `${Math.round(v * 100)}%`}
                     onChange={setFillStrength}
                   />
+                  <label className="flex items-center gap-2 text-xs text-zinc-300 cursor-pointer">
+                    <input type="checkbox" checked={magicPrompt}
+                      onChange={(e) => setMagicPrompt(e.target.checked)}
+                      className="accent-violet-500" />
+                    Magic Prompt (rewrite my instruction)
+                  </label>
                   <Button
                     className="w-full bg-violet-600 hover:bg-violet-500 text-white gap-2 disabled:opacity-40"
                     disabled={!fillPrompt.trim() || inpaint.isPending || !engine.base}
@@ -344,8 +383,10 @@ export function EditorDialog({ open, onClose, jobId, imageUrl }: Props) {
                       ? "Magic Fill: only the selection changes; the rest is kept exactly."
                       : "Remix: no selection, so the whole image is reimagined from your prompt — select an area first if you only want to change part of it."}
                     {" "}Change amount: low keeps the original composition/lighting (subtle edit),
-                    high reinvents freely. Prompts are auto-structured to reduce refusals, but very
-                    graphic ones can still trip the weight-baked card (a decensor LoRA is the only full fix).
+                    high reinvents freely. The edit is run at the model's native resolution and the
+                    prompt is automatically grounded in your image so the fill matches the surrounding
+                    lighting and style. Magic Prompt is off by default (it can drift the edit); turn it
+                    on to let the model expand a terse instruction.
                   </p>
                 </>
               ) : (
@@ -495,9 +536,8 @@ export function EditorDialog({ open, onClose, jobId, imageUrl }: Props) {
 
               <p className="text-[10px] text-zinc-600 leading-relaxed pt-2">
                 Saved as a new gallery copy — the original stays untouched.
-                AI fill inside selections isn't possible with Ideogram's
-                open-weights release (text-to-image only); these are exact,
-                local pixel edits.
+                These adjustment layers are exact, local pixel edits; use AI Edit
+                above for generative region fills and Extend for outpainting.
               </p>
             </div>
           </div>

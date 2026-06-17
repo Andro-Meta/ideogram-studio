@@ -10,6 +10,8 @@ export interface InpaintArgs {
   strength?: number           // 0.1–1: how much the selection may change
   sourceJobId?: string
   sampler_preset?: string
+  ground?: boolean            // ground the caption in the source image (default on)
+  magicPrompt?: boolean       // LLM rewrite of the instruction (default off)
 }
 
 function blobToB64(blob: Blob): Promise<string> {
@@ -34,6 +36,8 @@ async function callInpaint(args: InpaintArgs): Promise<EditResponse> {
       strength: args.strength ?? 0.75,
       sampler_preset: args.sampler_preset ?? "V4_DEFAULT_20",
       source_job_id: args.sourceJobId,
+      ground: args.ground ?? true,
+      magic_prompt: args.magicPrompt ?? false,
       // Honour the user's custom CFG curve (e.g. the default 3.5→2.0) so AI Fill
       // doesn't silently fall back to the burn-prone preset CFG 7.
       ...cfgRequestFields(),

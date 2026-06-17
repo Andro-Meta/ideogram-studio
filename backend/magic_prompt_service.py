@@ -114,6 +114,55 @@ def describe_image(image_b64: str, api_key: str | None, *, attempts: int = 3) ->
     )
 
 
+# Appended to an edit's high_level_description so the masked region is steered to
+# blend with its surroundings. Ideogram exposes no feather/blend parameter — the
+# only documented consistency lever is describing/keeping the surrounding context
+# (docs/IMAGE_EDITING_REPORT_2026-06-16.md §6.1, §6.5).
+_EDIT_PRESERVE_CLAUSE = (
+    "Match the existing lighting, colour palette, perspective, focus and art "
+    "style of the surrounding image, and blend seamlessly with it"
+)
+
+
+def build_edit_caption(
+    instruction: str,
+    scene_desc: str | None = None,
+    *,
+    preserve: bool = True,
+) -> str:
+    """Deterministically build a minified Ideogram-4 JSON caption for an edit —
+    WITHOUT an LLM rewrite.
+
+    This is the `json_prompt` path: a structured caption is consumed by the
+    diffusion model directly and magic-prompt is bypassed, so the user's actual
+    intent and the real scene context survive (vs. Magic Prompt inventing a fresh
+    'neutral background' scene, the documented cause of edited regions not
+    matching the larger image — see report §6.2/§6.3).
+
+    `instruction` is what to put in the masked region; `scene_desc` is a grounded
+    description of the source image (from describe_image) used as the background
+    so the fill harmonizes with its surroundings.
+    """
+    instruction = (instruction or "").strip()
+    # If the caller already handed us a full caption, respect it verbatim.
+    if is_ideogram_caption(instruction):
+        return minify_caption(instruction)
+
+    hld = instruction
+    if preserve:
+        hld = f"{hld}. {_EDIT_PRESERVE_CLAUSE}." if hld else f"{_EDIT_PRESERVE_CLAUSE}."
+
+    background = (scene_desc or "").strip() or "Consistent with the surrounding image."
+    caption = {
+        "high_level_description": hld,
+        "compositional_deconstruction": {
+            "background": background,
+            "elements": [],
+        },
+    }
+    return json.dumps(caption, separators=(",", ":"), ensure_ascii=False)
+
+
 def coerce_free_model(model: str, free_only: bool) -> str:
     """Under free-only, never let a paid model id through — fall back to the
     free default. A no-op when free_only is off or the model is already free."""
