@@ -73,7 +73,7 @@ from schemas import (
 import system_check
 import log_setup
 from settings import (
-    DIST_DIR, OUTPUTS_DIR, DB_PATH, LORAS_DIR, settings as app_settings,
+    DIST_DIR, OUTPUTS_DIR, DB_PATH, LORAS_DIR, MODELS_DIR, settings as app_settings,
     AUTO_RETRY_MAX_ATTEMPTS, AUTO_RETRY_BUDGET_S,
 )
 
@@ -1510,6 +1510,10 @@ async def insert_object_endpoint(request: Request, body: InpaintRequest):
     )
 
 
+# The reference-edit inpaint LoRA lives in an INTERNAL models dir, NOT in the
+# user's loras/ panel — it's not a normal adapter (loading it onto plain
+# generation corrupts the output; it only works with the reference conditioning).
+_IG4_INPAINT_DIR = MODELS_DIR / "ig4-inpaint"
 _IG4_INPAINT_LORA = "ido-inpaint-diffusers.safetensors"
 
 
@@ -1531,14 +1535,14 @@ async def reference_edit_endpoint(request: Request, body: InpaintRequest):
             f"Reference edit needs a diffusers model with LoRA support. The {pm.variant or 'current'} "
             "variant can't — switch to NF4·D or BF16 and reload.",
         )
-    lora_path = (LORAS_DIR / _IG4_INPAINT_LORA).resolve()
+    lora_path = (_IG4_INPAINT_DIR / _IG4_INPAINT_LORA).resolve()
     if not lora_path.is_file():
         raise HTTPException(
             409,
             "The Ideogram-4 inpaint LoRA isn't installed. Download "
-            "BitPoet/Ideogram4-Inpaint-LoRA (step-4000) into loras/ and run "
-            "`python scripts/remap_inpaint_lora.py loras/IdoInpaint_2_00004000.safetensors "
-            f"loras/{_IG4_INPAINT_LORA}`.",
+            "BitPoet/Ideogram4-Inpaint-LoRA (step-4000), then run "
+            "`python scripts/remap_inpaint_lora.py <native.safetensors> "
+            f"models/ig4-inpaint/{_IG4_INPAINT_LORA}`.",
         )
 
     loop = asyncio.get_running_loop()

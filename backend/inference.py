@@ -567,10 +567,11 @@ class BF16Pipeline(InferencePipeline):
         )
 
         num_steps = preset["num_inference_steps"]
+        progress_total = [num_steps]   # updated to the effective count (EIS adds steps)
 
         def _on_step(pipe, step_i: int, timestep: int, kwargs: dict) -> dict:
             if step_callback:
-                step_callback(step_i, num_steps)
+                step_callback(step_i, progress_total[0])
             return {}
 
         # Apply the user's chosen sampler (default res_multistep + EIS — the
@@ -580,6 +581,7 @@ class BF16Pipeline(InferencePipeline):
             self._pipe, settings.sampler, settings.detail, num_steps,
             preset["mu"], preset["std"], list(schedule), settings.width, settings.height,
         ) as (eff_steps, eff_guidance):
+            progress_total[0] = eff_steps
             result = self._pipe(
                 prompt=prompt_json,
                 height=settings.height,
@@ -645,9 +647,11 @@ class BF16Pipeline(InferencePipeline):
             self._loras[adapter_name] = {"weight": 1.0, "source": lora_path}
             self._apply_adapters()
 
+        progress_total = [num_steps]
+
         def _on_step(pipe, step_i: int, t, kwargs: dict) -> dict:
             if step_callback:
-                step_callback(step_i, num_steps)
+                step_callback(step_i, progress_total[0])
             return {}
 
         try:
@@ -656,6 +660,7 @@ class BF16Pipeline(InferencePipeline):
                 ref_mu, ref_std, base_guidance, gen_w, gen_h,
             ) as (eff_steps, eff_guidance), \
                  _ref.reference_conditioning(self._pipe, image, gen_w, gen_h):
+                progress_total[0] = eff_steps
                 result = self._pipe(
                     prompt=prompt_json, height=gen_h, width=gen_w,
                     num_inference_steps=eff_steps,
