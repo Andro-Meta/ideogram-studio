@@ -47,7 +47,7 @@ def extract_triggers(metadata: dict | None) -> list[str]:
                 if isinstance(sub, dict):
                     out.extend(sub.keys())
         except Exception:
-            pass
+            pass  # malformed metadata — just skip the tag-frequency source
     for key in ("trigger", "ss_trigger_words", "activation_text", "trainedWords",
                 "trained_words", "instance_prompt"):
         v = metadata.get(key)
@@ -56,7 +56,7 @@ def extract_triggers(metadata: dict | None) -> list[str]:
                 parsed = json.loads(v)
                 v = parsed if isinstance(parsed, list) else v
             except Exception:
-                pass
+                pass  # not JSON — treat the raw string as the trigger text below
         if isinstance(v, str):
             out.extend(p.strip() for p in v.split(",") if p.strip())
         elif isinstance(v, list):
