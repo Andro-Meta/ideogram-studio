@@ -18,6 +18,7 @@ reference apply to the positive model only).
 """
 from __future__ import annotations
 import contextlib
+import math
 import types
 
 import torch
@@ -80,6 +81,84 @@ class ResMultistepFlowScheduler(FlowMatchEulerDiscreteScheduler):
 # Reference tokens ride along as ordinary image tokens; position-id time+1 and a
 # clean timestep are what actually distinguish them (matches the trained LoRA).
 OUTPUT_IMAGE_INDICATOR = 2
+
+
+def extend_intermediate_sigmas(
+    sigmas: torch.Tensor, steps: int = 2,
+    start_at_sigma: float = 1.0, end_at_sigma: float = 0.98, spacing: str = "linear",
+) -> torch.Tensor:
+    """Port of ComfyUI's `ExtendIntermediateSigmas` (the LoRA workflow uses it):
+    insert `steps - 1` interpolated sigmas into every gap whose upper sigma falls
+    in `[end_at_sigma, start_at_sigma]`. With [2, 1, 0.98] that's one extra
+    refinement step at the high-noise start, which steadies the early structure
+    (anti-"blocked"-collapse). `sigmas` is decreasing (the diffusers convention,
+    minus the trailing 0 that the scheduler re-appends)."""
+    if start_at_sigma < 0:
+        start_at_sigma = float("inf")
+    interp = {
+        "linear": lambda x: x,
+        "cosine": lambda x: torch.sin(x * math.pi / 2),
+        "sine": lambda x: 1 - torch.cos(x * math.pi / 2),
+    }[spacing]
+    frac = interp(torch.linspace(0, 1, steps + 1, device=sigmas.device)[1:-1])
+    out: list = []
+    for i in range(len(sigmas) - 1):
+        cur, nxt = sigmas[i], sigmas[i + 1]
+        out.append(cur)
+        if end_at_sigma <= float(cur) <= start_at_sigma:
+            out.extend((frac * (nxt - cur) + cur).tolist())
+    if len(sigmas) > 0:
+        out.append(sigmas[-1])
+    return torch.tensor(out, dtype=sigmas.dtype, device=sigmas.device)
+
+
+def extend_sigmas_and_guidance(
+    sigmas: torch.Tensor, guidance: list[float], steps: int = 2,
+    start_at_sigma: float = 1.0, end_at_sigma: float = 0.98, spacing: str = "linear",
+) -> tuple[torch.Tensor, list[float]]:
+    """EIS, but extends the per-step guidance schedule in LOCKSTEP with the sigma
+    schedule, so res_multistep + EIS work for a non-constant CFG curve (e.g. the
+    7→3 generation curve). res_multistep WITHOUT EIS makes sparse prompts collapse
+    to the 'image blocked' card — they must be used together."""
+    if start_at_sigma < 0:
+        start_at_sigma = float("inf")
+    interp = {
+        "linear": lambda x: x,
+        "cosine": lambda x: torch.sin(x * math.pi / 2),
+        "sine": lambda x: 1 - torch.cos(x * math.pi / 2),
+    }[spacing]
+    frac = interp(torch.linspace(0, 1, steps + 1, device=sigmas.device)[1:-1])
+    out_s: list[float] = []
+    out_g: list[float] = []
+    n = len(sigmas)
+    for i in range(n - 1):
+        cur, nxt = sigmas[i], sigmas[i + 1]
+        out_s.append(float(cur))
+        out_g.append(float(guidance[i]))
+        if end_at_sigma <= float(cur) <= start_at_sigma:
+            out_s.extend((frac * (nxt - cur) + cur).tolist())
+            gi = float(guidance[i])
+            gj = float(guidance[min(i + 1, len(guidance) - 1)])
+            out_g.extend((frac * (gj - gi) + gi).tolist())
+    out_s.append(float(sigmas[-1]))
+    out_g.append(float(guidance[-1]))
+    return torch.tensor(out_s, dtype=sigmas.dtype, device=sigmas.device), out_g
+
+
+@contextlib.contextmanager
+def extended_sigma_schedule(ext_sigmas: torch.Tensor):
+    """Make Ideogram4Pipeline.__call__ use `ext_sigmas` for this run (it computes
+    its schedule via the module-level `_logit_normal_sigmas`). The caller passes
+    `num_inference_steps=len(ext_sigmas)` so the per-step guidance length matches
+    the extended schedule — letting EIS work through the stock denoise loop
+    instead of a hand-rolled one."""
+    from diffusers.pipelines.ideogram4 import pipeline_ideogram4 as _pi
+    orig = _pi._logit_normal_sigmas
+    _pi._logit_normal_sigmas = lambda *a, **k: ext_sigmas.to(k.get("device") or ext_sigmas.device)
+    try:
+        yield
+    finally:
+        _pi._logit_normal_sigmas = orig
 
 
 @contextlib.contextmanager

@@ -566,22 +566,43 @@ class BF16Pipeline(InferencePipeline):
                 step_callback(step_i, preset["num_inference_steps"])
             return {}
 
-        result = self._pipe(
-            prompt=prompt_json,
-            height=settings.height,
-            width=settings.width,
-            num_inference_steps=preset["num_inference_steps"],
-            guidance_scale=None,                            # mutually exclusive with guidance_schedule
-            guidance_schedule=schedule,
-            mu=preset["mu"],
-            std=preset["std"],
-            prompt_upsampling=False,                        # we handle this via MagicPromptService
-            generator=generator,
-            output_type="pil",
-            return_dict=True,
-            callback_on_step_end=_on_step,
-            callback_on_step_end_tensor_inputs=["latents"],
+        # Default to the ComfyUI Ideogram4 workflow's sampler: res_multistep +
+        # ExtendIntermediateSigmas, used TOGETHER (res_multistep alone makes sparse
+        # prompts collapse to the "image blocked" card — EIS steadies the start).
+        # EIS adds a step, so the sigma schedule AND the guidance curve are both
+        # extended in lockstep to keep the per-step guidance length matched.
+        import reference_edit as _ref
+        from diffusers.pipelines.ideogram4 import pipeline_ideogram4 as _pi
+        dev = self._pipe._execution_device
+        _schedule_mu = _pi._resolution_aware_mu(height=settings.height, width=settings.width, base_mu=preset["mu"])
+        _base_sigmas = _pi._logit_normal_sigmas(preset["num_inference_steps"], _schedule_mu, std=preset["std"], device=dev)
+        ext_sigmas, ext_guidance = _ref.extend_sigmas_and_guidance(
+            _base_sigmas, list(schedule), steps=2, start_at_sigma=1.0, end_at_sigma=0.98, spacing="linear"
         )
+        num_eff = len(ext_sigmas)
+
+        orig_scheduler = self._pipe.scheduler
+        self._pipe.scheduler = _ref.ResMultistepFlowScheduler.from_config(orig_scheduler.config)
+        try:
+            with _ref.extended_sigma_schedule(ext_sigmas):
+                result = self._pipe(
+                    prompt=prompt_json,
+                    height=settings.height,
+                    width=settings.width,
+                    num_inference_steps=num_eff,
+                    guidance_scale=None,                            # mutually exclusive with guidance_schedule
+                    guidance_schedule=ext_guidance,
+                    mu=preset["mu"],
+                    std=preset["std"],
+                    prompt_upsampling=False,                        # we handle this via MagicPromptService
+                    generator=generator,
+                    output_type="pil",
+                    return_dict=True,
+                    callback_on_step_end=_on_step,
+                    callback_on_step_end_tensor_inputs=["latents"],
+                )
+        finally:
+            self._pipe.scheduler = orig_scheduler
         return result.images[0], actual_seed
 
     def reference_edit(
@@ -622,8 +643,20 @@ class BF16Pipeline(InferencePipeline):
         # the output off the reference (exposure drift, a visible composite seam,
         # and a weaker edit), so honour the LoRA's settings here.
         ref_cfg = float(settings.cfg) if settings.cfg is not None else 3.0
-        schedule = [ref_cfg] * num_steps
         ref_mu, ref_std = 0.5, 1.75
+
+        # Build the EIS-extended sigma schedule the workflow uses (1 extra step at
+        # the high-noise start). We precompute it so the stock pipeline runs with
+        # a matching guidance length (constant CFG), no hand-rolled denoise loop.
+        from diffusers.pipelines.ideogram4 import pipeline_ideogram4 as _pi
+        dev = self._pipe._execution_device
+        _schedule_mu = _pi._resolution_aware_mu(height=gen_h, width=gen_w, base_mu=ref_mu)
+        _base_sigmas = _pi._logit_normal_sigmas(num_steps, _schedule_mu, std=ref_std, device=dev)
+        ext_sigmas = _ref.extend_intermediate_sigmas(
+            _base_sigmas, steps=2, start_at_sigma=1.0, end_at_sigma=0.98, spacing="linear"
+        )
+        num_eff = len(ext_sigmas)
+        schedule = [ref_cfg] * num_eff
 
         loaded_here = adapter_name not in self._loras
         if loaded_here:
@@ -633,7 +666,7 @@ class BF16Pipeline(InferencePipeline):
 
         def _on_step(pipe, step_i: int, t, kwargs: dict) -> dict:
             if step_callback:
-                step_callback(step_i, num_steps)
+                step_callback(step_i, num_eff)
             return {}
 
         # Swap in the res_multistep solver (the LoRA workflow's sampler) for this
@@ -642,10 +675,11 @@ class BF16Pipeline(InferencePipeline):
         self._pipe.scheduler = _ref.ResMultistepFlowScheduler.from_config(orig_scheduler.config)
 
         try:
-            with _ref.reference_conditioning(self._pipe, image, gen_w, gen_h):
+            with _ref.reference_conditioning(self._pipe, image, gen_w, gen_h), \
+                 _ref.extended_sigma_schedule(ext_sigmas):
                 result = self._pipe(
                     prompt=prompt_json, height=gen_h, width=gen_w,
-                    num_inference_steps=num_steps,
+                    num_inference_steps=num_eff,
                     guidance_scale=None, guidance_schedule=schedule,
                     mu=ref_mu, std=ref_std, prompt_upsampling=False,
                     generator=generator, output_type="pil", return_dict=True,
