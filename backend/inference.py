@@ -240,22 +240,30 @@ def _resolve_guidance_schedule(
     )
 
 
-def _load_lora_state_dict(source: str) -> dict:
-    """Load a LoRA's raw tensor state dict from a local .safetensors path or an
-    HF repo id (downloads the adapter file). Used so we can inspect/remap the
-    weights before injecting them."""
+def _read_safetensors(path: str) -> tuple[dict, dict]:
+    """Return (state_dict, __metadata__) from a .safetensors file."""
+    from safetensors import safe_open
+    sd, meta = {}, {}
+    with safe_open(path, framework="pt") as f:
+        meta = dict(f.metadata() or {})
+        for k in f.keys():
+            sd[k] = f.get_tensor(k)
+    return sd, meta
+
+
+def _load_lora_state_dict(source: str) -> tuple[dict, dict]:
+    """Load a LoRA's raw tensor state dict + metadata from a local .safetensors
+    path or an HF repo id (downloads the adapter file). `source` may be "repo/id"
+    or "repo/id::filename.safetensors" to pin an exact file."""
     import os
-    from safetensors.torch import load_file
 
     if os.path.isfile(source):
-        return load_file(source)
-    # HF repo id → pick the LoRA .safetensors and download it. `source` may be
-    # "repo/id" or "repo/id::filename.safetensors" to pin an exact file.
+        return _read_safetensors(source)
     from huggingface_hub import hf_hub_download, list_repo_files
     token = os.environ.get("HF_TOKEN")
     if "::" in source:
         repo, repo_file = source.split("::", 1)
-        return load_file(hf_hub_download(repo.strip(), repo_file.strip(), token=token))
+        return _read_safetensors(hf_hub_download(repo.strip(), repo_file.strip(), token=token))
 
     files = [f for f in list_repo_files(source, token=token) if f.endswith(".safetensors")]
     if not files:
@@ -268,8 +276,7 @@ def _load_lora_state_dict(source: str) -> dict:
     cand = [f for f in files if not any(s in f.lower() for s in _skip)] or files
     pref = [f for f in cand if "lora" in f.lower()]
     pick = pref[-1] if pref else sorted(cand)[-1]
-    path = hf_hub_download(source, pick, token=token)
-    return load_file(path)
+    return _read_safetensors(hf_hub_download(source, pick, token=token))
 
 
 def is_safety_collapse(
@@ -747,7 +754,8 @@ class BF16Pipeline(InferencePipeline):
         # LoRA would silently do nothing. Load the raw weights, remap to the
         # diffusers layout if native, then inject the state dict.
         import lora_remap
-        state_dict = _load_lora_state_dict(source)
+        state_dict, metadata = _load_lora_state_dict(source)
+        triggers = lora_remap.extract_triggers(metadata)
         fmt = lora_remap.adapter_format(state_dict)
         if fmt in ("lokr", "loha"):
             raise ValueError(
@@ -762,7 +770,7 @@ class BF16Pipeline(InferencePipeline):
             state_dict = lora_remap.remap_native_to_diffusers(state_dict)
             logger.info("LoRA %s: remapped native (ai-toolkit) keys -> diffusers", adapter_name)
         self._pipe.transformer.load_lora_adapter(state_dict, adapter_name=adapter_name)
-        self._loras[adapter_name] = {"weight": float(weight), "source": source}
+        self._loras[adapter_name] = {"weight": float(weight), "source": source, "triggers": triggers}
         self._apply_adapters()
         logger.info("LoRA loaded: %s (weight=%.2f, %d tensors) from %s",
                     adapter_name, weight, len(state_dict), source)
@@ -792,7 +800,7 @@ class BF16Pipeline(InferencePipeline):
 
     def active_loras(self) -> list[dict]:
         return [
-            {"name": n, "weight": d["weight"], "source": d["source"]}
+            {"name": n, "weight": d["weight"], "source": d["source"], "triggers": d.get("triggers", [])}
             for n, d in self._loras.items()
         ]
 

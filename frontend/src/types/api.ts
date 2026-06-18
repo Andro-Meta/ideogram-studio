@@ -151,6 +151,7 @@ export interface LoraInfo {
   name: string
   weight: number
   source: string
+  triggers?: string[]
 }
 
 export interface LoraListResponse {

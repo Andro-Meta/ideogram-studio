@@ -563,6 +563,7 @@ class LoraInfo(BaseModel):
     name: str
     weight: float
     source: str
+    triggers: list[str] = []   # activation words pulled from the LoRA's metadata
 
 
 class LoraListResponse(BaseModel):

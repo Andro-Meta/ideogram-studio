@@ -1,11 +1,13 @@
 import { useState } from "react"
+import { toast } from "sonner"
 import { Boxes, Loader2, Plus, RefreshCw, Trash2, Sparkles, ChevronDown } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Slider } from "@/components/ui/slider"
 import { Separator } from "@/components/ui/separator"
 import { useModelStatus } from "@/hooks/useModelStatus"
 import { useLoras, useLoraMutations } from "@/hooks/useLoras"
-import { CURATED_LORAS } from "@/lib/loraGallery"
+import { CURATED_LORAS, type CuratedLora, type LoraRecommended } from "@/lib/loraGallery"
+import { useSettingsStore } from "@/stores/settingsStore"
 import type { LoraInfo } from "@/types/api"
 
 /**
@@ -36,8 +38,40 @@ export function LoraPanel() {
   const ready = status?.status === "ready"
   const { data, refetch, isRefetching } = useLoras(ready)
   const { apply, setWeight, remove } = useLoraMutations()
+  const setSamplerPreset = useSettingsStore((s) => s.setSamplerPreset)
+  const setCfgPreset = useSettingsStore((s) => s.setCfgPreset)
   const [hfRepo, setHfRepo] = useState("")
   const [showCurated, setShowCurated] = useState(false)
+
+  // Auto-apply a LoRA's recommended settings on add (sampler/CFG to the store),
+  // with a one-click revert; surface trigger words to add to the prompt.
+  function applyRecommended(rec?: LoraRecommended) {
+    if (!rec) return
+    const prev = {
+      sampler: useSettingsStore.getState().samplerPreset,
+      cfg: useSettingsStore.getState().cfgPreset,
+    }
+    if (rec.samplerPreset) setSamplerPreset(rec.samplerPreset)
+    if (rec.cfgPreset) setCfgPreset(rec.cfgPreset)
+    const changed = !!(rec.samplerPreset || rec.cfgPreset)
+    const trig = rec.triggerWords?.length ? ` Add to prompt: ${rec.triggerWords.join(", ")}.` : ""
+    if (changed) {
+      toast.success("Recommended settings applied." + trig, {
+        action: { label: "Revert", onClick: () => { setSamplerPreset(prev.sampler); setCfgPreset(prev.cfg) } },
+      })
+    } else if (trig) {
+      toast.message("LoRA added", { description: trig.trim() })
+    }
+  }
+
+  function addCurated(c: CuratedLora) {
+    if (c.format && c.format !== "lora") return   // LoKr/LoHa: unsupported
+    const repo = c.file ? `${c.repo}::${c.file}` : c.repo
+    apply.mutate(
+      { hf_repo: repo, weight: c.recommended?.weight ?? 1.0 },
+      { onSuccess: () => applyRecommended(c.recommended) },
+    )
+  }
 
   // Hidden entirely unless a LoRA-capable model is actually loaded.
   if (!ready || !data?.supported) return null
@@ -114,26 +148,38 @@ export function LoraPanel() {
         {showCurated && (
           <div className="px-1.5 pb-1.5 space-y-1">
             {CURATED_LORAS.map((c) => {
-              const loaded = data.loaded.some((l) => l.source === c.repo)
+              const loaded = data.loaded.some((l) => l.source === c.repo || l.source.startsWith(`${c.repo}::`))
+              const unsupported = !!c.format && c.format !== "lora"
+              const rec = c.recommended
               return (
                 <button
                   key={c.repo}
                   type="button"
-                  disabled={apply.isPending || loaded}
-                  onClick={() => apply.mutate({ hf_repo: c.repo, weight: 1.0 })}
-                  title={`${c.repo} — ${c.blurb}`}
-                  className="w-full text-left rounded border border-zinc-700/70 bg-zinc-800/50 px-2 py-1.5 hover:border-violet-600/60 hover:bg-violet-500/5 disabled:opacity-50 transition-colors"
+                  disabled={apply.isPending || loaded || unsupported}
+                  onClick={() => addCurated(c)}
+                  title={unsupported ? `${c.title} — ${c.format!.toUpperCase()} format, not supported on this model` : `${c.repo} — ${c.blurb}`}
+                  className="w-full text-left rounded border border-zinc-700/70 bg-zinc-800/50 px-2 py-1.5 hover:border-violet-600/60 hover:bg-violet-500/5 disabled:opacity-50 disabled:hover:border-zinc-700/70 transition-colors"
                 >
                   <div className="flex items-center justify-between gap-1.5">
                     <span className="text-[11px] font-medium text-zinc-200 truncate">{c.title}</span>
-                    <span className="text-[9px] uppercase tracking-wider text-violet-300/60 shrink-0">{c.kind}</span>
+                    {unsupported
+                      ? <span className="text-[9px] uppercase tracking-wider text-amber-400/70 shrink-0">{c.format}</span>
+                      : <span className="text-[9px] uppercase tracking-wider text-violet-300/60 shrink-0">{c.kind}</span>}
                   </div>
                   <p className="text-[10px] text-zinc-500 leading-snug line-clamp-2">{c.blurb}</p>
+                  {!unsupported && rec && (rec.weight || rec.triggerWords?.length) && (
+                    <p className="text-[9px] text-violet-300/50 mt-0.5 truncate">
+                      {rec.weight != null && `weight ${rec.weight}`}
+                      {rec.weight != null && rec.triggerWords?.length ? " · " : ""}
+                      {rec.triggerWords?.length ? `trigger: ${rec.triggerWords.join(", ")}` : ""}
+                    </p>
+                  )}
                 </button>
               )
             })}
             <p className="text-[9px] text-zinc-600 px-1 pt-0.5">
-              First use downloads the adapter from Hugging Face (gated repos need your HF token).
+              First use downloads the adapter from Hugging Face. Adding one applies its
+              recommended weight/settings (you can revert). LoKr/LoHa adapters aren't supported.
             </p>
           </div>
         )}
@@ -217,6 +263,20 @@ function LoadedRow({
         onValueChange={([v]) => setVal(v)}
         onValueCommit={([v]) => onWeight(v)}
       />
+      {!!lora.triggers?.length && (
+        <div className="flex flex-wrap gap-1 pt-0.5">
+          {lora.triggers.map((t) => (
+            <button
+              key={t} type="button"
+              onClick={() => { navigator.clipboard?.writeText(t); toast.message("Copied trigger word", { description: `“${t}” — add it to your prompt` }) }}
+              title="Copy this trigger word to add to your prompt"
+              className="rounded bg-violet-500/10 border border-violet-700/40 px-1.5 py-0.5 text-[9px] text-violet-300 hover:bg-violet-500/20"
+            >
+              {t}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

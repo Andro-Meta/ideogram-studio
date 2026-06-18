@@ -30,6 +30,46 @@ def adapter_format(state_dict: dict) -> str:
     return "unknown"
 
 
+def extract_triggers(metadata: dict | None) -> list[str]:
+    """Pull trigger / activation words out of a LoRA's safetensors metadata
+    (kohya/ai-toolkit `ss_tag_frequency`, Civitai `trainedWords`, etc.) so the UI
+    can suggest what to add to the prompt. Best-effort, de-duplicated, capped."""
+    if not metadata:
+        return []
+    import json
+
+    out: list[str] = []
+    tf = metadata.get("ss_tag_frequency")
+    if tf:
+        try:
+            d = json.loads(tf) if isinstance(tf, str) else tf
+            for sub in (d.values() if isinstance(d, dict) else []):
+                if isinstance(sub, dict):
+                    out.extend(sub.keys())
+        except Exception:
+            pass
+    for key in ("trigger", "ss_trigger_words", "activation_text", "trainedWords",
+                "trained_words", "instance_prompt"):
+        v = metadata.get(key)
+        if isinstance(v, str) and v.strip():
+            try:
+                parsed = json.loads(v)
+                v = parsed if isinstance(parsed, list) else v
+            except Exception:
+                pass
+        if isinstance(v, str):
+            out.extend(p.strip() for p in v.split(",") if p.strip())
+        elif isinstance(v, list):
+            out.extend(str(x).strip() for x in v if str(x).strip())
+
+    seen: list[str] = []
+    for t in out:
+        t = t.strip()
+        if t and len(t) <= 60 and t not in seen:
+            seen.append(t)
+    return seen[:8]
+
+
 def is_native_ideogram4_lora(state_dict: dict) -> bool:
     """True if the LoRA uses the native (fused-QKV) naming that diffusers can't
     match directly — i.e. it needs remapping."""
