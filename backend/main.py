@@ -604,6 +604,7 @@ async def loras_apply(request: Request, body: LoraApplyRequest):
             _inference_executor, lambda: pm.load_lora(source, adapter, body.weight)
         )
     except Exception as exc:
+        logger.exception("LoRA load failed for %s", source)
         raise HTTPException(400, f"Could not load LoRA: {exc}") from exc
 
     return await loras_list(request)

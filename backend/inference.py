@@ -240,6 +240,38 @@ def _resolve_guidance_schedule(
     )
 
 
+def _load_lora_state_dict(source: str) -> dict:
+    """Load a LoRA's raw tensor state dict from a local .safetensors path or an
+    HF repo id (downloads the adapter file). Used so we can inspect/remap the
+    weights before injecting them."""
+    import os
+    from safetensors.torch import load_file
+
+    if os.path.isfile(source):
+        return load_file(source)
+    # HF repo id → pick the LoRA .safetensors and download it. `source` may be
+    # "repo/id" or "repo/id::filename.safetensors" to pin an exact file.
+    from huggingface_hub import hf_hub_download, list_repo_files
+    token = os.environ.get("HF_TOKEN")
+    if "::" in source:
+        repo, repo_file = source.split("::", 1)
+        return load_file(hf_hub_download(repo.strip(), repo_file.strip(), token=token))
+
+    files = [f for f in list_repo_files(source, token=token) if f.endswith(".safetensors")]
+    if not files:
+        raise RuntimeError(f"No .safetensors found in LoRA repo {source!r}.")
+    # Repos often bundle base-model components (text encoder / VAE) and several
+    # LoRA versions. Drop the base components, then prefer a 'lora' file, else
+    # the alphabetically-last (usually the newest version, e.g. V4).
+    _skip = ("qwen", "text_encoder", "text_encoders", "vae", "clip", "t5",
+             "diffusion_pytorch_model", "/model.safetensors", "model-0000")
+    cand = [f for f in files if not any(s in f.lower() for s in _skip)] or files
+    pref = [f for f in cand if "lora" in f.lower()]
+    pick = pref[-1] if pref else sorted(cand)[-1]
+    path = hf_hub_download(source, pick, token=token)
+    return load_file(path)
+
+
 def is_safety_collapse(
     image: "Image.Image", *,
     sat_thresh: float = 0.06, var_thresh: float = 120.0, edge_thresh: float = 6.0,
@@ -709,11 +741,31 @@ class BF16Pipeline(InferencePipeline):
             raise RuntimeError("Pipeline not loaded.")
         if adapter_name in self._loras:
             raise ValueError(f"A LoRA named {adapter_name!r} is already loaded.")
-        # prefix="transformer" is the default; the file may or may not carry it.
-        self._pipe.transformer.load_lora_adapter(source, adapter_name=adapter_name)
+
+        # Most community Ideogram-4 LoRAs are ai-toolkit native (fused-QKV)
+        # format, which diffusers can't match — it would load 0 layers and the
+        # LoRA would silently do nothing. Load the raw weights, remap to the
+        # diffusers layout if native, then inject the state dict.
+        import lora_remap
+        state_dict = _load_lora_state_dict(source)
+        fmt = lora_remap.adapter_format(state_dict)
+        if fmt in ("lokr", "loha"):
+            raise ValueError(
+                f"This adapter uses the {fmt.upper()} format, which can't be applied to the "
+                "diffusers Ideogram-4 model (its Q/K/V projections are split, and "
+                f"{fmt.upper()} factors trained on the native fused layout can't be split cleanly). "
+                "Use a standard LoRA (lora_A/lora_B) adapter."
+            )
+        if fmt == "unknown":
+            raise ValueError("Unrecognised adapter format — expected a standard LoRA (.safetensors).")
+        if lora_remap.is_native_ideogram4_lora(state_dict):
+            state_dict = lora_remap.remap_native_to_diffusers(state_dict)
+            logger.info("LoRA %s: remapped native (ai-toolkit) keys -> diffusers", adapter_name)
+        self._pipe.transformer.load_lora_adapter(state_dict, adapter_name=adapter_name)
         self._loras[adapter_name] = {"weight": float(weight), "source": source}
         self._apply_adapters()
-        logger.info("LoRA loaded: %s (weight=%.2f) from %s", adapter_name, weight, source)
+        logger.info("LoRA loaded: %s (weight=%.2f, %d tensors) from %s",
+                    adapter_name, weight, len(state_dict), source)
 
     def remove_lora(self, adapter_name: str) -> None:
         if self._pipe is None or adapter_name not in self._loras:
