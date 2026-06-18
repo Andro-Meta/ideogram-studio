@@ -14,7 +14,8 @@ import { useSaveEdit } from "@/hooks/useSaveEdit"
 import { useInpaint } from "@/hooks/useInpaint"
 import { useInsert } from "@/hooks/useInsert"
 import { useReferenceEdit } from "@/hooks/useReferenceEdit"
-import { useExtend } from "@/hooks/useExtend"
+import { useExtend, type Pads } from "@/hooks/useExtend"
+import { OutpaintPanel } from "./OutpaintPanel"
 import { useDescribeImage } from "@/hooks/useDescribeImage"
 import { useModelStatus } from "@/hooks/useModelStatus"
 import { CfgPresetPicker } from "@/components/controls/CfgPresetPicker"
@@ -189,15 +190,15 @@ export function EditorDialog({ open, onClose, jobId, imageUrl }: Props) {
   }
 
   const busy = inpaint.isPending || insert.isPending || reference.isPending || extend.isPending
-  const handleExtend = async (targetRatio: string) => {
+  const handleExtend = async (pads: Pads) => {
     if (busy || !engine.base) return
     try {
       const blob = await engine.flatten()
       extend.mutate(
-        { imageBlob: blob, targetRatio, prompt: fillPrompt.trim(), sourceJobId: jobId },
+        { imageBlob: blob, pads, prompt: fillPrompt.trim(), sourceJobId: jobId },
         {
           onSuccess: (res) => {
-            toast.success(`Extended to ${targetRatio}`)
+            toast.success("Canvas outpainted")
             if (res.grounded === false) {
               toast.warning("Extend wasn't grounded in your image — add an OpenRouter key in Settings for the new area to match the scene.")
             }
@@ -520,24 +521,11 @@ export function EditorDialog({ open, onClose, jobId, imageUrl }: Props) {
                   )}
 
                   {/* EXTEND */}
-                  {editMode === "extend" && (
-                    <>
-                      <div className="grid grid-cols-3 gap-1.5">
-                        {["16:9", "9:16", "4:3", "3:4", "3:2", "2:3"].map((r) => (
-                          <Button
-                            key={r} size="sm" variant="outline"
-                            className="h-7 text-[11px] border-zinc-700 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 disabled:opacity-40"
-                            disabled={busy} onClick={() => handleExtend(r)}
-                          >
-                            {extend.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : r}
-                          </Button>
-                        ))}
-                      </div>
-                      <p className="text-[11px] text-zinc-600 leading-relaxed">
-                        Pick a ratio to grow the canvas; the new area continues the scene. Uses your
-                        continuation prompt if you typed one, otherwise just extends naturally.
-                      </p>
-                    </>
+                  {editMode === "extend" && engine.base && (
+                    <OutpaintPanel
+                      baseW={engine.base.width} baseH={engine.base.height} imageSrc={liveUrl}
+                      busy={busy} pending={extend.isPending} onExtend={handleExtend}
+                    />
                   )}
 
                   {/* REFERENCE — precise in-place edit via the inpaint LoRA */}

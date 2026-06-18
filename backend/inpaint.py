@@ -218,16 +218,20 @@ def insert_tile_size(mask: Image.Image, unit: int = 16, thresh: int = 8) -> tupl
     return _aspect_preserving_size(max(1, x1 - x0), max(1, y1 - y0), unit)
 
 
-def build_outpaint(image: Image.Image, target_w: int, target_h: int):
-    """Place `image` centered on a target_w×target_h canvas and return
-    (padded_image, mask) for outpainting. The new border is edge-replicated
-    (a plausible img2img start, not black) and the mask marks it white =
-    regenerate; the original area is black = keep."""
+def build_outpaint(
+    image: Image.Image, target_w: int, target_h: int,
+    left: int | None = None, top: int | None = None,
+):
+    """Place `image` on a target_w×target_h canvas (at offset `left`,`top`, or
+    centred if not given) and return (padded_image, mask) for outpainting. The
+    original keeps its pixels; the new border is reflect-padded (a plausible
+    img2img start) and the mask marks it white = regenerate. An explicit offset
+    lets the canvas grow asymmetrically (e.g. only the bottom/right)."""
     ow, oh = image.size
     target_w = max(ow, target_w)
     target_h = max(oh, target_h)
-    left = (target_w - ow) // 2
-    top = (target_h - oh) // 2
+    left = (target_w - ow) // 2 if left is None else max(0, min(int(left), target_w - ow))
+    top = (target_h - oh) // 2 if top is None else max(0, min(int(top), target_h - oh))
 
     arr = np.asarray(image.convert("RGB"))
     pads = ((top, target_h - oh - top), (left, target_w - ow - left), (0, 0))

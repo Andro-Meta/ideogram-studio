@@ -1636,19 +1636,29 @@ async def extend_endpoint(request: Request, body: ExtendRequest):
     # then derive the grow side from that snapped anchor — so the padded canvas
     # lands on the requested ratio within ×16 instead of drifting (e.g. 16:9 was
     # coming back ~1.76:1). ×16 keeps the canvas valid for the DiT.
-    tw, th = (int(x) for x in body.target_ratio.split(":"))
     ow, oh = image.size
 
     def _ceil16(v: float) -> int:
         return -(-int(v) // 16) * 16
 
-    if ow / oh < tw / th:          # target wider → height is the anchor
-        new_h = _ceil16(oh)
-        new_w = max(_ceil16(ow), _inpaint._round_to(new_h * tw / th, 16))
-    else:                          # target taller → width is the anchor
-        new_w = _ceil16(ow)
-        new_h = max(_ceil16(oh), _inpaint._round_to(new_w * th / tw, 16))
-    padded, mask = _inpaint.build_outpaint(image, new_w, new_h)
+    if body.pad_top or body.pad_right or body.pad_bottom or body.pad_left:
+        # Directional: the original keeps its position (offset = top-left pads);
+        # snap the grown canvas UP to ×16 so it always contains original+pads.
+        left, top = body.pad_left, body.pad_top
+        new_w = max(_ceil16(ow), _ceil16(ow + body.pad_left + body.pad_right))
+        new_h = max(_ceil16(oh), _ceil16(oh + body.pad_top + body.pad_bottom))
+        padded, mask = _inpaint.build_outpaint(image, new_w, new_h, left=left, top=top)
+    else:
+        # Legacy centred-ratio fallback (anchor the kept side to ×16, derive the
+        # grow side so the canvas lands on the requested ratio).
+        tw, th = (int(x) for x in body.target_ratio.split(":"))
+        if ow / oh < tw / th:          # target wider → height is the anchor
+            new_h = _ceil16(oh)
+            new_w = max(_ceil16(ow), _inpaint._round_to(new_h * tw / th, 16))
+        else:                          # target taller → width is the anchor
+            new_w = _ceil16(ow)
+            new_h = max(_ceil16(oh), _inpaint._round_to(new_w * th / tw, 16))
+        padded, mask = _inpaint.build_outpaint(image, new_w, new_h)
 
     # Time from here — BEFORE the describe round-trip — so the duration reflects
     # the real wait.

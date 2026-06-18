@@ -437,10 +437,18 @@ class InpaintRequest(CfgControlsMixin):
 
 
 class ExtendRequest(CfgControlsMixin):
-    """Outpaint / reframe: grow the canvas to a target aspect ratio and fill
-    the new area by continuing the scene."""
+    """Outpaint / reframe: grow the canvas and fill the new area by continuing
+    the scene. The new area is specified by per-side pixel pads (so the canvas
+    can grow asymmetrically — e.g. only the bottom). `target_ratio` is the
+    legacy centred fallback used when all pads are 0."""
     image_b64: str
     target_ratio: Literal["16:9", "9:16", "4:3", "3:4", "3:2", "2:3", "1:1"] = "16:9"
+    # Per-side amounts (px) to add. The original keeps its pixels; only these
+    # margins are generated. All-zero → fall back to centred `target_ratio`.
+    pad_top: int = 0
+    pad_right: int = 0
+    pad_bottom: int = 0
+    pad_left: int = 0
     prompt: str = ""                   # optional; blank = "continue the scene"
     seed: int | None = None
     source_job_id: str | None = None
@@ -454,6 +462,13 @@ class ExtendRequest(CfgControlsMixin):
     @classmethod
     def _clamp_strength(cls, v: float) -> float:
         return max(0.1, min(1.0, v))
+
+    @field_validator("pad_top", "pad_right", "pad_bottom", "pad_left")
+    @classmethod
+    def _clamp_pad(cls, v: int) -> int:
+        # Cap a single side's growth so the canvas can't explode (attention is
+        # O(tokens²)); 0..4096 px is plenty for any reframe.
+        return max(0, min(4096, int(v)))
 
     @field_validator("image_b64")
     @classmethod
