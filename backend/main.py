@@ -980,6 +980,7 @@ async def generation_ws(websocket: WebSocket, job_id: str):
         cfg=gen_req.cfg,
         cfg_override=gen_req.cfg_override,
         cfg_override_start=gen_req.cfg_override_start,
+        sampler=gen_req.sampler, detail=gen_req.detail,
     )
 
     # Create DB record using the WebSocket job_id so complete_job can find it
@@ -1302,6 +1303,7 @@ async def inpaint_endpoint(request: Request, body: InpaintRequest):
         # (default "Recommended" 7 → 3 @ 0.7). None falls back to the sampler
         # preset's built-in schedule.
         cfg=body.cfg, cfg_override=body.cfg_override, cfg_override_start=body.cfg_override_start,
+        sampler=body.sampler, detail=body.detail,
     )
 
     # Build the edit caption. The masked region drifts away from the larger
@@ -1460,6 +1462,7 @@ async def insert_object_endpoint(request: Request, body: InpaintRequest):
     gen_settings = GenerationSettings(
         height=tile_h, width=tile_w, sampler_preset=body.sampler_preset,
         seed=body.seed, raise_on_caption_issues=False,
+        sampler=body.sampler, detail=body.detail,
     )
 
     def _run():
@@ -1582,6 +1585,7 @@ async def reference_edit_endpoint(request: Request, body: InpaintRequest):
         sampler_preset=body.sampler_preset, seed=body.seed,
         raise_on_caption_issues=False,
         cfg=body.cfg, cfg_override=body.cfg_override, cfg_override_start=body.cfg_override_start,
+        sampler=body.sampler, detail=body.detail,
     )
 
     def _run():
@@ -1691,6 +1695,7 @@ async def extend_endpoint(request: Request, body: ExtendRequest):
         cfg=body.cfg if body.cfg is not None else 7.0,
         cfg_override=body.cfg_override if body.cfg_override is not None else 3.0,
         cfg_override_start=body.cfg_override_start if body.cfg_override_start is not None else 0.7,
+        sampler=body.sampler, detail=body.detail,
     )
 
     # Generate a bit above the default ~1 MP so the new border isn't softened by

@@ -1,7 +1,7 @@
 import { useMutation } from "@tanstack/react-query"
 import { toast } from "sonner"
 import type { EditResponse } from "@/types/api"
-import { cfgRequestFields } from "@/stores/settingsStore"
+import { cfgRequestFields, qualityRequestFields } from "@/stores/settingsStore"
 
 export interface InpaintArgs {
   imageBlob: Blob              // flattened canvas
@@ -34,13 +34,12 @@ async function callInpaint(args: InpaintArgs): Promise<EditResponse> {
       mask_b64,
       prompt: args.prompt,
       strength: args.strength ?? 0.75,
-      sampler_preset: args.sampler_preset ?? "V4_DEFAULT_20",
       source_job_id: args.sourceJobId,
       ground: args.ground ?? true,
       magic_prompt: args.magicPrompt ?? false,
-      // Honour the user's chosen CFG preset (default "Recommended" 7→3) so AI
-      // Fill matches the Generate tab instead of the sampler's built-in schedule.
+      // Honour the user's chosen CFG + quality (sampler/steps) controls.
       ...cfgRequestFields(),
+      ...qualityRequestFields(),
     }),
   })
   if (!res.ok) {

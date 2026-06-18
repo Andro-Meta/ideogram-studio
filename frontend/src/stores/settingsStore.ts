@@ -44,6 +44,14 @@ interface SettingsStore {
    *  0.7 = first 70% at `cfg`, last 30% at `cfgOverride`. */
   cfgOverrideStart: number
 
+  /** Editor quality/sampler controls (recommended defaults; customizable). */
+  editSampler: "res_multistep" | "euler"
+  editDetail: boolean
+  editQuality: SamplerPreset
+  setEditSampler: (v: "res_multistep" | "euler") => void
+  setEditDetail: (v: boolean) => void
+  setEditQuality: (v: SamplerPreset) => void
+
   /** Target image size in megapixels — drives the ratio→W/H computation in the
    *  resolution picker (Ideogram native ratios, snapped to ×16). */
   megapixels: number
@@ -103,6 +111,10 @@ export const useSettingsStore = create<SettingsStore>()(
       cfgOverride: 3,
       cfgOverrideStart: 0.7,
 
+      editSampler: "res_multistep",
+      editDetail: true,
+      editQuality: "V4_DEFAULT_20",
+
       // Resolution: default 1:1 at ~1 MP (1024²). The picker recomputes W/H from
       // the selected native ratio + this MP budget, snapped to ×16.
       megapixels: 1.0,
@@ -145,6 +157,9 @@ export const useSettingsStore = create<SettingsStore>()(
       setCfg: (v) => set({ cfg: clampCfg(v), cfgPreset: "custom", customCfg: true }),
       setCfgOverride: (v) => set({ cfgOverride: clampCfg(v), cfgPreset: "custom", customCfg: true }),
       setCfgOverrideStart: (v) => set({ cfgOverrideStart: Math.max(0, Math.min(1, v)), cfgPreset: "custom", customCfg: true }),
+      setEditSampler: (v) => set({ editSampler: v }),
+      setEditDetail: (v) => set({ editDetail: v }),
+      setEditQuality: (v) => set({ editQuality: v }),
       setCanvasOpen: (v) => set({ canvasOpen: v }),
       setSamplerPreset: (v) => set({ samplerPreset: v }),
       setResolution: (w, h) => set({ width: w, height: h }),
@@ -216,6 +231,15 @@ export function cfgRequestFields():
   return s.customCfg
     ? { cfg: s.cfg, cfg_override: s.cfgOverride, cfg_override_start: s.cfgOverrideStart }
     : {}
+}
+
+/** The editor's quality/sampler choices to send with an edit request — the
+ *  sampler, the EIS "detail" toggle, and the step preset. Reads the live store. */
+export function qualityRequestFields(): {
+  sampler: "res_multistep" | "euler"; detail: boolean; sampler_preset: SamplerPreset
+} {
+  const s = useSettingsStore.getState()
+  return { sampler: s.editSampler, detail: s.editDetail, sampler_preset: s.editQuality }
 }
 
 /**

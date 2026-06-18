@@ -18,7 +18,7 @@ import { useExtend, type Pads } from "@/hooks/useExtend"
 import { OutpaintPanel } from "./OutpaintPanel"
 import { useDescribeImage } from "@/hooks/useDescribeImage"
 import { useModelStatus } from "@/hooks/useModelStatus"
-import { CfgPresetPicker } from "@/components/controls/CfgPresetPicker"
+import { QualityControls } from "@/components/controls/QualityControls"
 import { useEditorEngine } from "./useEditorEngine"
 import { EditorStage } from "./EditorStage"
 import type { Adjustments, ToolId } from "./editorTypes"
@@ -471,10 +471,7 @@ export function EditorDialog({ open, onClose, jobId, imageUrl }: Props) {
                           onChange={(e) => setMagicPrompt(e.target.checked)} className="accent-violet-500" />
                         Magic Prompt (rewrite my instruction)
                       </label>
-                      <div className="space-y-1">
-                        <p className="text-[11px] text-zinc-400">Guidance (CFG)</p>
-                        <CfgPresetPicker />
-                      </div>
+                      <QualityControls showSampler={false} />
                       <Button
                         className="w-full bg-violet-600 hover:bg-violet-500 text-white gap-2 disabled:opacity-40"
                         disabled={!fillPrompt.trim() || busy || !engine.base}
@@ -502,6 +499,7 @@ export function EditorDialog({ open, onClose, jobId, imageUrl }: Props) {
                         fmt={(v) => `${Math.round(v * 100)}%`}
                         onChange={setInsertBlend}
                       />
+                      <QualityControls showSampler={true} showCfg={false} />
                       <Button
                         className="w-full bg-violet-600 hover:bg-violet-500 text-white gap-2 disabled:opacity-40"
                         disabled={!fillPrompt.trim() || busy || !engine.base || !engine.hasSelection}
@@ -522,15 +520,19 @@ export function EditorDialog({ open, onClose, jobId, imageUrl }: Props) {
 
                   {/* EXTEND */}
                   {editMode === "extend" && engine.base && (
-                    <OutpaintPanel
-                      baseW={engine.base.width} baseH={engine.base.height} imageSrc={liveUrl}
-                      busy={busy} pending={extend.isPending} onExtend={handleExtend}
-                    />
+                    <>
+                      <OutpaintPanel
+                        baseW={engine.base.width} baseH={engine.base.height} imageSrc={liveUrl}
+                        busy={busy} pending={extend.isPending} onExtend={handleExtend}
+                      />
+                      <QualityControls showSampler={false} />
+                    </>
                   )}
 
                   {/* REFERENCE — precise in-place edit via the inpaint LoRA */}
                   {editMode === "reference" && (
                     <>
+                      <QualityControls showSampler={true} showCfg={false} />
                       <Button
                         className="w-full bg-violet-600 hover:bg-violet-500 text-white gap-2 disabled:opacity-40"
                         disabled={!fillPrompt.trim() || busy || !engine.base || !engine.hasSelection}

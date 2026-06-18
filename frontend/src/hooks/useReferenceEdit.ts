@@ -1,6 +1,7 @@
 import { useMutation } from "@tanstack/react-query"
 import { toast } from "sonner"
 import type { EditResponse } from "@/types/api"
+import { cfgRequestFields, qualityRequestFields } from "@/stores/settingsStore"
 
 export interface ReferenceEditArgs {
   imageBlob: Blob               // flattened canvas
@@ -30,10 +31,11 @@ async function callReferenceEdit(args: ReferenceEditArgs): Promise<EditResponse>
       image_b64,
       mask_b64,
       prompt: args.prompt,
-      sampler_preset: args.sampler_preset ?? "V4_DEFAULT_20",
       source_job_id: args.sourceJobId,
       ground: args.ground ?? true,
       magic_prompt: false,
+      ...cfgRequestFields(),
+      ...qualityRequestFields(),
     }),
   })
   if (!res.ok) {

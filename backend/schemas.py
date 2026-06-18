@@ -77,6 +77,9 @@ class CfgControlsMixin(BaseModel):
     cfg: float | None = None
     cfg_override: float | None = None
     cfg_override_start: float | None = None
+    # Quality / sampler controls (recommended defaults; user-overridable).
+    sampler: Literal["res_multistep", "euler"] = "res_multistep"
+    detail: bool = True   # ExtendIntermediateSigmas (paired with res_multistep)
 
     @field_validator("cfg", "cfg_override")
     @classmethod

@@ -1,7 +1,7 @@
 import { useMutation } from "@tanstack/react-query"
 import { toast } from "sonner"
 import type { EditResponse } from "@/types/api"
-import { cfgRequestFields } from "@/stores/settingsStore"
+import { cfgRequestFields, qualityRequestFields } from "@/stores/settingsStore"
 
 export interface Pads { top: number; right: number; bottom: number; left: number }
 
@@ -38,8 +38,9 @@ async function callExtend(args: ExtendArgs): Promise<EditResponse> {
       prompt: args.prompt ?? "",
       source_job_id: args.sourceJobId,
       ground: args.ground ?? true,
-      // Honour the user's custom CFG curve (same as text-to-image / remix).
+      // Honour the user's CFG + quality (steps) controls.
       ...cfgRequestFields(),
+      ...qualityRequestFields(),
     }),
   })
   if (!res.ok) {

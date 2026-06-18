@@ -146,6 +146,47 @@ def extend_sigmas_and_guidance(
 
 
 @contextlib.contextmanager
+def sampler_context(pipe, sampler: str, detail: bool, num_steps: int,
+                    mu: float, std: float, guidance: list[float], gen_w: int, gen_h: int):
+    """Apply the chosen sampler for a single `pipe.__call__`, yielding the
+    EFFECTIVE (num_inference_steps, guidance_schedule) the caller must pass.
+
+    - sampler 'res_multistep' swaps in `ResMultistepFlowScheduler` (sharper).
+    - 'detail' (ExtendIntermediateSigmas) is paired with res_multistep: it adds a
+      high-noise step that stops sparse prompts collapsing to the "image blocked"
+      card. It only applies when res_multistep is on (EIS alone does nothing).
+    - 'euler' with detail off is the stock behaviour (no-op)."""
+    use_res = sampler == "res_multistep"
+    use_eis = bool(detail) and use_res
+    if not use_res:
+        yield num_steps, list(guidance)
+        return
+
+    ext_sigmas = None
+    eff_steps, eff_guidance = num_steps, list(guidance)
+    if use_eis:
+        from diffusers.pipelines.ideogram4 import pipeline_ideogram4 as _pi
+        dev = pipe._execution_device
+        smu = _pi._resolution_aware_mu(height=gen_h, width=gen_w, base_mu=mu)
+        base = _pi._logit_normal_sigmas(num_steps, smu, std=std, device=dev)
+        ext_sigmas, eff_guidance = extend_sigmas_and_guidance(
+            base, list(guidance), steps=2, start_at_sigma=1.0, end_at_sigma=0.98, spacing="linear"
+        )
+        eff_steps = len(ext_sigmas)
+
+    orig_scheduler = pipe.scheduler
+    pipe.scheduler = ResMultistepFlowScheduler.from_config(orig_scheduler.config)
+    try:
+        if ext_sigmas is not None:
+            with extended_sigma_schedule(ext_sigmas):
+                yield eff_steps, eff_guidance
+        else:
+            yield eff_steps, eff_guidance
+    finally:
+        pipe.scheduler = orig_scheduler
+
+
+@contextlib.contextmanager
 def extended_sigma_schedule(ext_sigmas: torch.Tensor):
     """Make Ideogram4Pipeline.__call__ use `ext_sigmas` for this run (it computes
     its schedule via the module-level `_logit_normal_sigmas`). The caller passes
