@@ -633,8 +633,13 @@ class BF16Pipeline(InferencePipeline):
 
         def _on_step(pipe, step_i: int, t, kwargs: dict) -> dict:
             if step_callback:
-                step_callback(step_i, preset["num_inference_steps"])
+                step_callback(step_i, num_steps)
             return {}
+
+        # Swap in the res_multistep solver (the LoRA workflow's sampler) for this
+        # edit — sharper/more faithful than the base Euler at the same steps.
+        orig_scheduler = self._pipe.scheduler
+        self._pipe.scheduler = _ref.ResMultistepFlowScheduler.from_config(orig_scheduler.config)
 
         try:
             with _ref.reference_conditioning(self._pipe, image, gen_w, gen_h):
@@ -658,6 +663,7 @@ class BF16Pipeline(InferencePipeline):
                 out = Image.composite(out.convert("RGB"), image.convert("RGB"), m)
             return out, actual_seed
         finally:
+            self._pipe.scheduler = orig_scheduler
             if loaded_here:
                 self._loras.pop(adapter_name, None)
                 try:

@@ -22,7 +22,60 @@ import types
 
 import torch
 from PIL import Image
+from diffusers import FlowMatchEulerDiscreteScheduler
 from diffusers.models.modeling_outputs import Transformer2DModelOutput
+from diffusers.schedulers.scheduling_flow_match_euler_discrete import (
+    FlowMatchEulerDiscreteSchedulerOutput,
+)
+
+
+class ResMultistepFlowScheduler(FlowMatchEulerDiscreteScheduler):
+    """`res_multistep` (deterministic, eta=0) for flow matching — a faithful port
+    of ComfyUI's ``sample_res_multistep``, the sampler BitPoet's reference
+    workflow uses. It's a 2nd-order exponential multistep solver: it reuses the
+    previous step's x0 estimate, so at the same step count it's sharper and more
+    faithful than the stock Euler step (which our base pipeline uses).
+
+    Convention matches FlowMatchEulerDiscreteScheduler: ``x0 = sample - sigma *
+    model_output`` and ``d = model_output`` (so ``to_d = (x - x0)/sigma = d``).
+    The first step and the final (sigma_next == 0) step fall back to Euler, as in
+    the reference solver."""
+
+    def set_timesteps(self, *args, **kwargs):
+        super().set_timesteps(*args, **kwargs)
+        self._old_denoised = None
+
+    def step(self, model_output, timestep, sample, s_churn=0.0, s_tmin=0.0,
+             s_tmax=float("inf"), s_noise=1.0, generator=None, return_dict=True):
+        if self.step_index is None:
+            self._init_step_index(timestep)
+        i = self.step_index
+        sigmas = self.sigmas
+        sigma, sigma_next = sigmas[i], sigmas[i + 1]
+
+        sample = sample.to(torch.float32)
+        mo = model_output.to(torch.float32)
+        denoised = sample - sigma * mo                      # predicted x0
+
+        if getattr(self, "_old_denoised", None) is None or sigma_next == 0:
+            prev = sample + (sigma_next - sigma) * mo       # Euler
+        else:
+            sigma_prev = sigmas[i - 1]
+            t, t_next, t_prev = -sigma.log(), -sigma_next.log(), -sigma_prev.log()
+            h = t_next - t
+            c2 = (t_prev - t) / h                           # eta=0 → t_old == t
+            phi1 = torch.expm1(-h) / (-h)
+            phi2 = (phi1 - 1.0) / (-h)
+            b1 = torch.nan_to_num(phi1 - phi2 / c2, nan=0.0)
+            b2 = torch.nan_to_num(phi2 / c2, nan=0.0)
+            prev = torch.exp(-h) * sample + h * (b1 * denoised + b2 * self._old_denoised)
+
+        self._old_denoised = denoised
+        self._step_index += 1
+        prev = prev.to(model_output.dtype)
+        if not return_dict:
+            return (prev,)
+        return FlowMatchEulerDiscreteSchedulerOutput(prev_sample=prev)
 
 # Reference tokens ride along as ordinary image tokens; position-id time+1 and a
 # clean timestep are what actually distinguish them (matches the trained LoRA).
