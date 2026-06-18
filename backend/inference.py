@@ -703,7 +703,7 @@ class BF16Pipeline(InferencePipeline):
                 try:
                     self._pipe.transformer.delete_adapters([adapter_name])
                 except Exception:
-                    pass
+                    pass  # best-effort cleanup — adapter may already be gone; _apply_adapters below re-syncs
                 self._apply_adapters()
 
     def unload(self) -> None:
