@@ -16,25 +16,23 @@ from settings import MODELS_DIR
 
 logger = logging.getLogger("ideogram.segment")
 
-_model = None
-_failed = False
+_model = None   # None = untried, False = tried & unavailable, else the loaded model
 _WEIGHTS = MODELS_DIR / "sam2.1_t.pt"   # tiny SAM2.1 (~75 MB), auto-downloaded
 
 
 def _get():
-    """Lazy-load the SAM2 model. Returns None (once) if unavailable."""
-    global _model, _failed
-    if _model is not None or _failed:
-        return _model
+    """Lazy-load the SAM2 model. Returns the model, or None if unavailable."""
+    global _model
+    if _model is not None:
+        return _model or None
     try:
         from ultralytics import SAM
         _model = SAM(str(_WEIGHTS))   # Ultralytics downloads the asset if missing
         logger.info("SAM2 loaded (%s)", _WEIGHTS.name)
     except Exception as exc:   # not installed / no weights / load error
         logger.warning("SAM2 unavailable (%s) — falling back to the difference mask", exc)
-        _failed = True
-        _model = None
-    return _model
+        _model = False
+    return _model or None
 
 
 def available() -> bool:
