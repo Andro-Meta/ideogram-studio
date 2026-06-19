@@ -16,6 +16,7 @@ export interface FullImageEditArgs {
   basePromptJson?: string | null // the caption that made the image, if any
   elements: FullEditElement[]
   sourceJobId?: string
+  keepOriginal?: boolean // composite back only the change (default true)
 }
 
 function blobToB64(blob: Blob): Promise<string> {
@@ -37,6 +38,7 @@ async function call(args: FullImageEditArgs): Promise<EditResponse> {
       base_prompt_json: args.basePromptJson ?? null,
       elements: args.elements,
       source_job_id: args.sourceJobId,
+      keep_original: args.keepOriginal ?? true,
       ...cfgRequestFields(),
       ...qualityRequestFields(),
     }),

@@ -1750,10 +1750,27 @@ async def full_image_edit_endpoint(request: Request, body: FullImageEditRequest)
     except Exception as exc:
         logger.exception("Full image edit failed")
         raise HTTPException(500, f"Full image edit failed: {exc}") from exc
+
+    # Keep the ORIGINAL pixel-exact and composite back only what changed inside
+    # the boxes — the whole-frame re-render drifts ("deep fries") everywhere else,
+    # but the real addition towers over that drift, so we isolate + paste it.
+    new_id = str(_uuid.uuid4())
+    layer_url: str | None = None
+    change_coverage: float | None = None
+    if body.keep_original:
+        import diff_composite
+        boxes = [el.bbox for el in body.elements]
+        comp, layer, cov = await loop.run_in_executor(
+            None, lambda: diff_composite.composite_change(image, out_img, boxes, threshold=body.change_threshold)
+        )
+        out_img = comp
+        change_coverage = cov
+        layer_name = f"{new_id}_layer.png"
+        layer.save(str(OUTPUTS_DIR / layer_name), format="PNG")
+        layer_url = f"/outputs/{layer_name}"
     duration_ms = int((time.monotonic() - t0) * 1000)
 
     db = request.app.state.db
-    new_id = str(_uuid.uuid4())
     out_name = f"{new_id}.png"
     out_img.convert("RGB").save(str(OUTPUTS_DIR / out_name), format="PNG")
     w, h = out_img.size
@@ -1763,10 +1780,13 @@ async def full_image_edit_endpoint(request: Request, body: FullImageEditRequest)
         await gallery_service.insert_derived(db, source=source, new_id=new_id, image_path=out_name, width=w, height=h)
     else:
         await gallery_service.insert_imported(db, new_id=new_id, image_path=out_name, width=w, height=h, label="AI full-image edit")
-    logger.info("Full image edit -> %s (%dx%d) seed=%d +%d elements", new_id, w, h, actual_seed, len(body.elements))
+    logger.info("Full image edit -> %s (%dx%d) seed=%d +%d elements keep_original=%s cov=%s",
+                new_id, w, h, actual_seed, len(body.elements), body.keep_original,
+                f"{change_coverage:.3f}" if change_coverage is not None else "—")
     return EditResponse(
         job_id=new_id, image_url=f"/outputs/{out_name}", width=w, height=h,
         seed=actual_seed, duration_ms=duration_ms, grounded=grounded,
+        layer_url=layer_url, change_coverage=change_coverage,
     )
 
 

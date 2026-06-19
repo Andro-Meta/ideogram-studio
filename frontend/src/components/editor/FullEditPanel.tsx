@@ -1,5 +1,5 @@
 import { useRef, useState, type PointerEvent as ReactPointerEvent } from "react"
-import { Loader2, Sparkles, Trash2, Square, Type } from "lucide-react"
+import { Loader2, Sparkles, Trash2, Square, Type, Download } from "lucide-react"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 import { Textarea } from "@/components/ui/textarea"
@@ -42,6 +42,8 @@ export function FullEditPanel({
   const [boxes, setBoxes] = useState<Box[]>([])
   const [newKind, setNewKind] = useState<"object" | "text">("object")
   const [draft, setDraft] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null)
+  const [keepOriginal, setKeepOriginal] = useState(true)
+  const [layerUrl, setLayerUrl] = useState<string | null>(null)
 
   const running = busy || fullEdit.isPending
 
@@ -98,13 +100,16 @@ export function FullEditPanel({
             bbox: [b.ymin, b.xmin, b.ymax, b.xmax],
           })),
           sourceJobId,
+          keepOriginal,
         },
         {
           onSuccess: (res) => {
-            toast.success("Full-image edit complete")
+            const cov = res.change_coverage != null ? ` (changed ${Math.round(res.change_coverage * 100)}% of the frame)` : ""
+            toast.success(keepOriginal ? `Added — rest of the image kept exact${cov}` : "Full re-render complete")
             if (res.grounded === false && !sourcePromptJson) {
               toast.warning("No source caption and no OpenRouter key — described loosely. Add a key for a richer base.")
             }
+            setLayerUrl(res.layer_url ?? null)
             onResult(res)
           },
         },
@@ -202,6 +207,20 @@ export function FullEditPanel({
         </div>
       )}
 
+      {/* Keep-original compositing — the breakthrough: discard the global
+          re-render drift, paste back only the change inside your boxes. */}
+      <label className="flex items-start gap-2 text-[11px] text-zinc-300 cursor-pointer">
+        <input type="checkbox" checked={keepOriginal} disabled={running}
+          onChange={(e) => setKeepOriginal(e.target.checked)} className="accent-violet-500 mt-0.5" />
+        <span>
+          Keep original (composite only the change)
+          <span className="block text-[9px] text-zinc-600 leading-snug">
+            Pastes just the added content back onto the untouched original — no whole-image
+            “deep fry.” Off = return the raw re-render.
+          </span>
+        </span>
+      </label>
+
       <button
         type="button" onClick={generate} disabled={!ready || running}
         className="w-full flex items-center justify-center gap-2 rounded-md bg-violet-600 hover:bg-violet-500 text-white text-sm font-medium py-2 disabled:opacity-40"
@@ -209,6 +228,14 @@ export function FullEditPanel({
         {running ? <><Loader2 className="h-4 w-4 animate-spin" /> Regenerating…</>
           : <><Sparkles className="h-4 w-4" /> Regenerate with {boxes.length || "no"} box{boxes.length === 1 ? "" : "es"}</>}
       </button>
+      {layerUrl && (
+        <a
+          href={layerUrl} download
+          className="flex items-center justify-center gap-1.5 rounded-md border border-zinc-700 bg-zinc-800/40 py-1.5 text-[11px] text-violet-300 hover:bg-violet-500/10"
+        >
+          <Download className="h-3 w-3" /> Download the added layer (transparent PNG)
+        </a>
+      )}
       {!sourcePromptJson && (
         <p className="text-[9px] text-zinc-600 leading-snug">
           No original caption found for this image — it'll be described to build a base. Best results come from images made in this app (their caption is reused).

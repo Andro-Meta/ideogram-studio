@@ -523,6 +523,11 @@ class EditResponse(BaseModel):
     # non-diffusion edits (save flatten, import).
     seed: int | None = None
     duration_ms: int | None = None
+    # The extracted change as a transparent RGBA layer (full-image-edit with
+    # keep_original) — downloadable / saveable separately. None otherwise.
+    layer_url: str | None = None
+    # Fraction of the frame the change covered (0..1), for full-image-edit.
+    change_coverage: float | None = None
     # Whether the edit caption was actually grounded in the source image
     # (describe_image ran). False = grounding was requested but skipped (no
     # OpenRouter key) or failed; None = not requested. Lets the UI tell the user
@@ -558,6 +563,17 @@ class FullImageEditRequest(CfgControlsMixin):
     sampler_preset: Literal["V4_TURBO_12", "V4_DEFAULT_20", "V4_QUALITY_48"] = "V4_DEFAULT_20"
     seed: int | None = None
     source_job_id: str | None = None
+    # Keep the ORIGINAL pixel-exact and composite back only the change inside the
+    # boxes (no whole-frame "deep fry"). Off = return the raw re-render.
+    keep_original: bool = True
+    # Change-detection sensitivity (RGB distance). Lower = paste back more of the
+    # re-render; higher = only the strongest changes. ~36 isolates a new object.
+    change_threshold: float = 36.0
+
+    @field_validator("change_threshold")
+    @classmethod
+    def _clamp_thr(cls, v: float) -> float:
+        return max(8.0, min(120.0, float(v)))
 
     @field_validator("image_b64")
     @classmethod

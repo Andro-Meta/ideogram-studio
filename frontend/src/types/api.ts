@@ -197,6 +197,10 @@ export interface EditResponse {
   /** Whether the edit caption was actually grounded in the source image.
    *  false = requested but skipped (no OpenRouter key) or failed; null = N/A. */
   grounded?: boolean | null
+  /** Full-image-edit (keep_original): the extracted change as a transparent PNG. */
+  layer_url?: string | null
+  /** Fraction of the frame the change covered (0..1), full-image-edit. */
+  change_coverage?: number | null
 }
 
 // ── Logs ─────────────────────────────────────────────────────────────────────
