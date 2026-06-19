@@ -51,6 +51,15 @@ interface SettingsStore {
   setEditSampler: (v: "res_multistep" | "euler") => void
   setEditDetail: (v: boolean) => void
   setEditQuality: (v: SamplerPreset) => void
+  /** Advanced (ComfyUI-style) overrides. null/default → use the preset. */
+  editSteps: number | null
+  editMu: number | null
+  editStd: number | null
+  editEisSteps: number
+  editEisStart: number
+  editEisEnd: number
+  setAdv: (patch: Partial<{ editSteps: number | null; editMu: number | null; editStd: number | null; editEisSteps: number; editEisStart: number; editEisEnd: number }>) => void
+  resetAdv: () => void
 
   /** Target image size in megapixels — drives the ratio→W/H computation in the
    *  resolution picker (Ideogram native ratios, snapped to ×16). */
@@ -114,6 +123,12 @@ export const useSettingsStore = create<SettingsStore>()(
       editSampler: "res_multistep",
       editDetail: true,
       editQuality: "V4_DEFAULT_20",
+      editSteps: null,
+      editMu: null,
+      editStd: null,
+      editEisSteps: 2,
+      editEisStart: 1.0,
+      editEisEnd: 0.98,
 
       // Resolution: default 1:1 at ~1 MP (1024²). The picker recomputes W/H from
       // the selected native ratio + this MP budget, snapped to ×16.
@@ -160,6 +175,8 @@ export const useSettingsStore = create<SettingsStore>()(
       setEditSampler: (v) => set({ editSampler: v }),
       setEditDetail: (v) => set({ editDetail: v }),
       setEditQuality: (v) => set({ editQuality: v }),
+      setAdv: (patch) => set(patch),
+      resetAdv: () => set({ editSteps: null, editMu: null, editStd: null, editEisSteps: 2, editEisStart: 1.0, editEisEnd: 0.98 }),
       setCanvasOpen: (v) => set({ canvasOpen: v }),
       setSamplerPreset: (v) => set({ samplerPreset: v }),
       setResolution: (w, h) => set({ width: w, height: h }),
@@ -235,11 +252,19 @@ export function cfgRequestFields():
 
 /** The editor's quality/sampler choices to send with an edit request — the
  *  sampler, the EIS "detail" toggle, and the step preset. Reads the live store. */
-export function qualityRequestFields(): {
-  sampler: "res_multistep" | "euler"; detail: boolean; sampler_preset: SamplerPreset
-} {
+export function qualityRequestFields(): Record<string, unknown> {
   const s = useSettingsStore.getState()
-  return { sampler: s.editSampler, detail: s.editDetail, sampler_preset: s.editQuality }
+  const out: Record<string, unknown> = {
+    sampler: s.editSampler, detail: s.editDetail, sampler_preset: s.editQuality,
+  }
+  // Advanced overrides — only sent when changed from the preset/defaults.
+  if (s.editSteps != null) out.steps = s.editSteps
+  if (s.editMu != null) out.mu = s.editMu
+  if (s.editStd != null) out.std = s.editStd
+  if (s.editEisSteps !== 2) out.eis_steps = s.editEisSteps
+  if (s.editEisStart !== 1.0) out.eis_start_sigma = s.editEisStart
+  if (s.editEisEnd !== 0.98) out.eis_end_sigma = s.editEisEnd
+  return out
 }
 
 /**

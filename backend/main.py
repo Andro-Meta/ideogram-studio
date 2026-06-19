@@ -982,6 +982,8 @@ async def generation_ws(websocket: WebSocket, job_id: str):
         cfg_override=gen_req.cfg_override,
         cfg_override_start=gen_req.cfg_override_start,
         sampler=gen_req.sampler, detail=gen_req.detail,
+        steps=gen_req.steps, mu=gen_req.mu, std=gen_req.std,
+        eis_steps=gen_req.eis_steps, eis_start_sigma=gen_req.eis_start_sigma, eis_end_sigma=gen_req.eis_end_sigma,
     )
 
     # Create DB record using the WebSocket job_id so complete_job can find it
@@ -1305,6 +1307,8 @@ async def inpaint_endpoint(request: Request, body: InpaintRequest):
         # preset's built-in schedule.
         cfg=body.cfg, cfg_override=body.cfg_override, cfg_override_start=body.cfg_override_start,
         sampler=body.sampler, detail=body.detail,
+        steps=body.steps, mu=body.mu, std=body.std,
+        eis_steps=body.eis_steps, eis_start_sigma=body.eis_start_sigma, eis_end_sigma=body.eis_end_sigma,
     )
 
     # Build the edit caption. The masked region drifts away from the larger
@@ -1464,6 +1468,8 @@ async def insert_object_endpoint(request: Request, body: InpaintRequest):
         height=tile_h, width=tile_w, sampler_preset=body.sampler_preset,
         seed=body.seed, raise_on_caption_issues=False,
         sampler=body.sampler, detail=body.detail,
+        steps=body.steps, mu=body.mu, std=body.std,
+        eis_steps=body.eis_steps, eis_start_sigma=body.eis_start_sigma, eis_end_sigma=body.eis_end_sigma,
     )
 
     def _run():
@@ -1516,6 +1522,8 @@ async def insert_object_endpoint(request: Request, body: InpaintRequest):
 # generation corrupts the output; it only works with the reference conditioning).
 _IG4_INPAINT_DIR = MODELS_DIR / "ig4-inpaint"
 _IG4_INPAINT_LORA = "ido-inpaint-diffusers.safetensors"
+# Native source auto-downloaded if no local file exists (remapped on load).
+_IG4_INPAINT_HF = "BitPoet/Ideogram4-Inpaint-LoRA::IdoInpaint_2_00004000.safetensors"
 
 
 @app.post("/api/edit/reference", response_model=EditResponse)
@@ -1536,15 +1544,11 @@ async def reference_edit_endpoint(request: Request, body: InpaintRequest):
             f"Reference edit needs a diffusers model with LoRA support. The {pm.variant or 'current'} "
             "variant can't — switch to NF4·D or BF16 and reload.",
         )
-    lora_path = (_IG4_INPAINT_DIR / _IG4_INPAINT_LORA).resolve()
-    if not lora_path.is_file():
-        raise HTTPException(
-            409,
-            "The Ideogram-4 inpaint LoRA isn't installed. Download "
-            "BitPoet/Ideogram4-Inpaint-LoRA (step-4000), then run "
-            "`python scripts/remap_inpaint_lora.py <native.safetensors> "
-            f"models/ig4-inpaint/{_IG4_INPAINT_LORA}`.",
-        )
+    # Prefer a local (pre-remapped) file; otherwise auto-download the native
+    # adapter from Hugging Face on first use — load_lora remaps it transparently.
+    # (First Reference run then downloads ~0.4 GB; cached afterwards.)
+    local = (_IG4_INPAINT_DIR / _IG4_INPAINT_LORA)
+    lora_source = str(local.resolve()) if local.is_file() else _IG4_INPAINT_HF
 
     loop = asyncio.get_running_loop()
     try:
@@ -1591,10 +1595,12 @@ async def reference_edit_endpoint(request: Request, body: InpaintRequest):
         raise_on_caption_issues=False,
         cfg=body.cfg, cfg_override=body.cfg_override, cfg_override_start=body.cfg_override_start,
         sampler=body.sampler, detail=body.detail,
+        steps=body.steps, mu=body.mu, std=body.std,
+        eis_steps=body.eis_steps, eis_start_sigma=body.eis_start_sigma, eis_end_sigma=body.eis_end_sigma,
     )
 
     def _run():
-        return pm.reference_edit(image, composite_mask, edit_caption, settings, str(lora_path))
+        return pm.reference_edit(image, composite_mask, edit_caption, settings, lora_source)
 
     try:
         out_img, actual_seed = await loop.run_in_executor(_inference_executor, _run)
@@ -1701,6 +1707,8 @@ async def extend_endpoint(request: Request, body: ExtendRequest):
         cfg_override=body.cfg_override if body.cfg_override is not None else 3.0,
         cfg_override_start=body.cfg_override_start if body.cfg_override_start is not None else 0.7,
         sampler=body.sampler, detail=body.detail,
+        steps=body.steps, mu=body.mu, std=body.std,
+        eis_steps=body.eis_steps, eis_start_sigma=body.eis_start_sigma, eis_end_sigma=body.eis_end_sigma,
     )
 
     # Generate a bit above the default ~1 MP so the new border isn't softened by

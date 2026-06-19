@@ -147,7 +147,8 @@ def extend_sigmas_and_guidance(
 
 @contextlib.contextmanager
 def sampler_context(pipe, sampler: str, detail: bool, num_steps: int,
-                    mu: float, std: float, guidance: list[float], gen_w: int, gen_h: int):
+                    mu: float, std: float, guidance: list[float], gen_w: int, gen_h: int,
+                    eis_steps: int = 2, eis_start: float = 1.0, eis_end: float = 0.98):
     """Apply the chosen sampler for a single `pipe.__call__`, yielding the
     EFFECTIVE (num_inference_steps, guidance_schedule) the caller must pass.
 
@@ -170,7 +171,8 @@ def sampler_context(pipe, sampler: str, detail: bool, num_steps: int,
         smu = _pi._resolution_aware_mu(height=gen_h, width=gen_w, base_mu=mu)
         base = _pi._logit_normal_sigmas(num_steps, smu, std=std, device=dev)
         ext_sigmas, eff_guidance = extend_sigmas_and_guidance(
-            base, list(guidance), steps=2, start_at_sigma=1.0, end_at_sigma=0.98, spacing="linear"
+            base, list(guidance), steps=max(1, eis_steps),
+            start_at_sigma=eis_start, end_at_sigma=eis_end, spacing="linear",
         )
         eff_steps = len(ext_sigmas)
 

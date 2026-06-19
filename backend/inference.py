@@ -207,6 +207,12 @@ class GenerationSettings:
     sampler: str = "res_multistep"          # "res_multistep" (sharper) | "euler"
     steps: int | None = None                # override the preset's step count
     detail: bool = True                     # ExtendIntermediateSigmas (paired w/ res_multistep)
+    # Advanced (ComfyUI-style) overrides — None = use the preset / defaults.
+    mu: float | None = None                 # logit-normal schedule shift
+    std: float | None = None                # logit-normal schedule spread
+    eis_steps: int | None = None            # ExtendIntermediateSigmas extra steps (default 2)
+    eis_start_sigma: float | None = None     # EIS upper sigma (default 1.0)
+    eis_end_sigma: float | None = None       # EIS lower sigma (default 0.98)
 
 
 def _build_guidance_schedule(
@@ -231,7 +237,11 @@ def _resolve_guidance_schedule(
     frozen schedule. Centralises the preset-vs-custom decision so generate() and
     inpaint() in every pipeline behave identically."""
     if settings.cfg is None:
-        return list(preset_schedule)
+        sched = list(preset_schedule)
+        if len(sched) != num_steps and sched:   # steps overridden → resample the frozen curve
+            m = len(sched)
+            sched = [float(sched[min(m - 1, round(i * (m - 1) / max(1, num_steps - 1)))]) for i in range(num_steps)]
+        return sched
     start = settings.cfg_override_start if settings.cfg_override_start is not None else 0.7
     override = settings.cfg_override if settings.cfg_override is not None else settings.cfg
     return _build_guidance_schedule(
@@ -600,12 +610,14 @@ class BF16Pipeline(InferencePipeline):
         preset = self.PRESETS[settings.sampler_preset]
         actual_seed = self._resolve_seed(settings.seed)
         generator = torch.Generator("cuda").manual_seed(actual_seed)
+        # Advanced overrides fall back to the preset.
+        num_steps = int(settings.steps) if settings.steps else preset["num_inference_steps"]
+        mu = settings.mu if settings.mu is not None else preset["mu"]
+        std = settings.std if settings.std is not None else preset["std"]
         schedule = _resolve_guidance_schedule(
-            preset["guidance_schedule"], preset["num_inference_steps"], settings,
-            forward=self.GUIDANCE_FORWARD,
+            preset["guidance_schedule"], num_steps, settings, forward=self.GUIDANCE_FORWARD,
         )
 
-        num_steps = preset["num_inference_steps"]
         progress_total = [num_steps]   # updated to the effective count (EIS adds steps)
 
         def _on_step(pipe, step_i: int, timestep: int, kwargs: dict) -> dict:
@@ -618,7 +630,10 @@ class BF16Pipeline(InferencePipeline):
         import reference_edit as _ref
         with _ref.sampler_context(
             self._pipe, settings.sampler, settings.detail, num_steps,
-            preset["mu"], preset["std"], list(schedule), settings.width, settings.height,
+            mu, std, list(schedule), settings.width, settings.height,
+            eis_steps=settings.eis_steps if settings.eis_steps is not None else 2,
+            eis_start=settings.eis_start_sigma if settings.eis_start_sigma is not None else 1.0,
+            eis_end=settings.eis_end_sigma if settings.eis_end_sigma is not None else 0.98,
         ) as (eff_steps, eff_guidance):
             progress_total[0] = eff_steps
             result = self._pipe(
@@ -628,8 +643,8 @@ class BF16Pipeline(InferencePipeline):
                 num_inference_steps=eff_steps,
                 guidance_scale=None,                            # mutually exclusive with guidance_schedule
                 guidance_schedule=eff_guidance,
-                mu=preset["mu"],
-                std=preset["std"],
+                mu=mu,
+                std=std,
                 prompt_upsampling=False,                        # we handle this via MagicPromptService
                 generator=generator,
                 output_type="pil",
@@ -669,20 +684,28 @@ class BF16Pipeline(InferencePipeline):
         gen_w, gen_h = _inp.edit_resolution(image.width, image.height, unit)
 
         preset = self.PRESETS[settings.sampler_preset]
-        num_steps = preset["num_inference_steps"]
+        num_steps = int(settings.steps) if settings.steps else preset["num_inference_steps"]
         actual_seed = self._resolve_seed(settings.seed)
         generator = torch.Generator("cuda").manual_seed(actual_seed)
         # The BitPoet inpaint LoRA's reference workflow runs a CONSTANT low CFG
         # (~3.0), mu 0.5, std 1.75 — NOT the base 7→3 curve. High guidance pushes
         # the output off the reference (exposure drift, a visible composite seam,
-        # and a weaker edit), so honour the LoRA's settings here.
+        # and a weaker edit), so honour the LoRA's settings here. Advanced overrides win.
         ref_cfg = float(settings.cfg) if settings.cfg is not None else 3.0
-        ref_mu, ref_std = 0.5, 1.75
+        ref_mu = settings.mu if settings.mu is not None else 0.5
+        ref_std = settings.std if settings.std is not None else 1.75
         base_guidance = [ref_cfg] * num_steps   # constant; sampler_context extends it
 
         loaded_here = adapter_name not in self._loras
         if loaded_here:
-            self._pipe.transformer.load_lora_adapter(lora_path, adapter_name=adapter_name)
+            # `lora_path` is a local file OR an HF "repo::file" source — load the
+            # raw weights and remap from the native (ai-toolkit) layout if needed,
+            # so the inpaint LoRA can be auto-downloaded on first use.
+            import lora_remap
+            sd, _meta = _load_lora_state_dict(lora_path)
+            if lora_remap.is_native_ideogram4_lora(sd):
+                sd = lora_remap.remap_native_to_diffusers(sd)
+            self._pipe.transformer.load_lora_adapter(sd, adapter_name=adapter_name)
             self._loras[adapter_name] = {"weight": 1.0, "source": lora_path}
             self._apply_adapters()
 
@@ -697,6 +720,9 @@ class BF16Pipeline(InferencePipeline):
             with _ref.sampler_context(
                 self._pipe, settings.sampler, settings.detail, num_steps,
                 ref_mu, ref_std, base_guidance, gen_w, gen_h,
+                eis_steps=settings.eis_steps if settings.eis_steps is not None else 2,
+                eis_start=settings.eis_start_sigma if settings.eis_start_sigma is not None else 1.0,
+                eis_end=settings.eis_end_sigma if settings.eis_end_sigma is not None else 0.98,
             ) as (eff_steps, eff_guidance), \
                  _ref.reference_conditioning(self._pipe, image, gen_w, gen_h):
                 progress_total[0] = eff_steps

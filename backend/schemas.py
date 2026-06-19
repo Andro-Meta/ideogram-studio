@@ -80,6 +80,38 @@ class CfgControlsMixin(BaseModel):
     # Quality / sampler controls (recommended defaults; user-overridable).
     sampler: Literal["res_multistep", "euler"] = "res_multistep"
     detail: bool = True   # ExtendIntermediateSigmas (paired with res_multistep)
+    # Advanced (ComfyUI-style) overrides — None = use the preset / defaults.
+    steps: int | None = None
+    mu: float | None = None
+    std: float | None = None
+    eis_steps: int | None = None
+    eis_start_sigma: float | None = None
+    eis_end_sigma: float | None = None
+
+    @field_validator("steps")
+    @classmethod
+    def _clamp_steps(cls, v: int | None) -> int | None:
+        return None if v is None else max(4, min(60, int(v)))
+
+    @field_validator("std")
+    @classmethod
+    def _clamp_std(cls, v: float | None) -> float | None:
+        return None if v is None else max(0.5, min(4.0, float(v)))
+
+    @field_validator("mu")
+    @classmethod
+    def _clamp_mu(cls, v: float | None) -> float | None:
+        return None if v is None else max(-2.0, min(2.0, float(v)))
+
+    @field_validator("eis_steps")
+    @classmethod
+    def _clamp_eis_steps(cls, v: int | None) -> int | None:
+        return None if v is None else max(1, min(8, int(v)))
+
+    @field_validator("eis_start_sigma", "eis_end_sigma")
+    @classmethod
+    def _clamp_eis_sigma(cls, v: float | None) -> float | None:
+        return None if v is None else max(0.0, min(1.0, float(v)))
 
     @field_validator("cfg", "cfg_override")
     @classmethod
