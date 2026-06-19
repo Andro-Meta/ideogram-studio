@@ -97,21 +97,27 @@ def difference_mask(
     return np.asarray(mi).astype(np.float32) / 255.0
 
 
+def _boxes_to_px(boxes: list[list[int]], W: int, H: int) -> list[list[int]]:
+    # [ymin,xmin,ymax,xmax] 0–1000 -> [x0,y0,x1,y1] px (SAM box order)
+    return [[int(b[1] / 1000 * W), int(b[0] / 1000 * H),
+             int(b[3] / 1000 * W), int(b[2] / 1000 * H)] for b in boxes]
+
+
 def _sam_mask_with_shadow(
     original: Image.Image, regen: Image.Image, boxes: list[list[int]], *,
+    occlude_boxes: list[list[int]] | None = None,
     threshold: float = 36.0, shadow_radius: int = 18, feather: int = 4,
 ) -> np.ndarray | None:
     """Precise mask = the SAM-segmented object(s) UNION the object's cast
-    shadow/contact (significant difference in a halo just outside the object).
-    Crisp object edges + natural grounding, with none of the far in-box drift.
+    shadow/contact (significant difference in a halo just outside the object),
+    MINUS any occluder. For "behind" boxes we SAM the ORIGINAL there to get the
+    existing foreground (the bench) and keep it on top → z-order occlusion.
     Returns None if SAM is unavailable (caller falls back to the diff mask)."""
     import segment
     if not segment.available():
         return None
     W, H = original.size
-    boxes_px = [[int(b[1] / 1000 * W), int(b[0] / 1000 * H),
-                 int(b[3] / 1000 * W), int(b[2] / 1000 * H)] for b in boxes]
-    masks = segment.segment_boxes(regen, boxes_px)
+    masks = segment.segment_boxes(regen, _boxes_to_px(boxes, W, H))
     if not masks:
         return None
     obj = np.zeros((H, W), bool)
@@ -125,7 +131,15 @@ def _sam_mask_with_shadow(
         Image.fromarray((obj * 255).astype(np.uint8)).filter(ImageFilter.MaxFilter(_odd(shadow_radius)))
     ) > 127
     shadow = (diff > threshold) & dil & (~obj)   # real change just outside the object
-    m = (obj | shadow).astype(np.uint8) * 255
+    keep = obj | shadow
+
+    if occlude_boxes:   # z-order: subtract the existing foreground so the object sits behind it
+        occ = np.zeros((H, W), bool)
+        for mk in segment.segment_boxes(original, _boxes_to_px(occlude_boxes, W, H)):
+            occ |= mk
+        keep &= ~occ
+
+    m = keep.astype(np.uint8) * 255
     if feather:
         m = np.asarray(Image.fromarray(m).filter(ImageFilter.GaussianBlur(feather)))
     return m.astype(np.float32) / 255.0
@@ -133,17 +147,19 @@ def _sam_mask_with_shadow(
 
 def composite_change(
     original: Image.Image, regen: Image.Image, boxes: list[list[int]], *,
-    use_sam: bool = True, threshold: float = 36.0, **kw,
+    use_sam: bool = True, threshold: float = 36.0,
+    occlude_boxes: list[list[int]] | None = None, **kw,
 ) -> tuple[Image.Image, Image.Image, float]:
     """Keep `original` everywhere, paste `regen` only where it changed in-box.
     Returns (composited RGB, extracted RGBA layer of the change, coverage 0..1).
     Prefers a SAM-segmented object mask (crisp); falls back to the difference
-    mask if SAM is unavailable."""
+    mask if SAM is unavailable. `occlude_boxes` keep the original foreground there
+    on top (z-order occlusion)."""
     if regen.size != original.size:
         regen = regen.resize(original.size, Image.LANCZOS)
     m = None
     if use_sam:
-        m = _sam_mask_with_shadow(original, regen, boxes, threshold=threshold)
+        m = _sam_mask_with_shadow(original, regen, boxes, threshold=threshold, occlude_boxes=occlude_boxes)
     if m is None:
         m = difference_mask(original, regen, boxes, threshold=threshold, **kw)
     o = np.asarray(original.convert("RGB")).astype(np.float32)

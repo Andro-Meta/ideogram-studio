@@ -543,6 +543,7 @@ class FullEditElement(BaseModel):
     text: str = ""                     # literal text to render (text elements)
     bbox: list[int]                    # [ymin, xmin, ymax, xmax], 0–1000
     colors: list[str] = []             # optional hex palette
+    behind: bool = False               # z-order: keep existing foreground here on top (occlusion)
 
     @field_validator("bbox")
     @classmethod

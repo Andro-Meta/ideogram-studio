@@ -12,6 +12,7 @@ interface Box {
   kind: "object" | "text"
   desc: string
   text: string
+  behind: boolean
   // normalized 0–1000
   ymin: number; xmin: number; ymax: number; xmax: number
 }
@@ -76,7 +77,7 @@ export function FullEditPanel({
     if (xmax - xmin < MIN) xmax = Math.min(1000, xmin + MIN)
     if (ymax - ymin < MIN) ymax = Math.min(1000, ymin + MIN)
     setDraft(null)
-    setBoxes((b) => [...b, { id: uid(), kind: newKind, desc: "", text: "", ymin, xmin, ymax, xmax }])
+    setBoxes((b) => [...b, { id: uid(), kind: newKind, desc: "", text: "", behind: false, ymin, xmin, ymax, xmax }])
   }
 
   const update = (id: string, patch: Partial<Box>) =>
@@ -98,6 +99,7 @@ export function FullEditPanel({
             desc: b.desc.trim(),
             text: b.text.trim(),
             bbox: [b.ymin, b.xmin, b.ymax, b.xmax],
+            behind: b.behind,
           })),
           sourceJobId,
           keepOriginal,
@@ -205,6 +207,11 @@ export function FullEditPanel({
                 rows={2} disabled={running}
                 className="bg-zinc-900 border-zinc-700 text-zinc-100 text-xs resize-none"
               />
+              <label className="flex items-center gap-1.5 text-[10px] text-zinc-400 cursor-pointer">
+                <input type="checkbox" checked={b.behind} disabled={running}
+                  onChange={(e) => update(b.id, { behind: e.target.checked })} className="accent-violet-500" />
+                Behind existing objects here (keeps what's already there on top)
+              </label>
             </div>
           ))}
         </div>

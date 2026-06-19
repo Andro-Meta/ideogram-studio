@@ -1760,8 +1760,10 @@ async def full_image_edit_endpoint(request: Request, body: FullImageEditRequest)
     if body.keep_original:
         import diff_composite
         boxes = [el.bbox for el in body.elements]
+        occlude = [el.bbox for el in body.elements if el.behind]   # keep existing foreground there on top
         comp, layer, cov = await loop.run_in_executor(
-            None, lambda: diff_composite.composite_change(image, out_img, boxes, threshold=body.change_threshold)
+            None, lambda: diff_composite.composite_change(
+                image, out_img, boxes, threshold=body.change_threshold, occlude_boxes=occlude or None)
         )
         out_img = comp
         change_coverage = cov

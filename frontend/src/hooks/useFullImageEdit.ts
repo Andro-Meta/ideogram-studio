@@ -9,6 +9,7 @@ export interface FullEditElement {
   text?: string
   bbox: number[] // [ymin, xmin, ymax, xmax], 0–1000
   colors?: string[]
+  behind?: boolean // keep existing foreground here on top (occlusion)
 }
 
 export interface FullImageEditArgs {
