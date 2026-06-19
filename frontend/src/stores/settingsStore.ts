@@ -44,13 +44,12 @@ interface SettingsStore {
    *  0.7 = first 70% at `cfg`, last 30% at `cfgOverride`. */
   cfgOverrideStart: number
 
-  /** Editor quality/sampler controls (recommended defaults; customizable). */
+  /** Shared quality/sampler controls — used by BOTH Generate and every edit tab
+   *  (one unified set; `samplerPreset` above is the shared step/quality preset). */
   editSampler: "res_multistep" | "euler"
   editDetail: boolean
-  editQuality: SamplerPreset
   setEditSampler: (v: "res_multistep" | "euler") => void
   setEditDetail: (v: boolean) => void
-  setEditQuality: (v: SamplerPreset) => void
   /** Advanced (ComfyUI-style) overrides. null/default → use the preset. */
   editSteps: number | null
   editMu: number | null
@@ -122,7 +121,6 @@ export const useSettingsStore = create<SettingsStore>()(
 
       editSampler: "res_multistep",
       editDetail: true,
-      editQuality: "V4_DEFAULT_20",
       editSteps: null,
       editMu: null,
       editStd: null,
@@ -174,7 +172,6 @@ export const useSettingsStore = create<SettingsStore>()(
       setCfgOverrideStart: (v) => set({ cfgOverrideStart: Math.max(0, Math.min(1, v)), cfgPreset: "custom", customCfg: true }),
       setEditSampler: (v) => set({ editSampler: v }),
       setEditDetail: (v) => set({ editDetail: v }),
-      setEditQuality: (v) => set({ editQuality: v }),
       setAdv: (patch) => set(patch),
       resetAdv: () => set({ editSteps: null, editMu: null, editStd: null, editEisSteps: 2, editEisStart: 1.0, editEisEnd: 0.98 }),
       setCanvasOpen: (v) => set({ canvasOpen: v }),
@@ -252,10 +249,22 @@ export function cfgRequestFields():
 
 /** The editor's quality/sampler choices to send with an edit request — the
  *  sampler, the EIS "detail" toggle, and the step preset. Reads the live store. */
-export function qualityRequestFields(): Record<string, unknown> {
+export interface QualityRequestFields {
+  sampler: "res_multistep" | "euler"
+  detail: boolean
+  sampler_preset: SamplerPreset
+  steps?: number
+  mu?: number
+  std?: number
+  eis_steps?: number
+  eis_start_sigma?: number
+  eis_end_sigma?: number
+}
+
+export function qualityRequestFields(): QualityRequestFields {
   const s = useSettingsStore.getState()
-  const out: Record<string, unknown> = {
-    sampler: s.editSampler, detail: s.editDetail, sampler_preset: s.editQuality,
+  const out: QualityRequestFields = {
+    sampler: s.editSampler, detail: s.editDetail, sampler_preset: s.samplerPreset,
   }
   // Advanced overrides — only sent when changed from the preset/defaults.
   if (s.editSteps != null) out.steps = s.editSteps

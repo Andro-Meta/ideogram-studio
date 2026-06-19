@@ -471,7 +471,7 @@ export function EditorDialog({ open, onClose, jobId, imageUrl }: Props) {
                           onChange={(e) => setMagicPrompt(e.target.checked)} className="accent-violet-500" />
                         Magic Prompt (rewrite my instruction)
                       </label>
-                      <QualityControls showSampler={false} />
+                      <QualityControls mode="fill" />
                       <Button
                         className="w-full bg-violet-600 hover:bg-violet-500 text-white gap-2 disabled:opacity-40"
                         disabled={!fillPrompt.trim() || busy || !engine.base}
@@ -499,7 +499,7 @@ export function EditorDialog({ open, onClose, jobId, imageUrl }: Props) {
                         fmt={(v) => `${Math.round(v * 100)}%`}
                         onChange={setInsertBlend}
                       />
-                      <QualityControls showSampler={true} showCfg={false} />
+                      <QualityControls mode="insert" />
                       <Button
                         className="w-full bg-violet-600 hover:bg-violet-500 text-white gap-2 disabled:opacity-40"
                         disabled={!fillPrompt.trim() || busy || !engine.base || !engine.hasSelection}
@@ -525,14 +525,14 @@ export function EditorDialog({ open, onClose, jobId, imageUrl }: Props) {
                         baseW={engine.base.width} baseH={engine.base.height} imageSrc={liveUrl}
                         busy={busy} pending={extend.isPending} onExtend={handleExtend}
                       />
-                      <QualityControls showSampler={false} />
+                      <QualityControls mode="outpaint" />
                     </>
                   )}
 
                   {/* REFERENCE — precise in-place edit via the inpaint LoRA */}
                   {editMode === "reference" && (
                     <>
-                      <QualityControls showSampler={true} showCfg={false} />
+                      <QualityControls mode="reference" />
                       <Button
                         className="w-full bg-violet-600 hover:bg-violet-500 text-white gap-2 disabled:opacity-40"
                         disabled={!fillPrompt.trim() || busy || !engine.base || !engine.hasSelection}

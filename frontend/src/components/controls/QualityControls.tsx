@@ -3,7 +3,7 @@ import { ChevronDown, ChevronRight } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useSettingsStore, cfgRequestFields, qualityRequestFields } from "@/stores/settingsStore"
 import type { SamplerPreset } from "@/types/caption"
-import { CfgPresetPicker } from "./CfgPresetPicker"
+import { CfgControl } from "./CfgControl"
 
 function NumIn({ label, value, onChange, placeholder, step, min, max }: {
   label: string; value: number | null; onChange: (v: number | null) => void
@@ -27,15 +27,19 @@ const QUALITY: { id: SamplerPreset; label: string; hint: string }[] = [
   { id: "V4_QUALITY_48", label: "High", hint: "48 steps · ~60s" },
 ]
 
-/** Collapsible quality/sampler controls for an edit tool. Recommended defaults
- *  are pre-selected; everything is customizable. `showSampler` is false for the
- *  RePaint tools (Fill/Outpaint), where the solver/detail don't apply. */
-export function QualityControls({ showSampler = true, showCfg = true }: { showSampler?: boolean; showCfg?: boolean }) {
-  const [open, setOpen] = useState(false)
+export type QualityMode = "generate" | "fill" | "insert" | "outpaint" | "reference"
+
+/** Unified quality/sampler controls shown on Generate AND every edit tab. The
+ *  same shared settings drive all of them; the `mode` only changes which
+ *  controls are visible — the sampler/solver and sigma knobs don't apply to the
+ *  RePaint tools (Fill/Outpaint), so they're hidden there. */
+export function QualityControls({ mode = "generate", defaultOpen = false }: { mode?: QualityMode; defaultOpen?: boolean }) {
+  const showSampler = mode !== "fill" && mode !== "outpaint"
+  const [open, setOpen] = useState(defaultOpen)
   const [adv, setAdv] = useState(false)
   const [showJson, setShowJson] = useState(false)
   const {
-    editQuality, setEditQuality,
+    samplerPreset, setSamplerPreset,
     editSampler, setEditSampler,
     editDetail, setEditDetail,
     editSteps, editMu, editStd, editEisSteps, editEisStart, editEisEnd,
@@ -51,7 +55,7 @@ export function QualityControls({ showSampler = true, showCfg = true }: { showSa
         {open ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
         Quality
         <span className="ml-auto text-[10px] text-zinc-600">
-          {QUALITY.find((q) => q.id === editQuality)?.label}
+          {QUALITY.find((q) => q.id === samplerPreset)?.label}
           {showSampler && editSampler === "euler" && " · Euler"}
         </span>
       </button>
@@ -64,10 +68,10 @@ export function QualityControls({ showSampler = true, showCfg = true }: { showSa
             <div className="grid grid-cols-3 gap-1">
               {QUALITY.map((q) => (
                 <button
-                  key={q.id} type="button" onClick={() => setEditQuality(q.id)} title={q.hint}
+                  key={q.id} type="button" onClick={() => setSamplerPreset(q.id)} title={q.hint}
                   className={cn(
                     "rounded-md border px-1 py-1 text-[10px] font-medium transition-all",
-                    editQuality === q.id ? "border-violet-500 bg-violet-500/10 text-violet-300"
+                    samplerPreset === q.id ? "border-violet-500 bg-violet-500/10 text-violet-300"
                       : "border-zinc-700 bg-zinc-800/60 text-zinc-400 hover:text-zinc-200",
                   )}
                 >
@@ -105,13 +109,8 @@ export function QualityControls({ showSampler = true, showCfg = true }: { showSa
             </div>
           )}
 
-          {/* CFG */}
-          {showCfg && (
-            <div className="space-y-1">
-              <p className="text-[10px] text-zinc-500">Guidance (CFG)</p>
-              <CfgPresetPicker />
-            </div>
-          )}
+          {/* CFG — applies to every path; Custom exposes the raw dual-CFG curve */}
+          <CfgControl />
 
           {/* Advanced (ComfyUI-style) raw overrides */}
           <div className="rounded border border-zinc-800/80 bg-zinc-950/30">

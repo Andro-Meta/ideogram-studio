@@ -23,15 +23,14 @@ import { SplitLayersPanel } from "@/components/layers/SplitLayersPanel"
 import { BBoxCanvas } from "@/components/canvas/BBoxCanvas"
 import { ModelVariantToggle } from "@/components/controls/ModelVariantToggle"
 import { LoraSection } from "@/components/controls/LoraPanel"
-import { SamplerPresetPicker } from "@/components/controls/SamplerPresetPicker"
-import { CfgControl } from "@/components/controls/CfgControl"
+import { QualityControls } from "@/components/controls/QualityControls"
 import { ArtifactSuppression } from "@/components/controls/ArtifactSuppression"
 import { PromptToolbar } from "@/components/prompt/PromptToolbar"
 import { ResolutionPicker } from "@/components/controls/ResolutionPicker"
 import { SeedControl } from "@/components/controls/SeedControl"
 import { VariationsGrid } from "@/components/variations/VariationsGrid"
 import { usePromptStore } from "@/stores/promptStore"
-import { useSettingsStore, MIN_BATCH, MAX_BATCH, cfgRequestFields } from "@/stores/settingsStore"
+import { useSettingsStore, MIN_BATCH, MAX_BATCH, cfgRequestFields, qualityRequestFields } from "@/stores/settingsStore"
 import { useGenerationStore } from "@/stores/generationStore"
 import { useSourceImageStore } from "@/stores/sourceImageStore"
 import { useRemixFromImage } from "@/hooks/useRemixFromImage"
@@ -272,9 +271,9 @@ export function Generate() {
     prompt_json: buildCaption(promptState, captionOpts),
     height,
     width,
-    sampler_preset: samplerPreset,
     seed: fixedSeed ? seed : null,
     model_variant: modelVariant,
+    ...qualityRequestFields(),   // sampler · detail · sampler_preset · advanced overrides
     ...cfgRequestFields(),
   })
 
@@ -360,11 +359,10 @@ export function Generate() {
           <div className="p-4 space-y-4">
             <ModelStatusPanel />
             <Separator className="bg-zinc-800" />
-            <SamplerPresetPicker />
-
-            {/* Custom CFG curve (value + late drop). From the Banodoco
-                community: the official CFG (7) is too high for photos. */}
-            <CfgControl />
+            {/* Unified quality controls — the same component (steps · sampler ·
+                CFG · Advanced) used in the editor's edit tabs, in "generate"
+                mode (all controls apply here). Open by default on Generate. */}
+            <QualityControls mode="generate" defaultOpen />
 
             <Separator className="bg-zinc-800" />
             {/* Artifact suppression — the on-model pseudo–negative-prompt. */}
