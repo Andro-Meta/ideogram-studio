@@ -530,6 +530,43 @@ class EditResponse(BaseModel):
     grounded: bool | None = None
 
 
+class FullEditElement(BaseModel):
+    """A new object/text element to add to the image, placed by a bounding box —
+    exactly like a generation element."""
+    kind: Literal["object", "text"] = "object"
+    desc: str = ""                     # object description (or label for text)
+    text: str = ""                     # literal text to render (text elements)
+    bbox: list[int]                    # [ymin, xmin, ymax, xmax], 0–1000
+    colors: list[str] = []             # optional hex palette
+
+    @field_validator("bbox")
+    @classmethod
+    def _bbox_shape(cls, v: list[int]) -> list[int]:
+        if len(v) != 4:
+            raise ValueError("bbox must be [ymin, xmin, ymax, xmax]")
+        return [max(0, min(1000, int(x))) for x in v]
+
+
+class FullImageEditRequest(CfgControlsMixin):
+    """Experimental whole-image edit: re-render the FULL frame with Ideogram,
+    conditioned on the source image as a reference latent, reusing the original
+    caption (or one described from the image) PLUS new boxed elements — i.e.
+    generation with the image as a base. No mask; the whole frame regenerates."""
+    image_b64: str
+    base_prompt_json: str | None = None   # the caption that made the image (if any)
+    elements: list[FullEditElement] = []  # new object/text boxes to add
+    sampler_preset: Literal["V4_TURBO_12", "V4_DEFAULT_20", "V4_QUALITY_48"] = "V4_DEFAULT_20"
+    seed: int | None = None
+    source_job_id: str | None = None
+
+    @field_validator("image_b64")
+    @classmethod
+    def _img_ok(cls, v: str) -> str:
+        if len(v) > 96_000_000:
+            raise ValueError("image too large")
+        return v
+
+
 class PreviewCaptionRequest(BaseModel):
     """Build (without generating) the exact JSON caption an edit would send, so
     the UI can show — and let the user hand-edit — it before running. Mirrors the

@@ -38,6 +38,7 @@ from schemas import (
     EditSaveRequest,
     EditResponse,
     ExtendRequest,
+    FullImageEditRequest,
     InpaintRequest,
     ImportImageRequest,
     GalleryItem,
@@ -1651,6 +1652,119 @@ async def reference_edit_endpoint(request: Request, body: InpaintRequest):
     else:
         await gallery_service.insert_imported(db, new_id=new_id, image_path=out_name, width=w, height=h, label="AI reference edit")
     logger.info("Reference edit -> %s (%dx%d) seed=%d grounded=%s", new_id, w, h, actual_seed, grounded)
+    return EditResponse(
+        job_id=new_id, image_url=f"/outputs/{out_name}", width=w, height=h,
+        seed=actual_seed, duration_ms=duration_ms, grounded=grounded,
+    )
+
+
+@app.post("/api/edit/full-image-edit", response_model=EditResponse)
+async def full_image_edit_endpoint(request: Request, body: FullImageEditRequest):
+    """EXPERIMENTAL whole-image edit — re-render the FULL frame the way Ideogram
+    generates: condition on the source image as a reference latent, reuse the
+    caption that made it (or describe one), and ADD new boxed object/text elements
+    to that caption. No mask: the whole frame regenerates, faithful to the source
+    via the reference, but now placing the new elements at their boxes."""
+    import uuid as _uuid
+
+    pm: PipelineManager = request.app.state.pipeline
+    if pm.status != "ready":
+        raise HTTPException(409, "Load a model first.")
+    if not pm.supports_lora:
+        raise HTTPException(
+            409,
+            f"Full image edit needs a diffusers model with LoRA support. The {pm.variant or 'current'} "
+            "variant can't — switch to NF4·D or BF16 and reload.",
+        )
+    local = (_IG4_INPAINT_DIR / _IG4_INPAINT_LORA)
+    lora_source = str(local.resolve()) if local.is_file() else _IG4_INPAINT_HF
+
+    loop = asyncio.get_running_loop()
+    try:
+        image = await loop.run_in_executor(None, lambda: _decode_b64_to_pil(body.image_b64, "RGB"))
+    except Exception as exc:
+        raise HTTPException(400, f"Invalid image data: {exc}") from exc
+
+    t0 = time.monotonic()
+    import caption as _caption
+    from magic_prompt_service import describe_image as _describe
+
+    # Base caption: the one that made the image, or describe it to create one.
+    grounded: bool | None = None
+    if body.base_prompt_json and body.base_prompt_json.strip():
+        state = _caption.parse_caption_json(body.base_prompt_json)
+    else:
+        desc: str | None = None
+        if app_settings.openrouter_api_key:
+            try:
+                desc = await asyncio.to_thread(
+                    _describe, body.image_b64, app_settings.openrouter_api_key, attempts=2
+                )
+                grounded = bool(desc and desc.strip())
+            except Exception as exc:
+                logger.warning("Full-image-edit describe failed: %s", exc)
+                grounded = False
+        else:
+            grounded = False
+        state = {
+            "high_level_description": (desc or "the scene").strip(),
+            "background": (desc or "").strip(),
+            "style_description": {"mode": "photo", "aesthetics": "", "lighting": "",
+                                  "medium": "", "photo": "", "art_style": "", "color_palette": []},
+            "elements": [],
+        }
+
+    # Add the new boxed elements (same shape as a generation element).
+    new_descs: list[str] = []
+    for el in body.elements:
+        kind = "text" if el.kind == "text" else "obj"
+        state.setdefault("elements", []).append({
+            "type": kind, "bbox": el.bbox, "text": el.text or "",
+            "desc": (el.desc or el.text or "").strip(), "color_palette": el.colors or [],
+        })
+        label = (el.text if kind == "text" else el.desc) or el.desc or el.text
+        if label and label.strip():
+            new_descs.append(label.strip())
+    # Make the headline mention the additions so the model actually renders them.
+    if new_descs:
+        hl = (state.get("high_level_description") or "the scene").rstrip(". ")
+        state["high_level_description"] = f"{hl}. Now also including {', '.join(new_descs)}."
+
+    edit_caption, _warn = _caption.build_caption(state)
+
+    settings = GenerationSettings(
+        height=image.height, width=image.width,
+        sampler_preset=body.sampler_preset, seed=body.seed,
+        raise_on_caption_issues=False,
+        cfg=body.cfg, cfg_override=body.cfg_override, cfg_override_start=body.cfg_override_start,
+        sampler=body.sampler, detail=body.detail,
+        steps=body.steps, mu=body.mu, std=body.std,
+        eis_steps=body.eis_steps, eis_start_sigma=body.eis_start_sigma, eis_end_sigma=body.eis_end_sigma,
+    )
+
+    def _run():
+        # composite_mask=None → reference-conditioned regen of the WHOLE frame.
+        return pm.reference_edit(image, None, edit_caption, settings, lora_source)
+
+    try:
+        out_img, actual_seed = await loop.run_in_executor(_inference_executor, _run)
+    except Exception as exc:
+        logger.exception("Full image edit failed")
+        raise HTTPException(500, f"Full image edit failed: {exc}") from exc
+    duration_ms = int((time.monotonic() - t0) * 1000)
+
+    db = request.app.state.db
+    new_id = str(_uuid.uuid4())
+    out_name = f"{new_id}.png"
+    out_img.convert("RGB").save(str(OUTPUTS_DIR / out_name), format="PNG")
+    w, h = out_img.size
+
+    source = await gallery_service.get_job(db, body.source_job_id) if body.source_job_id else None
+    if source and source.get("image_path"):
+        await gallery_service.insert_derived(db, source=source, new_id=new_id, image_path=out_name, width=w, height=h)
+    else:
+        await gallery_service.insert_imported(db, new_id=new_id, image_path=out_name, width=w, height=h, label="AI full-image edit")
+    logger.info("Full image edit -> %s (%dx%d) seed=%d +%d elements", new_id, w, h, actual_seed, len(body.elements))
     return EditResponse(
         job_id=new_id, image_url=f"/outputs/{out_name}", width=w, height=h,
         seed=actual_seed, duration_ms=duration_ms, grounded=grounded,

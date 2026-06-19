@@ -16,6 +16,7 @@ import { useInsert } from "@/hooks/useInsert"
 import { useReferenceEdit } from "@/hooks/useReferenceEdit"
 import { useExtend, type Pads } from "@/hooks/useExtend"
 import { OutpaintPanel } from "./OutpaintPanel"
+import { FullEditPanel } from "./FullEditPanel"
 import { useDescribeImage } from "@/hooks/useDescribeImage"
 import { usePreviewCaption } from "@/hooks/usePreviewCaption"
 import { useModelStatus } from "@/hooks/useModelStatus"
@@ -31,6 +32,9 @@ interface Props {
   onClose: () => void
   jobId: string
   imageUrl: string
+  /** The caption that made this image (gallery prompt_json), if any — reused by
+   *  the experimental Full-image-edit tab as the base to add elements to. */
+  sourcePromptJson?: string | null
 }
 
 const TOOLS: { id: ToolId; icon: typeof Hand; label: string; key: string }[] = [
@@ -57,7 +61,7 @@ const ADJUSTMENT_SLIDERS: {
  * brush / magic wand), turn it into a non-destructive adjustment layer, and
  * tune the layer. The canvas preview IS the saved output (client flatten).
  */
-export function EditorDialog({ open, onClose, jobId, imageUrl }: Props) {
+export function EditorDialog({ open, onClose, jobId, imageUrl, sourcePromptJson }: Props) {
   // Editing the live URL lets an AI fill swap the canvas to its result.
   const [liveUrl, setLiveUrl] = useState(imageUrl)
   useEffect(() => setLiveUrl(imageUrl), [imageUrl])
@@ -89,7 +93,7 @@ export function EditorDialog({ open, onClose, jobId, imageUrl }: Props) {
   // Which AI edit tool is active. Each does a different job (see the tab copy):
   // fill = change/restyle/remove existing content; insert = add a NEW object;
   // extend = outpaint to a new ratio; reference = experimental LoRA edit.
-  const [editMode, setEditMode] = useState<"fill" | "insert" | "extend" | "reference">("fill")
+  const [editMode, setEditMode] = useState<"fill" | "insert" | "extend" | "reference" | "fulledit">("fill")
   // Off by default — Ideogram's own guidance is not to let Magic Prompt rewrite
   // an edit instruction. When off, the backend builds a grounded JSON caption.
   const [magicPrompt, setMagicPrompt] = useState(false)
@@ -432,8 +436,8 @@ export function EditorDialog({ open, onClose, jobId, imageUrl }: Props) {
               {canInpaint ? (
                 <>
                   {/* Sub-tabs */}
-                  <div className="grid grid-cols-4 gap-1">
-                    {([["fill", "Fill"], ["insert", "Insert"], ["extend", "Outpaint"], ["reference", "Reference"]] as const).map(([id, label]) => (
+                  <div className="grid grid-cols-5 gap-1">
+                    {([["fill", "Fill"], ["insert", "Insert"], ["extend", "Outpaint"], ["reference", "Reference"], ["fulledit", "Full ✦"]] as const).map(([id, label]) => (
                       <button
                         key={id} type="button" onClick={() => setEditMode(id)}
                         className={cn(
@@ -454,10 +458,25 @@ export function EditorDialog({ open, onClose, jobId, imageUrl }: Props) {
                     {editMode === "insert" && "Add a NEW object into the selection (a dog, a tree, a car). Generates the object and blends it in. Best when the thing isn't there yet."}
                     {editMode === "extend" && "Outpaint: grow the canvas to a new aspect ratio and continue the scene outward. Your original stays exact."}
                     {editMode === "reference" && "Precise in-place edit (experimental). Regenerates the frame faithful to the original and changes the selection — the rest stays. Best for altering an existing thing (a dog's breed, a shirt's colour). Uses a community LoRA; results can be rough."}
+                    {editMode === "fulledit" && "Full image edit (experimental). Re-renders the WHOLE frame like generation — this image as a reference, its original caption reused, plus the object/text boxes you draw. Most model-aligned way to add things, but it re-renders (not pixel-exact)."}
                   </p>
 
-                  {/* Shared prompt (all modes use it; optional continuation for Extend) */}
-                  {(
+                  {/* Full image edit — self-contained mini-canvas (own tool). */}
+                  {editMode === "fulledit" && engine.base && (
+                    <FullEditPanel
+                      imageUrl={liveUrl}
+                      baseW={engine.base.width}
+                      baseH={engine.base.height}
+                      getBlob={engine.flatten}
+                      sourcePromptJson={sourcePromptJson}
+                      sourceJobId={jobId}
+                      busy={busy}
+                      onResult={(res) => setLiveUrl(`${res.image_url}?t=${res.job_id}`)}
+                    />
+                  )}
+
+                  {/* Shared prompt (mask-based modes; Full edit has its own UI) */}
+                  {editMode !== "fulledit" && (
                     <>
                       <div className="flex items-center justify-between">
                         <span className="text-[11px] text-zinc-500">

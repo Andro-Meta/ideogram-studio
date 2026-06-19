@@ -273,6 +273,7 @@ export function GalleryDetail({ itemId, onClose, position, count, onPrev, onNext
           onClose={() => setEditorOpen(false)}
           jobId={item.id}
           imageUrl={imageUrl}
+          sourcePromptJson={item.prompt_json}
         />
       )}
     </Dialog>
