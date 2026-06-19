@@ -29,7 +29,7 @@ peft>=0.17.0
 einops>=0.7.0
 sentencepiece
 pillow
-huggingface_hub>=1.18.0
+huggingface_hub>=1.19.0
 requests>=2.28
 bitsandbytes>=0.49.2
 
