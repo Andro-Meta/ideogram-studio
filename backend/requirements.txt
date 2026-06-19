@@ -52,3 +52,6 @@ spandrel>=0.4.2
 # NOTE: PyPI latest is 0.0.4 (package stagnant); install from git for latest:
 #   pip install git+https://github.com/fal-ai/aura-sr
 aura-sr>=0.0.4
+
+# SAM2 object segmentation for precise full-image-edit masks (Ultralytics)
+ultralytics>=8.4

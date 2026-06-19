@@ -134,7 +134,10 @@ export function FullEditPanel({
       <p className="text-[10px] text-zinc-500 leading-snug">
         Drag on the image to box where a new object or text goes, label each, then
         regenerate the whole frame — Ideogram uses this image as a reference and its
-        original caption, plus your boxes. Faithful, but not pixel-exact (it re-renders).
+        original caption, plus your boxes. With “keep original” on, SAM segments the
+        added object and pastes only it (+ its shadow) back onto the untouched original.
+        Works best for clearly-visible additions; objects described as hidden/behind
+        something often won’t render.
       </p>
 
       {/* Kind picker for the next box you draw */}

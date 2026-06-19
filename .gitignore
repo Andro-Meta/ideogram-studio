@@ -59,3 +59,4 @@ discord_research/
 
 # Playwright MCP scratch (browser verification snapshots)
 .playwright-mcp/
+sam2*.pt
