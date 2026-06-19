@@ -530,6 +530,32 @@ class EditResponse(BaseModel):
     grounded: bool | None = None
 
 
+class PreviewCaptionRequest(BaseModel):
+    """Build (without generating) the exact JSON caption an edit would send, so
+    the UI can show — and let the user hand-edit — it before running. Mirrors the
+    edit endpoints' caption path (optionally describe-grounded + Magic Prompt)."""
+    image_b64: str                     # source image, base64 PNG (no prefix) — for grounding
+    prompt: str
+    width: int = 1024
+    height: int = 1024
+    preserve: bool = True              # blend with surroundings (region edits)
+    element_bbox: list[int] | None = None   # [ymin,xmin,ymax,xmax] 0–1000, anchors the subject
+    ground: bool = True                # describe the source image to ground the caption
+    magic_prompt: bool = False         # run the instruction through Magic Prompt
+
+    @field_validator("image_b64")
+    @classmethod
+    def _img_reasonable(cls, v: str) -> str:
+        if len(v) > 96_000_000:
+            raise ValueError("image too large")
+        return v
+
+
+class PreviewCaptionResponse(BaseModel):
+    caption: str                       # the minified JSON caption that would be sent
+    grounded: bool | None = None       # whether describe-grounding actually ran
+
+
 class ImportImageRequest(BaseModel):
     """A user-supplied image to bring into the gallery for editing."""
     image_b64: str                     # base64-encoded image, no data: prefix

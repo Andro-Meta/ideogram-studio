@@ -51,6 +51,8 @@ from schemas import (
     ModelStatusResponse,
     DescribeImageRequest,
     DescribeImageResponse,
+    PreviewCaptionRequest,
+    PreviewCaptionResponse,
     LoraApplyRequest,
     LoraInfo,
     LoraListResponse,
@@ -1276,6 +1278,59 @@ def _decode_b64_to_pil(image_b64: str, mode: str = "RGB"):
     return img.convert(mode)
 
 
+async def _grounded_edit_caption(
+    image_b64: str, width: int, height: int, prompt: str, *,
+    preserve: bool, element_bbox: list[int] | None, ground: bool, magic: bool,
+    mp: "MagicPromptService | None",
+) -> tuple[str, bool | None]:
+    """Build the JSON caption an edit will send (the single source of truth for
+    the edit endpoints AND the preview endpoint, so what the user sees == what
+    runs). A prompt that's ALREADY a full caption is returned verbatim (no
+    describe / Magic Prompt). Otherwise: optionally describe-ground the source,
+    optionally Magic-Prompt-expand, else deterministically build_edit_caption."""
+    from magic_prompt_service import build_edit_caption, describe_image as _describe
+
+    if is_ideogram_caption(prompt):
+        return build_edit_caption(prompt), None   # verbatim (minified)
+
+    scene_desc: str | None = None
+    grounded: bool | None = None
+    if ground:
+        if app_settings.openrouter_api_key:
+            try:
+                scene_desc = await asyncio.to_thread(
+                    _describe, image_b64, app_settings.openrouter_api_key, attempts=2
+                )
+                grounded = bool(scene_desc and scene_desc.strip())
+            except Exception as exc:
+                logger.warning("Edit caption grounding (describe) failed: %s", exc)
+                grounded = False
+        else:
+            grounded = False  # requested but no key — the UI surfaces this
+
+    if magic and mp is not None:
+        base = prompt if not scene_desc else f"{prompt}. Keep consistent with this scene: {scene_desc}"
+        try:
+            return await mp.expand(base, width, height), grounded
+        except Exception as exc:
+            logger.warning("Edit caption expansion failed (using grounded caption): %s", exc)
+
+    return build_edit_caption(prompt, scene_desc, preserve=preserve, element_bbox=element_bbox), grounded
+
+
+@app.post("/api/edit/preview-caption", response_model=PreviewCaptionResponse)
+async def preview_caption_endpoint(request: Request, body: PreviewCaptionRequest):
+    """Return the exact JSON caption an edit would send — for the UI's view/edit
+    panel. No GPU; the describe-grounding (if enabled) is the only slow part."""
+    mp: MagicPromptService | None = request.app.state.magic_prompt
+    caption, grounded = await _grounded_edit_caption(
+        body.image_b64, body.width, body.height, body.prompt,
+        preserve=body.preserve, element_bbox=body.element_bbox,
+        ground=body.ground, magic=body.magic_prompt, mp=mp,
+    )
+    return PreviewCaptionResponse(caption=caption, grounded=grounded)
+
+
 @app.post("/api/edit/inpaint", response_model=EditResponse)
 async def inpaint_endpoint(request: Request, body: InpaintRequest):
     """AI region fill — regenerate the masked area from a prompt, keep the rest."""
@@ -1320,47 +1375,22 @@ async def inpaint_endpoint(request: Request, body: InpaintRequest):
     # Time from here — BEFORE the describe/expand round-trips — so the reported
     # duration matches the user's real wait.
     t0 = time.monotonic()
-    from magic_prompt_service import build_edit_caption, describe_image as _describe, is_ideogram_caption
     import inpaint as _inp
 
-    prompt_is_caption = is_ideogram_caption(body.prompt)
     # Whole-image regen (mask covers ~the whole frame, e.g. Remix) has no
     # surroundings to preserve — don't bolt on the "blend with surroundings"
     # clause there (finding #5).
     preserve = _inp.mask_coverage(mask) < 0.9
 
-    # Ground the caption in the source image. Skip when the prompt is ALREADY a
-    # full caption — build_edit_caption returns it verbatim, so describe would be
-    # wasted (finding #4). `grounded` surfaces the real outcome to the UI (#3).
-    scene_desc: str | None = None
-    grounded: bool | None = None
-    if body.ground and not prompt_is_caption:
-        if app_settings.openrouter_api_key:
-            try:
-                scene_desc = await asyncio.to_thread(
-                    _describe, body.image_b64, app_settings.openrouter_api_key, attempts=2
-                )
-                grounded = bool(scene_desc and scene_desc.strip())
-            except Exception as exc:
-                logger.warning("Inpaint grounding (describe) failed: %s", exc)
-                grounded = False
-        else:
-            grounded = False  # requested but no OpenRouter key — the UI tells the user
-
+    # Build the caption via the shared helper (same path the preview panel uses,
+    # so the JSON the user sees/edits is exactly what runs). A full-caption prompt
+    # is returned verbatim; `grounded` surfaces the real describe outcome (#3/#4).
     mp: MagicPromptService | None = request.app.state.magic_prompt
-    # Don't run Magic Prompt over a caption JSON (it would paraphrase the user's
-    # exact layout/text); build_edit_caption returns such input verbatim.
-    if body.magic_prompt and mp is not None and not prompt_is_caption:
-        base = body.prompt
-        if scene_desc:
-            base = f"{body.prompt}. Keep consistent with this scene: {scene_desc}"
-        try:
-            fill_prompt = await mp.expand(base, image.width, image.height)
-        except Exception as exc:
-            logger.warning("Inpaint prompt expansion failed (using grounded caption): %s", exc)
-            fill_prompt = build_edit_caption(body.prompt, scene_desc, preserve=preserve)
-    else:
-        fill_prompt = build_edit_caption(body.prompt, scene_desc, preserve=preserve)
+    fill_prompt, grounded = await _grounded_edit_caption(
+        body.image_b64, image.width, image.height, body.prompt,
+        preserve=preserve, element_bbox=None, ground=body.ground,
+        magic=body.magic_prompt, mp=mp,
+    )
 
     def _run():
         return pm.inpaint(image, mask, fill_prompt, settings, body.strength)

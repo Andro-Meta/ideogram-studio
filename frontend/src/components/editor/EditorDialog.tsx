@@ -17,8 +17,10 @@ import { useReferenceEdit } from "@/hooks/useReferenceEdit"
 import { useExtend, type Pads } from "@/hooks/useExtend"
 import { OutpaintPanel } from "./OutpaintPanel"
 import { useDescribeImage } from "@/hooks/useDescribeImage"
+import { usePreviewCaption } from "@/hooks/usePreviewCaption"
 import { useModelStatus } from "@/hooks/useModelStatus"
 import { QualityControls } from "@/components/controls/QualityControls"
+import { CaptionJsonPanel } from "@/components/controls/CaptionJsonPanel"
 import { useEditorEngine } from "./useEditorEngine"
 import { EditorStage } from "./EditorStage"
 import type { Adjustments, ToolId } from "./editorTypes"
@@ -66,6 +68,7 @@ export function EditorDialog({ open, onClose, jobId, imageUrl }: Props) {
   const reference = useReferenceEdit()
   const extend = useExtend()
   const describe = useDescribeImage()
+  const preview = usePreviewCaption()
   const { data: modelStatus } = useModelStatus()
   const canInpaint = modelStatus?.status === "ready" && !!modelStatus?.supports_inpaint
 
@@ -77,6 +80,10 @@ export function EditorDialog({ open, onClose, jobId, imageUrl }: Props) {
   const [feather, setFeather] = useState(4)
   const [zoom, setZoom] = useState(1)
   const [fillPrompt, setFillPrompt] = useState("")
+  // Hand-edited caption JSON — sent verbatim instead of the instruction text.
+  const [editCaptionOverride, setEditCaptionOverride] = useState<string | null>(null)
+  // A run is valid with either an instruction OR an edited-JSON override.
+  const hasPrompt = !!editCaptionOverride || !!fillPrompt.trim()
   const [fillStrength, setFillStrength] = useState(0.6)
   const [insertBlend, setInsertBlend] = useState(0.45)
   // Which AI edit tool is active. Each does a different job (see the tab copy):
@@ -100,8 +107,32 @@ export function EditorDialog({ open, onClose, jobId, imageUrl }: Props) {
     }
   }
 
+  // Build the exact JSON caption this edit would send (for the CaptionJsonPanel),
+  // via the same grounded path the backend uses — so view == send.
+  const rebuildCaption = async () => {
+    if (!engine.base || preview.isPending) return
+    try {
+      const blob = await engine.flatten()
+      const buf = await blob.arrayBuffer()
+      let bin = ""
+      const bytes = new Uint8Array(buf)
+      for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i])
+      preview.mutate({
+        image_b64: btoa(bin),
+        prompt: editCaptionOverride ?? fillPrompt.trim(),
+        width: engine.base.width,
+        height: engine.base.height,
+        preserve: !!engine.selection,        // a selection has surroundings to blend into
+        ground: true,
+        magic_prompt: magicPrompt,
+      })
+    } catch (err) {
+      console.error(err)
+    }
+  }
+
   const handleInpaint = async () => {
-    if (!fillPrompt.trim() || inpaint.isPending || !engine.base) return
+    if (!hasPrompt || inpaint.isPending || !engine.base) return
     // With a selection → Magic Fill that region. Without → Remix the whole
     // image (a full-white mask makes the entire image editable).
     let maskCanvas = engine.selection
@@ -117,7 +148,7 @@ export function EditorDialog({ open, onClose, jobId, imageUrl }: Props) {
     try {
       const blob = await engine.flatten()
       inpaint.mutate(
-        { imageBlob: blob, maskCanvas, prompt: fillPrompt.trim(),
+        { imageBlob: blob, maskCanvas, prompt: editCaptionOverride ?? fillPrompt.trim(),
           strength: fillStrength, sourceJobId: jobId, magicPrompt },
         {
           onSuccess: (res) => {
@@ -136,7 +167,7 @@ export function EditorDialog({ open, onClose, jobId, imageUrl }: Props) {
   }
 
   const handleInsert = async () => {
-    if (!fillPrompt.trim() || insert.isPending || !engine.base) return
+    if (!hasPrompt || insert.isPending || !engine.base) return
     // Insert REQUIRES a selection — it places the object inside that region.
     if (!engine.selection) {
       toast.error("Select where the object should go first (draw a region).")
@@ -145,7 +176,7 @@ export function EditorDialog({ open, onClose, jobId, imageUrl }: Props) {
     try {
       const blob = await engine.flatten()
       insert.mutate(
-        { imageBlob: blob, maskCanvas: engine.selection, prompt: fillPrompt.trim(),
+        { imageBlob: blob, maskCanvas: engine.selection, prompt: editCaptionOverride ?? fillPrompt.trim(),
           blend: insertBlend, sourceJobId: jobId },
         {
           onSuccess: (res) => {
@@ -164,7 +195,7 @@ export function EditorDialog({ open, onClose, jobId, imageUrl }: Props) {
   }
 
   const handleReference = async () => {
-    if (!fillPrompt.trim() || reference.isPending || !engine.base) return
+    if (!hasPrompt || reference.isPending || !engine.base) return
     if (!engine.selection) {
       toast.error("Select the region to edit first (draw a selection).")
       return
@@ -172,7 +203,7 @@ export function EditorDialog({ open, onClose, jobId, imageUrl }: Props) {
     try {
       const blob = await engine.flatten()
       reference.mutate(
-        { imageBlob: blob, maskCanvas: engine.selection, prompt: fillPrompt.trim(), sourceJobId: jobId },
+        { imageBlob: blob, maskCanvas: engine.selection, prompt: editCaptionOverride ?? fillPrompt.trim(), sourceJobId: jobId },
         {
           onSuccess: (res) => {
             toast.success("Reference edit applied")
@@ -195,7 +226,7 @@ export function EditorDialog({ open, onClose, jobId, imageUrl }: Props) {
     try {
       const blob = await engine.flatten()
       extend.mutate(
-        { imageBlob: blob, pads, prompt: fillPrompt.trim(), sourceJobId: jobId },
+        { imageBlob: blob, pads, prompt: editCaptionOverride ?? fillPrompt.trim(), sourceJobId: jobId },
         {
           onSuccess: (res) => {
             toast.success("Canvas outpainted")
@@ -454,6 +485,15 @@ export function EditorDialog({ open, onClose, jobId, imageUrl }: Props) {
                         rows={3} disabled={busy}
                         className="bg-zinc-800 border-zinc-700 text-zinc-100 text-sm resize-none"
                       />
+                      {/* The exact caption JSON this edit will send — same panel as
+                          Generate. Rebuild grounds it in the image; Edit overrides it. */}
+                      <CaptionJsonPanel
+                        caption={preview.data?.caption ?? ""}
+                        loading={preview.isPending}
+                        override={editCaptionOverride}
+                        onOverride={setEditCaptionOverride}
+                        onRefresh={rebuildCaption}
+                      />
                     </>
                   )}
 
@@ -474,7 +514,7 @@ export function EditorDialog({ open, onClose, jobId, imageUrl }: Props) {
                       <QualityControls mode="fill" />
                       <Button
                         className="w-full bg-violet-600 hover:bg-violet-500 text-white gap-2 disabled:opacity-40"
-                        disabled={!fillPrompt.trim() || busy || !engine.base}
+                        disabled={!hasPrompt || busy || !engine.base}
                         onClick={handleInpaint}
                         title={engine.hasSelection ? "Regenerate the selected area" : "Remix the whole image from your prompt"}
                       >
@@ -502,7 +542,7 @@ export function EditorDialog({ open, onClose, jobId, imageUrl }: Props) {
                       <QualityControls mode="insert" />
                       <Button
                         className="w-full bg-violet-600 hover:bg-violet-500 text-white gap-2 disabled:opacity-40"
-                        disabled={!fillPrompt.trim() || busy || !engine.base || !engine.hasSelection}
+                        disabled={!hasPrompt || busy || !engine.base || !engine.hasSelection}
                         onClick={handleInsert}
                         title={engine.hasSelection ? "Generate the object and place it in the selection" : "Select where the object should go first"}
                       >
@@ -535,7 +575,7 @@ export function EditorDialog({ open, onClose, jobId, imageUrl }: Props) {
                       <QualityControls mode="reference" />
                       <Button
                         className="w-full bg-violet-600 hover:bg-violet-500 text-white gap-2 disabled:opacity-40"
-                        disabled={!fillPrompt.trim() || busy || !engine.base || !engine.hasSelection}
+                        disabled={!hasPrompt || busy || !engine.base || !engine.hasSelection}
                         onClick={handleReference}
                         title={engine.hasSelection ? "Edit the selection in place, keeping the rest faithful" : "Select the region to edit first"}
                       >

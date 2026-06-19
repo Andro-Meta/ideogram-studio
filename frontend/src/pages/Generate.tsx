@@ -24,6 +24,7 @@ import { BBoxCanvas } from "@/components/canvas/BBoxCanvas"
 import { ModelVariantToggle } from "@/components/controls/ModelVariantToggle"
 import { LoraSection } from "@/components/controls/LoraPanel"
 import { QualityControls } from "@/components/controls/QualityControls"
+import { CaptionJsonPanel } from "@/components/controls/CaptionJsonPanel"
 import { ArtifactSuppression } from "@/components/controls/ArtifactSuppression"
 import { PromptToolbar } from "@/components/prompt/PromptToolbar"
 import { ResolutionPicker } from "@/components/controls/ResolutionPicker"
@@ -228,6 +229,9 @@ export function Generate() {
 
   // Variation selection state
   const [selectedVariation, setSelectedVariation] = useState<VariationResult | null>(null)
+  // Hand-edited caption JSON (CaptionJsonPanel). When set, it's sent verbatim
+  // instead of the builder's output — the builder is "paused" until reverted.
+  const [captionOverride, setCaptionOverride] = useState<string | null>(null)
 
   // Reset upscale and variation state when a new single generation starts
   useEffect(() => {
@@ -268,7 +272,7 @@ export function Generate() {
   const displayDurationMs = selectedVariation?.durationMs ?? resultDurationMs
 
   const buildReq = () => ({
-    prompt_json: buildCaption(promptState, captionOpts),
+    prompt_json: captionOverride ?? buildCaption(promptState, captionOpts),
     height,
     width,
     seed: fixedSeed ? seed : null,
@@ -292,7 +296,7 @@ export function Generate() {
       remix.mutate(
         {
           imageB64: src.imageB64,
-          prompt: buildCaption(promptState, captionOpts),
+          prompt: captionOverride ?? buildCaption(promptState, captionOpts),
           blendPct: src.blendPct,
           width,
           height,
@@ -363,6 +367,14 @@ export function Generate() {
                 CFG · Advanced) used in the editor's edit tabs, in "generate"
                 mode (all controls apply here). Open by default on Generate. */}
             <QualityControls mode="generate" defaultOpen />
+
+            {/* The exact caption JSON that will be sent — view, copy, or hand-edit
+                (same panel the edit tabs use). Override pauses the builder. */}
+            <CaptionJsonPanel
+              caption={buildCaption(promptState, captionOpts)}
+              override={captionOverride}
+              onOverride={setCaptionOverride}
+            />
 
             <Separator className="bg-zinc-800" />
             {/* Artifact suppression — the on-model pseudo–negative-prompt. */}
