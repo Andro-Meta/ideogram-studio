@@ -22,7 +22,7 @@ torch>=2.12.0
 # verifying ideogram4 package compatibility.
 transformers>=4.49.0
 safetensors>=0.8.0
-accelerate>=1.13.0
+accelerate>=1.14.0
 # LoRA adapters (the LoRA panel + the reference-edit inpaint LoRA) load via
 # diffusers' PEFT backend.
 peft>=0.17.0
