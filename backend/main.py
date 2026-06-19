@@ -1686,13 +1686,12 @@ async def full_image_edit_endpoint(request: Request, body: FullImageEditRequest)
         raise HTTPException(400, f"Invalid image data: {exc}") from exc
 
     t0 = time.monotonic()
-    import caption as _caption
     from magic_prompt_service import describe_image as _describe
 
     # Base caption: the one that made the image, or describe it to create one.
     grounded: bool | None = None
     if body.base_prompt_json and body.base_prompt_json.strip():
-        state = _caption.parse_caption_json(body.base_prompt_json)
+        state = parse_caption_json(body.base_prompt_json)
     else:
         desc: str | None = None
         if app_settings.openrouter_api_key:
@@ -1730,7 +1729,7 @@ async def full_image_edit_endpoint(request: Request, body: FullImageEditRequest)
         hl = (state.get("high_level_description") or "the scene").rstrip(". ")
         state["high_level_description"] = f"{hl}. Now also including {', '.join(new_descs)}."
 
-    edit_caption, _warn = _caption.build_caption(state)
+    edit_caption, _warn = build_caption(state)
 
     settings = GenerationSettings(
         height=image.height, width=image.width,
