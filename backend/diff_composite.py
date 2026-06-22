@@ -138,6 +138,11 @@ def _sam_mask_with_shadow(
         for mk in segment.segment_boxes(original, _boxes_to_px(occlude_boxes, W, H)):
             occ |= mk
         keep &= ~occ
+        # A behind-object can't appear BELOW the occluder's ground line — clip it
+        # there so it reads as "behind", not "sitting under" with feet poking out.
+        # ponytail: global bottom row; per-column clip if a scene needs it.
+        if occ.any():
+            keep[np.where(occ.any(axis=1))[0].max() + 1:, :] = False
 
     m = keep.astype(np.uint8) * 255
     if feather:

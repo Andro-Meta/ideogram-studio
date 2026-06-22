@@ -1717,6 +1717,8 @@ async def full_image_edit_endpoint(request: Request, body: FullImageEditRequest)
     new_descs: list[str] = []
     for el in body.elements:
         kind = "text" if el.kind == "text" else "obj"
+        # ponytail: NO scale/"behind"/"hidden" prose — it weakens the element and
+        # the model renders nothing. Size comes from the box; z-order does occlusion.
         state.setdefault("elements", []).append({
             "type": kind, "bbox": el.bbox, "text": el.text or "",
             "desc": (el.desc or el.text or "").strip(), "color_palette": el.colors or [],
