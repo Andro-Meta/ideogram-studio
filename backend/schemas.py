@@ -584,6 +584,39 @@ class FullImageEditRequest(CfgControlsMixin):
         return v
 
 
+class BooguEditRequest(BaseModel):
+    """Native instruction edit via Boogu-Image-0.1-Edit (separate 10B model)."""
+    image_b64: str
+    instruction: str
+    steps: int = 50
+    text_guidance: float = 7.5      # prompt adherence
+    image_guidance: float = 1.5     # how close to the source image
+    seed: int | None = None
+    size: Literal[1024, 2048] = 1024
+    offload: bool = True            # sequential CPU offload (fits a busy 24 GB card)
+    fp8: bool = False               # use the fp8 weights variant
+    source_job_id: str | None = None
+
+    @field_validator("image_b64")
+    @classmethod
+    def _img_ok(cls, v: str) -> str:
+        if len(v) > 96_000_000:
+            raise ValueError("image too large")
+        return v
+
+    @field_validator("instruction")
+    @classmethod
+    def _instr(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("instruction is required")
+        return v.strip()
+
+    @field_validator("steps")
+    @classmethod
+    def _steps(cls, v: int) -> int:
+        return max(4, min(100, int(v)))
+
+
 class PreviewCaptionRequest(BaseModel):
     """Build (without generating) the exact JSON caption an edit would send, so
     the UI can show — and let the user hand-edit — it before running. Mirrors the

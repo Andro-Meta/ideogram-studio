@@ -37,6 +37,7 @@ import enhance_elements as enhance_mod
 from schemas import (
     EditSaveRequest,
     EditResponse,
+    BooguEditRequest,
     ExtendRequest,
     FullImageEditRequest,
     InpaintRequest,
@@ -1792,6 +1793,69 @@ async def full_image_edit_endpoint(request: Request, body: FullImageEditRequest)
         seed=actual_seed, duration_ms=duration_ms, grounded=grounded,
         layer_url=layer_url, change_coverage=change_coverage,
     )
+
+
+@app.get("/api/boogu/status")
+async def boogu_status():
+    """Whether the optional Boogu-Image-Edit model is installed (for the UI)."""
+    import boogu_edit
+    return {"installed": boogu_edit.installed(), "dir": str(boogu_edit.BOOGU_DIR)}
+
+
+@app.post("/api/edit/boogu", response_model=EditResponse)
+async def boogu_edit_endpoint(request: Request, body: BooguEditRequest):
+    """Native instruction edit via Boogu-Image-0.1-Edit (separate 10B model,
+    subprocess). Opt-in — 409 until setup_boogu.bat has installed it."""
+    import uuid as _uuid
+    import boogu_edit
+    from PIL import Image as _PILImage
+
+    if not boogu_edit.installed():
+        raise HTTPException(409, "Boogu-Image-Edit isn't installed. Run setup_boogu.bat "
+                                 "(clones the repo, makes its venv, downloads the Edit weights).")
+    loop = asyncio.get_running_loop()
+    try:
+        image = await loop.run_in_executor(None, lambda: _decode_b64_to_pil(body.image_b64, "RGB"))
+    except Exception as exc:
+        raise HTTPException(400, f"Invalid image data: {exc}") from exc
+
+    new_id = str(_uuid.uuid4())
+    in_path = OUTPUTS_DIR / f"{new_id}_src.png"
+    out_path = OUTPUTS_DIR / f"{new_id}.png"
+    image.save(str(in_path))
+    seed = body.seed if body.seed is not None else 42
+
+    t0 = time.monotonic()
+
+    def _run():
+        return boogu_edit.run_edit(
+            in_path, out_path, body.instruction, steps=body.steps,
+            text_guidance=body.text_guidance, image_guidance=body.image_guidance,
+            seed=seed, height=body.size, width=body.size, offload=body.offload, fp8=body.fp8,
+        )
+
+    try:
+        await loop.run_in_executor(_inference_executor, _run)
+    except Exception as exc:
+        logger.exception("Boogu edit failed")
+        raise HTTPException(500, f"Boogu edit failed: {exc}") from exc
+    duration_ms = int((time.monotonic() - t0) * 1000)
+    try:
+        in_path.unlink()
+    except OSError:
+        pass
+
+    out_img = _PILImage.open(str(out_path))
+    w, h = out_img.size
+    db = request.app.state.db
+    source = await gallery_service.get_job(db, body.source_job_id) if body.source_job_id else None
+    if source and source.get("image_path"):
+        await gallery_service.insert_derived(db, source=source, new_id=new_id, image_path=out_path.name, width=w, height=h)
+    else:
+        await gallery_service.insert_imported(db, new_id=new_id, image_path=out_path.name, width=w, height=h, label="Boogu edit")
+    logger.info("Boogu edit -> %s (%dx%d) %dms", new_id, w, h, duration_ms)
+    return EditResponse(job_id=new_id, image_url=f"/outputs/{out_path.name}", width=w, height=h,
+                        seed=seed, duration_ms=duration_ms)
 
 
 @app.post("/api/edit/extend", response_model=EditResponse)
