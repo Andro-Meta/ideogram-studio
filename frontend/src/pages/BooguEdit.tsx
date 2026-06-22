@@ -67,7 +67,7 @@ export function BooguEdit() {
                 onDrop={(e) => { e.preventDefault(); pick(e.dataTransfer.files?.[0] ?? null) }}
                 className="aspect-square rounded-md border border-dashed border-zinc-700 bg-zinc-900/40 grid place-items-center cursor-pointer overflow-hidden hover:border-violet-600/60"
               >
-                {srcUrl ? <img src={srcUrl} alt="" className="h-full w-full object-contain" />
+                {srcUrl?.startsWith("blob:") ? <img src={srcUrl} alt="" className="h-full w-full object-contain" />
                   : <span className="text-[11px] text-zinc-500 flex flex-col items-center gap-1"><Upload className="h-5 w-5" /> Drop or click</span>}
               </div>
               <input ref={fileRef} type="file" accept="image/*" hidden onChange={(e) => pick(e.target.files?.[0] ?? null)} />

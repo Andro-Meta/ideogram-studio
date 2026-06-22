@@ -1843,7 +1843,7 @@ async def boogu_edit_endpoint(request: Request, body: BooguEditRequest):
     try:
         in_path.unlink()
     except OSError:
-        pass
+        pass  # temp source already gone / locked — harmless, output is what matters
 
     out_img = _PILImage.open(str(out_path))
     w, h = out_img.size
